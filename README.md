@@ -82,9 +82,14 @@ This custom firmware contains features replicated from the [yi-hack-MStar](https
 
 - FEATURES
   - RTSP server - allows a RTSP stream of the video (high and/or low resolution) and audio (thanks to @PieVo for the work on MStar platform).
-    - rtsp://IP-CAM/ch0_0.h264             (high res)
-    - rtsp://IP-CAM/ch0_1.h264             (low res)
-    - rtsp://IP-CAM/ch0_2.h264             (only audio)
+    - `rtsp://IP-CAM/ch0_0.h264` - high resolution
+    - `rtsp://IP-CAM/ch0_1.h264` - low resolution
+    - `rtsp://IP-CAM/ch0_2.h264` - audio only
+    - When the RTSP implementation is **go2rtc**, `SPEAKER_AUDIO=yes`, and `ONVIF_AUDIO_BC=G711`, bidirectional-audio RTSP endpoints are also available:
+      - `rtsp://IP-CAM/ch0_0.h264?backchannel=1` - high resolution + AAC camera audio + G.711 PCMU talkback
+      - `rtsp://IP-CAM/ch0_1.h264?backchannel=1` - low resolution + G.711 PCMU talkback
+      - The `?backchannel=1` query is interpreted by the camera's go2rtc RTSP server and adds a `PCMU/8000` `sendonly` audio track for talkback. ONVIF automatically advertises these URLs when G.711 backchannel support is enabled.
+      - A go2rtc source fragment such as `#backchannel=0` or `#backchannel=1` is a separate client-side option. It controls whether that go2rtc client claims an upstream backchannel and is not part of the camera's RTSP endpoint itself.
   - ONVIF server (with support for stream, snapshot, ptz, presets, events and WS-Discovery) - standardized interfaces for IP cameras.
   - Snapshot service - allows to get a jpg with a web request.
     - http://IP-CAM/cgi-bin/snapshot.sh?res=low&watermark=yes        (select resolution: low or high, and watermark: yes or no)
@@ -207,13 +212,138 @@ data:
 
 ## Frigate integration
 
-Frigate can consume the RTSP streams directly. Enable the RTSP server in the camera web interface and use one of these stream URLs:
+Frigate can consume the RTSP streams directly, but using Frigate's bundled go2rtc is recommended for live audio, WebRTC, RTSP restreaming, and bidirectional audio.
 
-- `rtsp://IP-CAM/ch0_0.h264` - high resolution
+The normal receive-only camera streams are:
+
+- `rtsp://IP-CAM/ch0_0.h264` - high resolution, with AAC audio when enabled
 - `rtsp://IP-CAM/ch0_1.h264` - low resolution
-- `rtsp://IP-CAM/ch0_2.h264` - audio only
+- `rtsp://IP-CAM/ch0_2.h264` - audio only where supported by the selected RTSP server
 
-For a minimal setup, use the low resolution stream for detection to reduce load on the camera:
+When camera-side go2rtc talkback is enabled, the bidirectional endpoints are:
+
+- `rtsp://IP-CAM/ch0_0.h264?backchannel=1`
+- `rtsp://IP-CAM/ch0_1.h264?backchannel=1`
+
+The `?backchannel=1` query makes the camera's go2rtc RTSP server expose a G.711 mu-law (`PCMU/8000`) `sendonly` track. Frigate/go2rtc can write microphone audio to that track, which the firmware converts to the 16 kHz PCM format used by the camera speaker.
+
+### Canonical Frigate configuration with bidirectional audio
+
+For this configuration, set the camera to:
+
+- RTSP server: `go2rtc`
+- RTSP stream: `both`
+- RTSP audio: `aac`
+- Speaker audio: enabled
+- ONVIF: enabled
+- ONVIF profile: `both`
+- ONVIF audio backchannel: `G711`
+
+The configuration below follows Frigate's recommended pattern of keeping normal viewing/recording connections receive-only and creating a separate stream for two-way talk. This avoids holding the camera speaker backchannel open when nobody is talking.
+
+Replace `IP-CAM` with the camera address and `FRIGATE-IP` with the LAN address of the Frigate host.
+
+```yaml
+go2rtc:
+  streams:
+    # Normal high-resolution stream. The go2rtc fragment explicitly prevents
+    # Frigate's go2rtc client from claiming a talkback channel.
+    yi_camera:
+      - "rtsp://IP-CAM/ch0_0.h264#backchannel=0"
+      # The camera sends AAC. Add Opus on the Frigate host so the same live
+      # stream works cleanly with WebRTC without transcoding on the camera.
+      - "ffmpeg:yi_camera#audio=opus"
+
+    # Low-resolution receive-only stream for detection.
+    yi_camera_sub:
+      - "rtsp://IP-CAM/ch0_1.h264#backchannel=0"
+
+    # Dedicated two-way stream. The URL query enables the camera RTSP
+    # backchannel; the go2rtc fragment explicitly enables the upstream
+    # backchannel in Frigate's go2rtc client.
+    yi_camera_twoway:
+      - "rtsp://IP-CAM/ch0_0.h264?backchannel=1#backchannel=1"
+      - "ffmpeg:yi_camera_twoway#audio=opus"
+
+  # Required for Frigate WebRTC/two-way talk on a normal Docker install.
+  # Home Assistant App installs may populate candidates automatically.
+  webrtc:
+    candidates:
+      - FRIGATE-IP:8555
+      - stun:8555
+
+cameras:
+  yi_camera:
+    ffmpeg:
+      output_args:
+        record: preset-record-generic-audio-copy
+      inputs:
+        # High-resolution Frigate restream for recording.
+        - path: rtsp://127.0.0.1:8554/yi_camera
+          input_args: preset-rtsp-restream
+          roles:
+            - record
+
+        # Low-resolution Frigate restream for object detection.
+        - path: rtsp://127.0.0.1:8554/yi_camera_sub
+          input_args: preset-rtsp-restream
+          roles:
+            - detect
+
+    # Frigate 0.16+ exposes these in the live stream selector. Use the
+    # Two-way talk stream when you need the microphone button/PTT path.
+    live:
+      streams:
+        Main: yi_camera
+        Two-way talk: yi_camera_twoway
+        Low bandwidth: yi_camera_sub
+
+    # Optional, but recommended for PTZ-capable models and ONVIF control.
+    onvif:
+      host: IP-CAM
+      port: 80
+      user: ""
+      password: ""
+```
+
+Why there are two different backchannel parameters:
+
+- `?backchannel=1` is part of the **camera RTSP URL**. It tells this firmware's camera-side go2rtc server to advertise the `PCMU/8000` talkback track.
+- `#backchannel=0` / `#backchannel=1` is a **go2rtc source option** on the Frigate side. It controls whether Frigate's go2rtc client opens the upstream audio-output channel.
+
+Keeping the normal `yi_camera` and `yi_camera_sub` streams at `#backchannel=0` means Frigate can continuously view, detect, and record without monopolizing the camera speaker. The `yi_camera_twoway` producer is available separately when a WebRTC client needs talkback.
+
+The camera sends its microphone audio as AAC. Frigate's MSE player supports AAC, while WebRTC expects PCMA/PCMU or Opus. The `ffmpeg:...#audio=opus` entries therefore perform the small AAC-to-Opus conversion on the Frigate host, not on the resource-constrained camera.
+
+If RTSP authentication is enabled on the camera, include the credentials in all camera URLs, for example:
+
+```yaml
+- "rtsp://user:password@IP-CAM/ch0_0.h264#backchannel=0"
+- "rtsp://user:password@IP-CAM/ch0_0.h264?backchannel=1#backchannel=1"
+```
+
+URL-encode special characters in the username or password before placing them in a go2rtc URL.
+
+Frigate two-way talk uses WebRTC. Access Frigate through HTTPS, and for a Docker bridge-network installation expose port `8555` over both TCP and UDP:
+
+```yaml
+services:
+  frigate:
+    ports:
+      - "8555:8555/tcp"
+      - "8555:8555/udp"
+```
+
+Port `8971` is Frigate's normal HTTPS UI port. Port `8554` is only required externally if another application needs to consume Frigate's RTSP restream; Frigate itself uses `127.0.0.1:8554` internally.
+
+Current Frigate documentation for the relevant behavior:
+
+- https://docs.frigate.video/configuration/restream/
+- https://docs.frigate.video/configuration/live/
+
+### Minimal direct RTSP configuration
+
+If Frigate live audio and talkback are not needed, Frigate can connect directly to the camera. Use the low-resolution stream for detection to reduce decode load:
 
 ```yaml
 cameras:
@@ -225,7 +355,7 @@ cameras:
             - detect
 ```
 
-If you need a higher quality stream for recording, add the high resolution stream as a separate input:
+For recording as well, add the high-resolution stream:
 
 ```yaml
 cameras:
@@ -238,12 +368,6 @@ cameras:
         - path: rtsp://IP-CAM/ch0_0.h264
           roles:
             - record
-```
-
-If authentication is enabled in the camera web interface, include the configured username and password in the RTSP URL:
-
-```yaml
-path: rtsp://user:password@IP-CAM/ch0_1.h264
 ```
 
 ### PTZ through ONVIF
@@ -271,9 +395,10 @@ Frigate shows PTZ controls only when its ONVIF connection succeeds and the camer
 
 ### Notes
 
-- These cameras have limited CPU and RAM. Avoid enabling more camera-side services than needed.
-- If the camera becomes unstable, enable the swap file and prefer a single low resolution stream for detection.
-- Snapshots and multiple simultaneous streams may increase memory pressure.
+- These cameras have limited CPU and RAM. Prefer doing AAC-to-Opus conversion on the Frigate host rather than on the camera.
+- Normal Frigate viewing/recording sources should use `#backchannel=0`; reserve the `?backchannel=1` endpoint for the dedicated two-way stream.
+- The two-way stream can temporarily add another RTSP session while it is in use. The camera-side go2rtc server fans out the already encoded video; it does not create another H.264 encoder for each client.
+- Snapshots and several simultaneous direct streams may increase memory pressure. Enable the swap file if the camera becomes unstable.
 
 ## Telegram Control System
 
