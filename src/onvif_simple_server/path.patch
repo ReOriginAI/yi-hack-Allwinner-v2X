@@ -47,3 +47,100 @@ diff -Naur onvif_simple_server.ori/wsd_simple_server.c onvif_simple_server/wsd_s
  
  #define RECV_BUFFER_LEN 4096
  
+
+diff --git a/media_service.c b/media_service.c
+index 0fac45f..7f0508d 100644
+--- a/media_service.c
++++ b/media_service.c
+@@ -254,0 +255,6 @@ int media_get_profiles()
++            if (service_ctx.profiles[0].audio_decoder != AUDIO_NONE) {
++                size += cat(dest, "media_service_files/GetProfile_EXT.xml", 4,
++                        "%PROFILES_NUM%", profiles_num,
++                        "%PROFILE%", service_ctx.profiles[0].name);
++            }
++
+@@ -313,0 +320,6 @@ int media_get_profiles()
++            if (service_ctx.profiles[0].audio_decoder != AUDIO_NONE) {
++                size += cat(dest, "media_service_files/GetProfile_EXT.xml", 4,
++                        "%PROFILES_NUM%", profiles_num,
++                        "%PROFILE%", service_ctx.profiles[0].name);
++            }
++
+@@ -317,3 +329,3 @@ int media_get_profiles()
+-            // Get the video source configuration from the 1st profile
+-            snprintf(stmp_vsc_w, sizeof(stmp_vsc_w), "%d", service_ctx.profiles[0].width);
+-            snprintf(stmp_vsc_h, sizeof(stmp_vsc_h), "%d", service_ctx.profiles[0].height);
++            // Get the video source configuration from the 2nd profile
++            snprintf(stmp_vsc_w, sizeof(stmp_vsc_w), "%d", service_ctx.profiles[1].width);
++            snprintf(stmp_vsc_h, sizeof(stmp_vsc_h), "%d", service_ctx.profiles[1].height);
+@@ -359,0 +372,6 @@ int media_get_profiles()
++            if (service_ctx.profiles[1].audio_decoder != AUDIO_NONE) {
++                size += cat(dest, "media_service_files/GetProfile_EXT.xml", 4,
++                        "%PROFILES_NUM%", profiles_num,
++                        "%PROFILE%", service_ctx.profiles[1].name);
++            }
++
+@@ -454,0 +473,6 @@ int media_get_profile()
++            if (service_ctx.profiles[0].audio_decoder != AUDIO_NONE) {
++                size += cat(dest, "media_service_files/GetProfile_EXT.xml", 4,
++                        "%PROFILES_NUM%", profiles_num,
++                        "%PROFILE%", service_ctx.profiles[0].name);
++            }
++
+@@ -473,3 +497,3 @@ int media_get_profile()
+-            // Get the video source configuration from the 1st profile
+-            snprintf(stmp_vsc_w, sizeof(stmp_vsc_w), "%d", service_ctx.profiles[0].width);
+-            snprintf(stmp_vsc_h, sizeof(stmp_vsc_h), "%d", service_ctx.profiles[0].height);
++            // Get the video source configuration from the 2nd profile
++            snprintf(stmp_vsc_w, sizeof(stmp_vsc_w), "%d", service_ctx.profiles[1].width);
++            snprintf(stmp_vsc_h, sizeof(stmp_vsc_h), "%d", service_ctx.profiles[1].height);
+@@ -514,0 +539,6 @@ int media_get_profile()
++            if (service_ctx.profiles[1].audio_decoder != AUDIO_NONE) {
++                size += cat(dest, "media_service_files/GetProfile_EXT.xml", 4,
++                        "%PROFILES_NUM%", profiles_num,
++                        "%PROFILE%", service_ctx.profiles[1].name);
++            }
++
+diff --git a/media_service_files/GetAudioOutputConfiguration.xml b/media_service_files/GetAudioOutputConfiguration.xml
+index 2eb1559..d64d05d 100644
+--- a/media_service_files/GetAudioOutputConfiguration.xml
++++ b/media_service_files/GetAudioOutputConfiguration.xml
+@@ -10,0 +11 @@
++                <tt:SendPrimacy>www.onvif.org/ver20/HalfDuplex/Client</tt:SendPrimacy>
+diff --git a/media_service_files/GetAudioOutputConfigurationOptions.xml b/media_service_files/GetAudioOutputConfigurationOptions.xml
+index 4d0e4f2..c9508c8 100644
+--- a/media_service_files/GetAudioOutputConfigurationOptions.xml
++++ b/media_service_files/GetAudioOutputConfigurationOptions.xml
+@@ -8,0 +9 @@
++                <tt:SendPrimacyOptions>www.onvif.org/ver20/HalfDuplex/Client</tt:SendPrimacyOptions>
+diff --git a/media_service_files/GetAudioOutputConfigurations.xml b/media_service_files/GetAudioOutputConfigurations.xml
+index a376741..b112bae 100644
+--- a/media_service_files/GetAudioOutputConfigurations.xml
++++ b/media_service_files/GetAudioOutputConfigurations.xml
+@@ -10,0 +11 @@
++                <tt:SendPrimacy>www.onvif.org/ver20/HalfDuplex/Client</tt:SendPrimacy>
+diff --git a/media_service_files/GetCompatibleAudioOutputConfigurations.xml b/media_service_files/GetCompatibleAudioOutputConfigurations.xml
+index 4b6014d..c437d2c 100644
+--- a/media_service_files/GetCompatibleAudioOutputConfigurations.xml
++++ b/media_service_files/GetCompatibleAudioOutputConfigurations.xml
+@@ -10,0 +11 @@
++                <tt:SendPrimacy>www.onvif.org/ver20/HalfDuplex/Client</tt:SendPrimacy>
+diff --git a/media_service_files/GetProfile_EXT.xml b/media_service_files/GetProfile_EXT.xml
+new file mode 100644
+index 0000000..ffa6c4b
+--- /dev/null
++++ b/media_service_files/GetProfile_EXT.xml
+@@ -0,0 +1,13 @@
++                <tt:Extension>
++                    <tt:AudioOutputConfiguration token="AudioOutputConfigToken">
++                        <tt:Name>AudioOutputConfig</tt:Name>
++                        <tt:UseCount>%PROFILES_NUM%</tt:UseCount>
++                        <tt:OutputToken>AudioOutputToken</tt:OutputToken>
++                        <tt:SendPrimacy>www.onvif.org/ver20/HalfDuplex/Client</tt:SendPrimacy>
++                        <tt:OutputLevel>1</tt:OutputLevel>
++                    </tt:AudioOutputConfiguration>
++                    <tt:AudioDecoderConfiguration token="%PROFILE%_AudioDecoderToken">
++                        <tt:Name>%PROFILE%_AudioDecoder</tt:Name>
++                        <tt:UseCount>1</tt:UseCount>
++                    </tt:AudioDecoderConfiguration>
++                </tt:Extension>

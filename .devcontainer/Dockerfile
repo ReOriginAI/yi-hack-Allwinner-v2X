@@ -12,6 +12,13 @@ RUN export DEBIAN_FRONTEND=noninteractive               && \
       sass-spec libhtml-tidy-perl libxml2-utils rsync cmake \
       qemu-user-static pkg-config curl bzip2 file
 
+ARG GO_VERSION=1.24.0
+RUN curl -fsSL https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz -o /tmp/go.tar.gz && \
+    rm -rf /usr/local/go && \
+    tar -C /usr/local -xzf /tmp/go.tar.gz && \
+    rm -f /tmp/go.tar.gz
+ENV PATH="/usr/local/go/bin:${PATH}"
+
 # Download toolchain
 RUN git clone https://github.com/lindenis-org/lindenis-v536-prebuilt                                              && \
     mkdir -p /opt/yi/toolchain-sunxi-musl                                                                         && \

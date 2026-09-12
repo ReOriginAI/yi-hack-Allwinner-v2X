@@ -1,13 +1,26 @@
 #!/bin/bash
+set -e
+
 VERSION=v1.9.14
 
 SCRIPT_DIR=$(cd `dirname $0` && pwd)
 cd $SCRIPT_DIR
 
-rm -rf ./_install
+rm -rf ./_install ./go2rtc-src ./go2rtc-src.tar.gz
 
 mkdir -p go2rtc
-cd go2rtc
-rm -f go2rtc
-wget https://github.com/AlexxIT/go2rtc/releases/download/${VERSION}/go2rtc_linux_arm -O ./go2rtc || exit 1
-chmod 0755 go2rtc || exit 1
+rm -f go2rtc/go2rtc
+
+wget -q https://github.com/AlexxIT/go2rtc/archive/refs/tags/${VERSION}.tar.gz -O go2rtc-src.tar.gz
+tar -xzf go2rtc-src.tar.gz
+mv go2rtc-${VERSION#v} go2rtc-src
+
+patch -d go2rtc-src -p1 < onvif-backchannel.patch
+
+(
+    cd go2rtc-src
+    CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=7 \
+        go build -buildvcs=false -trimpath -ldflags="-s -w" -o ../go2rtc/go2rtc .
+)
+
+chmod 0755 go2rtc/go2rtc

@@ -1,0 +1,26 @@
+diff --git a/internal/rtsp/rtsp.go b/internal/rtsp/rtsp.go
+index 31c2c5d..7595fc4 100644
+--- a/internal/rtsp/rtsp.go
++++ b/internal/rtsp/rtsp.go
+@@ -149,8 +149,12 @@ func tcpHandler(conn *rtsp.Conn) {
+ 
+ 	trace := log.Trace().Enabled()
+ 	level := zerolog.WarnLevel
++	var onvifBackchannel bool
+ 
+ 	conn.Listen(func(msg any) {
++		if req, ok := msg.(*tcp.Request); ok && req.Method == rtsp.MethodDescribe {
++			onvifBackchannel = strings.Contains(strings.ToLower(req.Header.Get("Require")), "www.onvif.org/ver20/backchannel")
++		}
+ 		if trace {
+ 			switch msg := msg.(type) {
+ 			case *tcp.Request:
+@@ -186,7 +190,7 @@ func tcpHandler(conn *rtsp.Conn) {
+ 				}
+ 			}
+ 
+-			if query.Get("backchannel") == "1" {
++			if query.Get("backchannel") == "1" || onvifBackchannel {
+ 				conn.Medias = append(conn.Medias, &core.Media{
+ 					Kind:      core.KindAudio,
+ 					Direction: core.DirectionRecvonly,

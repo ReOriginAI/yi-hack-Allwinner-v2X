@@ -86,11 +86,11 @@ This custom firmware contains features replicated from the [yi-hack-MStar](https
     - `rtsp://IP-CAM/ch0_0.h264` - high resolution
     - `rtsp://IP-CAM/ch0_1.h264` - low resolution
     - `rtsp://IP-CAM/ch0_2.h264` - audio only
-    - When the RTSP implementation is **go2rtc**, `SPEAKER_AUDIO=yes`, and `ONVIF_AUDIO_BC=G711`, bidirectional-audio RTSP endpoints are also available:
-      - `rtsp://IP-CAM/ch0_0.h264?backchannel=1` - high resolution + AAC camera audio + G.711 PCMU talkback
-      - `rtsp://IP-CAM/ch0_1.h264?backchannel=1` - low resolution + G.711 PCMU talkback
-      - The `?backchannel=1` query is interpreted by the camera's go2rtc RTSP server and adds a `PCMU/8000` `sendonly` audio track for talkback. ONVIF automatically advertises these URLs when G.711 backchannel support is enabled.
-      - A go2rtc source fragment such as `#backchannel=0` or `#backchannel=1` is a separate client-side option. It controls whether that go2rtc client claims an upstream backchannel and is not part of the camera's RTSP endpoint itself.
+    - When the RTSP implementation is **go2rtc**, `SPEAKER_AUDIO=yes`, and `ONVIF_AUDIO_BC=G711`, the normal RTSP endpoints support ONVIF Profile T backchannel negotiation. An ONVIF-aware client sends `Require: www.onvif.org/ver20/backchannel`; the camera then adds a `PCMU/8000` `sendonly` track without changing the stream URI.
+      - `rtsp://IP-CAM/ch0_0.h264` - high resolution + AAC camera audio, with PCMU talkback when requested by an ONVIF-aware client
+      - `rtsp://IP-CAM/ch0_1.h264` - low resolution, with PCMU talkback when requested by an ONVIF-aware client
+      - Explicit compatibility URLs `...?backchannel=1` remain available for non-ONVIF clients that cannot send the ONVIF `Require` header.
+      - A go2rtc source fragment such as `#backchannel=0` or `#backchannel=1` is a separate client-side option. It controls whether that go2rtc client opens an upstream backchannel and is not part of the camera RTSP endpoint itself.
   - ONVIF server (with support for stream, snapshot, ptz, presets, events and WS-Discovery) - standardized interfaces for IP cameras.
   - Snapshot service - allows to get a jpg with a web request.
     - http://IP-CAM/cgi-bin/snapshot.sh?res=low&watermark=yes        (select resolution: low or high, and watermark: yes or no)
@@ -235,15 +235,15 @@ Compressed formats such as MP3 or AAC are intentionally not decoded on the camer
 
 | Endpoint | Direction | Notes |
 | --- | --- | --- |
-| `rtsp://IP-CAM/ch0_0.h264` | camera -> client | High-resolution H.264; includes AAC camera audio when enabled |
-| `rtsp://IP-CAM/ch0_1.h264` | camera -> client | Low-resolution H.264 |
+| `rtsp://IP-CAM/ch0_0.h264` | camera -> client / bidirectional on request | High-resolution H.264; includes AAC camera audio when enabled. With go2rtc talkback enabled, an ONVIF backchannel request adds `PCMU/8000` speaker audio. |
+| `rtsp://IP-CAM/ch0_1.h264` | camera -> client / bidirectional on request | Low-resolution H.264. With go2rtc talkback enabled, an ONVIF backchannel request adds `PCMU/8000` speaker audio. |
 | `rtsp://IP-CAM/ch0_2.h264` | camera -> client | Audio-only endpoint where supported by the selected RTSP server |
-| `rtsp://IP-CAM/ch0_0.h264?backchannel=1` | bidirectional | High-resolution H.264 + AAC camera audio + `PCMU/8000` speaker backchannel |
-| `rtsp://IP-CAM/ch0_1.h264?backchannel=1` | bidirectional | Low-resolution H.264 + `PCMU/8000` speaker backchannel |
+| `rtsp://IP-CAM/ch0_0.h264?backchannel=1` | explicit bidirectional compatibility endpoint | Forces the `PCMU/8000` speaker backchannel for a client that does not send the ONVIF backchannel header |
+| `rtsp://IP-CAM/ch0_1.h264?backchannel=1` | explicit bidirectional compatibility endpoint | Low-resolution equivalent of the explicit compatibility endpoint |
 
-The bidirectional URLs are available when the camera uses **go2rtc** as its RTSP server, speaker audio is enabled, and the ONVIF audio backchannel is set to `G711`. ONVIF automatically advertises the `?backchannel=1` URLs in this configuration.
+When the camera uses **go2rtc**, speaker audio is enabled, and the ONVIF audio backchannel is set to `G711`, ONVIF advertises the normal query-free RTSP URIs. A Profile T client requests talkback with `Require: www.onvif.org/ver20/backchannel`; the patched camera-side go2rtc server then adds a `PCMU/8000` `sendonly` track for that session. Normal RTSP viewers that do not request a backchannel continue to receive only the camera-facing media tracks.
 
-`?backchannel=1` is part of the **camera RTSP URL** and tells the camera-side go2rtc RTSP server to expose a `PCMU/8000` `sendonly` track. A go2rtc fragment such as `#backchannel=0` is a different, client-side option and is not part of the camera endpoint.
+The `?backchannel=1` query remains supported as an explicit compatibility mechanism for clients that cannot send the ONVIF `Require` header. A go2rtc fragment such as `#backchannel=0` is different: it is a **client-side** option controlling whether that go2rtc client opens an upstream backchannel.
 
 #### HTTP audio endpoints
 
@@ -342,12 +342,9 @@ The normal receive-only camera streams are:
 - `rtsp://IP-CAM/ch0_1.h264` - low resolution
 - `rtsp://IP-CAM/ch0_2.h264` - audio only where supported by the selected RTSP server
 
-When camera-side go2rtc talkback is enabled, the bidirectional endpoints are:
+When camera-side go2rtc talkback is enabled, ONVIF-aware clients use the same normal RTSP endpoints for viewing and talkback. The client requests the reverse audio channel with `Require: www.onvif.org/ver20/backchannel`; the camera responds with a G.711 mu-law (`PCMU/8000`) `sendonly` track. The firmware converts that stream to the 16 kHz PCM format used by the camera speaker.
 
-- `rtsp://IP-CAM/ch0_0.h264?backchannel=1`
-- `rtsp://IP-CAM/ch0_1.h264?backchannel=1`
-
-The `?backchannel=1` query makes the camera's go2rtc RTSP server expose a G.711 mu-law (`PCMU/8000`) `sendonly` track. Frigate/go2rtc can write microphone audio to that track, which the firmware converts to the 16 kHz PCM format used by the camera speaker.
+Explicit `?backchannel=1` URLs remain available for non-ONVIF clients that need to force the backchannel, but they are not the canonical ONVIF/Frigate configuration.
 
 ### Canonical Frigate configuration with bidirectional audio
 
@@ -363,7 +360,7 @@ Set the camera to:
 - ONVIF profile: `both`
 - ONVIF audio backchannel: `G711`
 
-With these settings, ONVIF advertises the talk-capable RTSP URI with `?backchannel=1`, and the camera-side go2rtc server exposes a `PCMU/8000` `sendonly` track on that URI.
+With these settings, ONVIF advertises the normal query-free RTSP URI. When a Profile T client requests `www.onvif.org/ver20/backchannel`, the patched camera-side go2rtc server exposes a `PCMU/8000` `sendonly` track for that session.
 
 Replace `IP-CAM` with the camera address and `FRIGATE-IP` with the LAN address of the Frigate host.
 
@@ -381,11 +378,11 @@ go2rtc:
     yi_camera_sub:
       - "rtsp://IP-CAM/ch0_1.h264#backchannel=0"
 
-    # Dedicated bidirectional stream. The camera-side ?backchannel=1 query
-    # exposes PCMU/8000 talkback. Frigate-side #backchannel=1 is unnecessary
-    # because go2rtc enables upstream backchannel negotiation by default.
+    # Dedicated bidirectional stream. With no #backchannel=0 override,
+    # Frigate's go2rtc requests the standard ONVIF RTSP backchannel. The
+    # camera responds with PCMU/8000 talkback on this normal query-free URI.
     yi_camera_twoway:
-      - "rtsp://IP-CAM/ch0_0.h264?backchannel=1"
+      - "rtsp://IP-CAM/ch0_0.h264"
 
       # The camera microphone is AAC. Add Opus on the Frigate host for WebRTC
       # instead of transcoding on the resource-constrained camera.
@@ -435,12 +432,13 @@ cameras:
       password: ""
 ```
 
-There are two different backchannel controls in this setup:
+There are three related backchannel mechanisms:
 
-- `?backchannel=1` is part of the **camera RTSP URL**. It tells this firmware's camera-side go2rtc RTSP server to advertise the `PCMU/8000` talkback track.
-- `#backchannel=0` is a **Frigate/go2rtc client option**. It deliberately prevents the permanent high- and low-resolution Frigate sources from opening the camera output channel.
+- `Require: www.onvif.org/ver20/backchannel` is the standard RTSP request used by ONVIF Profile T clients. The patched camera-side go2rtc server recognizes it on the normal RTSP URI and adds `PCMU/8000` talkback only for that session.
+- `#backchannel=0` is a **Frigate/go2rtc client option**. It deliberately prevents the permanent high- and low-resolution Frigate sources from requesting the camera output channel.
+- `?backchannel=1` is an explicit **camera-side compatibility query** for clients that cannot send the ONVIF backchannel header. It is not required for the canonical Frigate or ONVIF configuration.
 
-No Frigate-side `#backchannel=1` is required on `yi_camera_twoway`; go2rtc enables RTSP backchannel negotiation by default when the source has no overriding go2rtc fragment.
+No Frigate-side `#backchannel=1` is required on `yi_camera_twoway`; go2rtc enables RTSP backchannel negotiation by default when the source has no overriding client fragment.
 
 This layout keeps the normal path simple while leaving the speaker available to direct ONVIF clients:
 
@@ -453,9 +451,10 @@ Yi/Kami low  --> camera go2rtc ------> Frigate detect
                  #backchannel=0
 
 Yi/Kami high <-> camera go2rtc <----> Frigate WebRTC talk
-                 ?backchannel=1          (only when this stream is used)
+                 ONVIF Require header     (only when this stream is used)
 
 Direct ONVIF client <-----------------> camera go2rtc / speaker
+                 ONVIF Require header
 ```
 
 #### Why use the low-resolution stream for detection?
@@ -481,7 +480,7 @@ go2rtc:
     yi_camera_sub:
       - "rtsp://user:password@IP-CAM/ch0_1.h264#backchannel=0"
     yi_camera_twoway:
-      - "rtsp://user:password@IP-CAM/ch0_0.h264?backchannel=1"
+      - "rtsp://user:password@IP-CAM/ch0_0.h264"
       - "ffmpeg:yi_camera_twoway#audio=opus"
 ```
 
@@ -559,7 +558,7 @@ Frigate shows PTZ controls only when its ONVIF connection succeeds and the camer
 ### Notes
 
 - These cameras have limited CPU and RAM. Prefer doing AAC-to-Opus conversion on the Frigate host rather than on the camera.
-- Normal Frigate viewing/recording sources should use `#backchannel=0`; reserve the `?backchannel=1` endpoint for the dedicated two-way stream.
+- Normal Frigate viewing/recording sources should use `#backchannel=0`; leave the dedicated two-way source without that fragment so Frigate go2rtc can request the ONVIF backchannel only when talk is used.
 - The two-way stream can temporarily add another RTSP session while it is in use. The camera-side go2rtc server fans out the already encoded video; it does not create another H.264 encoder for each client.
 - Snapshots and several simultaneous direct streams may increase memory pressure. Enable the swap file if the camera becomes unstable.
 

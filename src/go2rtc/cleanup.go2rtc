@@ -3,7 +3,5 @@
 SCRIPT_DIR=$(cd `dirname $0` && pwd)
 cd $SCRIPT_DIR
 
-rm -rf ./_install
-
-cd go2rtc
-rm -f go2rtc
+rm -rf ./_install ./go2rtc-src ./go2rtc-src.tar.gz
+rm -f ./go2rtc/go2rtc

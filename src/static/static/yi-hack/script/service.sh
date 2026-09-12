@@ -39,9 +39,9 @@ init_config()
         *) HTTPD_PORT=$(get_config HTTPD_PORT) ;;
     esac
 
-    if [[ $RTSP_PORT != "554" ]] ; then
-        D_RTSP_PORT=:$RTSP_PORT
-    fi
+    # Always advertise the RTSP port explicitly in ONVIF URIs. Some clients
+    # parse host-only/default-port URIs poorly even though port 554 is implicit.
+    D_RTSP_PORT=:$RTSP_PORT
 
     if [[ $HTTPD_PORT != "80" ]] ; then
         D_HTTPD_PORT=:$HTTPD_PORT
@@ -117,10 +117,10 @@ init_config()
         ONVIF_AUDIO_DECODER="audio_decoder=$ONVIF_AUDIO_BC"
     fi
 
+    # Keep ONVIF stream URIs query-free. Patched go2rtc enables the reverse
+    # audio track when an ONVIF client sends Require: www.onvif.org/ver20/backchannel.
+    # The explicit ?backchannel=1 endpoint remains available for non-ONVIF clients.
     RTSP_BACKCHANNEL_QUERY=""
-    if [ "$RTSP_ALT" == "go2rtc" ] && [ "$ONVIF_AUDIO_BC" == "G711" ] && [ "$(get_config SPEAKER_AUDIO)" != "no" ]; then
-        RTSP_BACKCHANNEL_QUERY="?backchannel=1"
-    fi
 
     if [[ $(get_config ONVIF_ENABLE_MEDIA2) == "yes" ]] ; then
         ONVIF_ENABLE_MEDIA2=1
