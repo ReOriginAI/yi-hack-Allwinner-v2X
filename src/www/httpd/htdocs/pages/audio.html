@@ -1,0 +1,70 @@
+<div class="row">
+    <div class="twelve columns">
+        <div class="row">
+            <div class="twelve columns">
+                <h3 class="no-margin inline-block" id="header">Audio Library</h3>
+            </div>
+        </div>
+        <hr class="tiny-margin"/>
+
+        <div class="row">
+            <p>
+                Upload reusable speaker clips to the SD card and play them from this page.
+                Playback uses the same speaker lock as RTSP/ONVIF talkback, so only one speaker source can run at a time.
+            </p>
+            <p>
+                Supported formats: raw PCM16LE, 16 kHz, 16-bit, mono (<code>.pcm</code>) or uncompressed PCM WAV with the same format (<code>.wav</code>).
+            </p>
+        </div>
+
+        <h4 class="no-margin">Upload</h4>
+        <hr class="tiny-margin"/>
+        <div class="row">
+            <div class="twelve columns configs-switch">
+                <table class="u-full-width padded-table config-table">
+                    <tbody>
+                        <tr class="row">
+                            <td width="60%">
+                                <input type="file" id="audio-library-file" accept=".pcm,.wav,audio/wav,audio/x-wav" style="width: 100%;" />
+                            </td>
+                            <td width="20%">
+                                <span class="switch-description">Max upload: 8 MiB</span>
+                            </td>
+                            <td width="20%">
+                                <input class="button-primary" type="button" id="audio-library-upload" value="Upload"/>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div class="row">
+            <p id="audio-library-status"></p>
+        </div>
+
+        <h4 class="no-margin">Stored Clips</h4>
+        <hr class="tiny-margin"/>
+        <div class="row">
+            <div class="twelve columns configs-switch">
+                <table class="u-full-width padded-table config-table">
+                    <thead>
+                        <tr>
+                            <th>File</th>
+                            <th>Size</th>
+                            <th>Volume</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="audio-library-list">
+                        <tr><td colspan="4">Loading...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div class="row">
+            <input type="button" id="audio-library-refresh" value="Refresh"/>
+        </div>
+    </div>
+</div>

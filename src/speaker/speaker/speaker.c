@@ -162,13 +162,176 @@ cleanup:
     return rc;
 }
 
+static uint16_t read_le16(const unsigned char *p) {
+    return (uint16_t)p[0] | ((uint16_t)p[1] << 8);
+}
+
+static uint32_t read_le32(const unsigned char *p) {
+    return (uint32_t)p[0] |
+           ((uint32_t)p[1] << 8) |
+           ((uint32_t)p[2] << 16) |
+           ((uint32_t)p[3] << 24);
+}
+
+static int copy_bytes(FILE *input, uint32_t count) {
+    unsigned char buf[4096];
+
+    while (count > 0) {
+        size_t want = count < sizeof(buf) ? (size_t)count : sizeof(buf);
+        size_t n = fread(buf, 1, want, input);
+        if (n == 0) {
+            if (ferror(input)) perror("read audio file");
+            return -1;
+        }
+        if (fwrite(buf, 1, n, stdout) != n) {
+            perror("write stdout");
+            return -1;
+        }
+        count -= (uint32_t)n;
+    }
+
+    return 0;
+}
+
+static int copy_to_eof(FILE *input) {
+    unsigned char buf[4096];
+    size_t n;
+
+    while ((n = fread(buf, 1, sizeof(buf), input)) > 0) {
+        if (fwrite(buf, 1, n, stdout) != n) {
+            perror("write stdout");
+            return -1;
+        }
+    }
+
+    if (ferror(input)) {
+        perror("read audio file");
+        return -1;
+    }
+    return 0;
+}
+
+/*
+ * Decode a stored speaker file to the camera-native format on stdout.
+ * Raw files are treated as PCM16LE/16000/mono. RIFF/WAVE files are parsed
+ * and accepted only when they contain uncompressed PCM16LE/16000/mono.
+ */
+static int decode_audio_file(const char *path) {
+    unsigned char header[12];
+    unsigned char chunk[8];
+    unsigned char fmt[16];
+    FILE *input;
+    int fmt_seen = 0;
+    int fmt_valid = 0;
+    long data_offset = -1;
+    uint32_t data_size = 0;
+
+    input = fopen(path, "rb");
+    if (input == NULL) {
+        perror("open audio file");
+        return 1;
+    }
+
+    if (fread(header, 1, sizeof(header), input) != sizeof(header)) {
+        if (ferror(input)) perror("read audio file");
+        fclose(input);
+        fprintf(stderr, "Audio file is too small\n");
+        return 1;
+    }
+
+    if (memcmp(header, "RIFF", 4) != 0 || memcmp(header + 8, "WAVE", 4) != 0) {
+        if (fseek(input, 0, SEEK_SET) != 0) {
+            perror("seek audio file");
+            fclose(input);
+            return 1;
+        }
+        if (copy_to_eof(input) != 0) {
+            fclose(input);
+            return 1;
+        }
+        fclose(input);
+        return 0;
+    }
+
+    while (fread(chunk, 1, sizeof(chunk), input) == sizeof(chunk)) {
+        uint32_t chunk_size = read_le32(chunk + 4);
+        long payload_offset = ftell(input);
+        long skip = (long)chunk_size + (long)(chunk_size & 1U);
+
+        if (payload_offset < 0) {
+            perror("tell audio file");
+            fclose(input);
+            return 1;
+        }
+
+        if (memcmp(chunk, "fmt ", 4) == 0) {
+            uint16_t format;
+            uint16_t channels;
+            uint32_t sample_rate;
+            uint16_t block_align;
+            uint16_t bits_per_sample;
+
+            if (chunk_size < sizeof(fmt) || fread(fmt, 1, sizeof(fmt), input) != sizeof(fmt)) {
+                fprintf(stderr, "Invalid WAV fmt chunk\n");
+                fclose(input);
+                return 1;
+            }
+
+            format = read_le16(fmt);
+            channels = read_le16(fmt + 2);
+            sample_rate = read_le32(fmt + 4);
+            block_align = read_le16(fmt + 12);
+            bits_per_sample = read_le16(fmt + 14);
+
+            fmt_seen = 1;
+            fmt_valid = format == 1 && channels == 1 && sample_rate == 16000 &&
+                        bits_per_sample == 16 && block_align == 2;
+        } else if (memcmp(chunk, "data", 4) == 0 && data_offset < 0) {
+            data_offset = payload_offset;
+            data_size = chunk_size;
+        }
+
+        if (fseek(input, payload_offset + skip, SEEK_SET) != 0) {
+            perror("seek WAV chunk");
+            fclose(input);
+            return 1;
+        }
+    }
+
+    if (!fmt_seen || !fmt_valid) {
+        fprintf(stderr, "Unsupported WAV format; expected PCM16LE 16 kHz mono\n");
+        fclose(input);
+        return 1;
+    }
+    if (data_offset < 0 || data_size == 0) {
+        fprintf(stderr, "WAV data chunk not found\n");
+        fclose(input);
+        return 1;
+    }
+    if (fseek(input, data_offset, SEEK_SET) != 0) {
+        perror("seek WAV data");
+        fclose(input);
+        return 1;
+    }
+
+    if (copy_bytes(input, data_size) != 0) {
+        fclose(input);
+        return 1;
+    }
+
+    fclose(input);
+    return 0;
+}
+
 static void print_usage(void) {
     printf("speaker\n\n");
     printf("Usage:\n");
     printf("  speaker on|off\n");
-    printf("  speaker stream ulaw|pcm\n\n");
+    printf("  speaker stream ulaw|pcm\n");
+    printf("  speaker decode FILE\n\n");
     printf("stream ulaw accepts G.711 mu-law 8 kHz mono on stdin and writes PCM16LE 16 kHz mono to %s.\n", AUDIO_FIFO);
     printf("stream pcm accepts PCM16LE 16 kHz mono on stdin.\n");
+    printf("decode writes camera-native PCM to stdout from raw PCM16LE/16000/mono or compatible PCM WAV.\n");
 }
 
 int main(int argc, char *argv[]) {
@@ -179,6 +342,10 @@ int main(int argc, char *argv[]) {
 
     if (argc == 3 && strcmp(argv[1], "stream") == 0) {
         return stream_pcm(argv[2]);
+    }
+
+    if (argc == 3 && strcmp(argv[1], "decode") == 0) {
+        return decode_audio_file(argv[2]);
     }
 
     print_usage();

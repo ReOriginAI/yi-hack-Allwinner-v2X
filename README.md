@@ -20,6 +20,7 @@ What's the difference between v1 and v2? Allwinner-v2 is not an upgrade for Allw
 - [Supported cameras](#supported-cameras)
 - [Is my cam supported?](#is-my-cam-supported)
 - [Home Assistant integration](#home-assistant-integration)
+- [Audio library and speaker API](#audio-library-and-speaker-api)
 - [Frigate integration](#frigate-integration)
 - [Build your own firmware](#build-your-own-firmware)
 - [Unbricking](#unbricking)
@@ -210,6 +211,127 @@ data:
   volume: '-8'
 ``` 
 
+
+## Audio library and speaker API
+
+The camera can play prerecorded audio through the speaker without browser microphone capture, Web Audio, or a secure HTTPS context. The web interface exposes an **Audio Library** page at:
+
+```text
+http://IP-CAM/?page=audio
+```
+
+The page can upload clips to the SD card, list stored clips, select playback gain, play a clip, and delete clips.
+
+Supported audio formats are:
+
+- `.pcm` - raw signed PCM16LE, 16 kHz, 16-bit, mono
+- `.wav` - uncompressed PCM WAV, 16 kHz, 16-bit, mono
+
+Compressed formats such as MP3 or AAC are intentionally not decoded on the camera. Convert them before uploading.
+
+### Endpoint reference
+
+#### RTSP / ONVIF media endpoints
+
+| Endpoint | Direction | Notes |
+| --- | --- | --- |
+| `rtsp://IP-CAM/ch0_0.h264` | camera -> client | High-resolution H.264; includes AAC camera audio when enabled |
+| `rtsp://IP-CAM/ch0_1.h264` | camera -> client | Low-resolution H.264 |
+| `rtsp://IP-CAM/ch0_2.h264` | camera -> client | Audio-only endpoint where supported by the selected RTSP server |
+| `rtsp://IP-CAM/ch0_0.h264?backchannel=1` | bidirectional | High-resolution H.264 + AAC camera audio + `PCMU/8000` speaker backchannel |
+| `rtsp://IP-CAM/ch0_1.h264?backchannel=1` | bidirectional | Low-resolution H.264 + `PCMU/8000` speaker backchannel |
+
+The bidirectional URLs are available when the camera uses **go2rtc** as its RTSP server, speaker audio is enabled, and the ONVIF audio backchannel is set to `G711`. ONVIF automatically advertises the `?backchannel=1` URLs in this configuration.
+
+`?backchannel=1` is part of the **camera RTSP URL** and tells the camera-side go2rtc RTSP server to expose a `PCMU/8000` `sendonly` track. A go2rtc fragment such as `#backchannel=0` is a different, client-side option and is not part of the camera endpoint.
+
+#### HTTP audio endpoints
+
+| Method | Endpoint | Request body | Behavior |
+| --- | --- | --- | --- |
+| `GET` | `/cgi-bin/audio_library.sh?action=list` | none | List stored audio clips and sizes |
+| `POST` | `/cgi-bin/audio_library.sh?action=upload` | one `multipart/form-data` file | Validate and store a `.pcm` or compatible `.wav` file in `/tmp/sd/audio/` |
+| `POST` | `/cgi-bin/audio_library.sh?action=play&voldb=0` | clip basename as plain text | Synchronously play a stored clip and report success or speaker-busy failure |
+| `POST` | `/cgi-bin/audio_library.sh?action=delete` | clip basename as plain text | Delete a stored clip |
+| `POST` | `/cgi-bin/speaker.sh?voldb=0` | raw PCM/WAV body or one `multipart/form-data` file | Immediate one-shot playback without adding the clip to the library |
+| `POST` | `/cgi-bin/speaker_file.sh?voldb=0` | clip basename as plain text | Backward-compatible stored-file playback endpoint |
+
+`audio_library.sh?action=play` and `speaker_file.sh` use `voldb` as the playback gain in dB. `speaker.sh` accepts either `voldb=<dB>` or its legacy `vol=<multiplier>` parameter.
+
+Examples:
+
+```sh
+# Upload a reusable clip.
+curl -F 'file=@doorbell.wav' \
+  'http://IP-CAM/cgi-bin/audio_library.sh?action=upload'
+
+# List the library.
+curl 'http://IP-CAM/cgi-bin/audio_library.sh?action=list'
+
+# Play the stored clip at +6 dB.
+curl -X POST --data-binary 'doorbell.wav' \
+  'http://IP-CAM/cgi-bin/audio_library.sh?action=play&voldb=6'
+
+# Delete the stored clip.
+curl -X POST --data-binary 'doorbell.wav' \
+  'http://IP-CAM/cgi-bin/audio_library.sh?action=delete'
+
+# Play a file immediately without storing it in the library.
+curl -F 'file=@doorbell.wav' \
+  'http://IP-CAM/cgi-bin/speaker.sh?voldb=0'
+```
+
+Typical JSON responses:
+
+```json
+{"error":false,"description":"Uploaded","name":"doorbell.wav","size":96044}
+```
+
+```json
+{"error":false,"files":[{"name":"doorbell.wav","size":96044}]}
+```
+
+```json
+{"error":false,"description":"Played","name":"doorbell.wav"}
+```
+
+If the RTSP/ONVIF backchannel or another HTTP playback request currently owns the speaker semaphore, synchronous playback fails cleanly instead of mixing two writers into the speaker FIFO:
+
+```json
+{"error":true,"description":"Speaker busy or unavailable"}
+```
+
+### Storage, limits, and playback behavior
+
+Stored library files live in `/tmp/sd/audio/` on the mounted SD card and survive camera reboots. The library refuses requests if `/tmp/sd` is not mounted rather than silently storing files in RAM.
+
+Library uploads are limited to 8 MiB. Filenames are sanitized to simple basenames and only `.pcm` and `.wav` extensions are accepted; callers cannot supply an arbitrary filesystem path. WAV files are parsed and must actually contain uncompressed PCM16LE, 16 kHz, 16-bit, mono audio.
+
+`/cgi-bin/audio_library.sh?action=play` is synchronous: it returns `Played` only after the clip has been sent through the playback pipeline, and it can report a busy speaker immediately.
+
+`/cgi-bin/speaker.sh` preserves the older one-shot behavior. When the SD card is mounted it stages the upload on the SD card, starts playback asynchronously, and returns:
+
+```json
+{"error":false,"description":"Queued"}
+```
+
+Because that endpoint returns before asynchronous playback finishes, automation clients that need a definitive playback result should prefer the persistent library `play` endpoint.
+
+All HTTP playback paths now use the same speaker pipeline and semaphore as go2rtc talkback:
+
+```text
+WAV/PCM file
+    -> speaker decode
+    -> pcmvol
+    -> speaker stream pcm
+    -> /tmp/audio_in_fifo
+    -> camera speaker
+```
+
+This prevents stored-file playback, immediate HTTP playback, Frigate talk, and direct ONVIF/RTSP talk from writing to the speaker simultaneously. The stored-file HTTP playback path has been audibly verified on the Kami mini home (`y28ga`).
+
+Because the Audio Library uses prerecorded file upload rather than a browser microphone, it works over ordinary HTTP and does not require `getUserMedia()`, Web Audio, or HTTPS. The camera web interface should still be restricted to a trusted LAN/VPN and should not be exposed directly to the public internet.
+
 ## Frigate integration
 
 Frigate can consume the RTSP streams directly, but using Frigate's bundled go2rtc is recommended for live audio, WebRTC, RTSP restreaming, and bidirectional audio.
@@ -229,33 +351,45 @@ The `?backchannel=1` query makes the camera's go2rtc RTSP server expose a G.711 
 
 ### Canonical Frigate configuration with bidirectional audio
 
-For the simplest setup, let the camera-side go2rtc instance expose one bidirectional high-resolution RTSP endpoint and let Frigate's bundled go2rtc reuse that single upstream connection for recording, detection, live view, and talkback.
+The recommended setup keeps Frigate's permanent recording and detection connections **receive-only** so the camera speaker backchannel remains free for another direct ONVIF/RTSP client such as OpenIPC. A separate talk-capable stream is available for Frigate WebRTC only when bidirectional audio is needed.
 
 Set the camera to:
 
 - RTSP server: `go2rtc`
-- RTSP stream: `high` or `both`
+- RTSP stream: `both`
 - RTSP audio: `aac`
 - Speaker audio: enabled
 - ONVIF: enabled
-- ONVIF profile: `high` or `both`
+- ONVIF profile: `both`
 - ONVIF audio backchannel: `G711`
 
-When these settings are active, ONVIF advertises the talk-capable RTSP URI with `?backchannel=1`, and the camera-side go2rtc server exposes a `PCMU/8000` `sendonly` track on that URI.
+With these settings, ONVIF advertises the talk-capable RTSP URI with `?backchannel=1`, and the camera-side go2rtc server exposes a `PCMU/8000` `sendonly` track on that URI.
 
 Replace `IP-CAM` with the camera address and `FRIGATE-IP` with the LAN address of the Frigate host.
 
 ```yaml
 go2rtc:
   streams:
-    # One upstream connection carries H.264 + AAC from the camera and
-    # PCMU/G.711 talkback toward the camera speaker.
+    # High-resolution stream for recording and normal live viewing.
+    # Disable upstream backchannel ownership so Frigate does not reserve
+    # the camera speaker while this permanent stream is connected.
     yi_camera:
+      - "rtsp://IP-CAM/ch0_0.h264#backchannel=0"
+
+    # Low-resolution stream for object detection. This is already encoded by
+    # the camera firmware; h264grabber reads it from the shared video buffer.
+    yi_camera_sub:
+      - "rtsp://IP-CAM/ch0_1.h264#backchannel=0"
+
+    # Dedicated bidirectional stream. The camera-side ?backchannel=1 query
+    # exposes PCMU/8000 talkback. Frigate-side #backchannel=1 is unnecessary
+    # because go2rtc enables upstream backchannel negotiation by default.
+    yi_camera_twoway:
       - "rtsp://IP-CAM/ch0_0.h264?backchannel=1"
 
-      # Browser WebRTC needs Opus/PCMU/PCMA rather than AAC. Do this small
-      # AAC -> Opus conversion on the Frigate host, not on the camera.
-      - "ffmpeg:yi_camera#audio=opus"
+      # The camera microphone is AAC. Add Opus on the Frigate host for WebRTC
+      # instead of transcoding on the resource-constrained camera.
+      - "ffmpeg:yi_camera_twoway#audio=opus"
 
   webrtc:
     candidates:
@@ -268,17 +402,18 @@ cameras:
       output_args:
         record: preset-record-generic-audio-copy
       inputs:
-        # Frigate pulls its own local go2rtc restream. Record and detect
-        # therefore share the same single upstream camera connection.
+        # High-resolution local go2rtc restream for recording.
         - path: rtsp://127.0.0.1:8554/yi_camera
           input_args: preset-rtsp-restream
           roles:
             - record
+
+        # Low-resolution local go2rtc restream for object detection.
+        - path: rtsp://127.0.0.1:8554/yi_camera_sub
+          input_args: preset-rtsp-restream
+          roles:
             - detect
 
-    # Optional: resize the high-resolution stream for detection on the
-    # Frigate host. With VAAPI/QSV/NVIDIA hardware acceleration this avoids
-    # needing a second low-resolution RTSP connection to the camera.
     detect:
       width: 640
       height: 360
@@ -287,10 +422,12 @@ cameras:
     live:
       streams:
         Main: yi_camera
+        Two-way talk: yi_camera_twoway
+        Low bandwidth: yi_camera_sub
 
     # ONVIF remains useful for PTZ/control/events. Frigate still needs the
-    # RTSP source above because its ONVIF section does not auto-create the
-    # go2rtc media source.
+    # RTSP sources above because its ONVIF section does not auto-create
+    # go2rtc media sources.
     onvif:
       host: IP-CAM
       port: 80
@@ -298,29 +435,54 @@ cameras:
       password: ""
 ```
 
-No Frigate-side `#backchannel=1` is required in this canonical setup. go2rtc enables RTSP backchannel negotiation by default when the source URL has no go2rtc fragment. The important camera-side part is the `?backchannel=1` query, which makes this firmware's go2rtc RTSP server advertise the `PCMU/8000` talkback track.
+There are two different backchannel controls in this setup:
 
-This gives a simple media path:
+- `?backchannel=1` is part of the **camera RTSP URL**. It tells this firmware's camera-side go2rtc RTSP server to advertise the `PCMU/8000` talkback track.
+- `#backchannel=0` is a **Frigate/go2rtc client option**. It deliberately prevents the permanent high- and low-resolution Frigate sources from opening the camera output channel.
+
+No Frigate-side `#backchannel=1` is required on `yi_camera_twoway`; go2rtc enables RTSP backchannel negotiation by default when the source has no overriding go2rtc fragment.
+
+This layout keeps the normal path simple while leaving the speaker available to direct ONVIF clients:
 
 ```text
-Yi/Kami encoder + speaker
-        <-> camera go2rtc
-        <-> one RTSP connection
-        <-> Frigate go2rtc
-             |-- recording
-             |-- detection
-             |-- live WebRTC
-             `-- browser microphone / talkback
+                                  +--> Frigate record / normal live
+Yi/Kami high --> camera go2rtc ---+
+                 #backchannel=0
+
+Yi/Kami low  --> camera go2rtc ------> Frigate detect
+                 #backchannel=0
+
+Yi/Kami high <-> camera go2rtc <----> Frigate WebRTC talk
+                 ?backchannel=1          (only when this stream is used)
+
+Direct ONVIF client <-----------------> camera go2rtc / speaker
 ```
 
-The camera sends microphone audio as AAC. Frigate's MSE player supports AAC, while WebRTC expects PCMA, PCMU, or Opus. The `ffmpeg:yi_camera#audio=opus` entry performs that conversion on the Frigate host.
+#### Why use the low-resolution stream for detection?
+
+`h264grabber` does not encode video. It memory-maps the camera firmware's shared circular video buffer and copies already-encoded high- or low-resolution frames into go2rtc. Therefore, requesting `ch0_1.h264` does **not** create another software H.264 encoder on the camera.
+
+Using the low-resolution stream for detection is generally the better system-wide tradeoff:
+
+- Frigate decodes 640x360 instead of 1080p/2K for every detection frame.
+- Less encoded video is sent over Wi-Fi for the detection path.
+- The camera does incur a small extra cost for a second `h264grabber` reader, go2rtc producer, socket, and packet copies because high and low are distinct streams.
+- Camera-side go2rtc can fan out multiple consumers of the **same** stream, but it cannot merge high and low into one producer because they are different encoded streams.
+
+If the camera is extremely memory/CPU constrained and the Frigate host has strong hardware decoding, using only the high-resolution stream and downscaling on the Frigate host can reduce the camera to one permanent RTSP producer. Otherwise, high-for-recording plus low-for-detection is the recommended balance.
 
 If RTSP authentication is enabled on the camera:
 
 ```yaml
-yi_camera:
-  - "rtsp://user:password@IP-CAM/ch0_0.h264?backchannel=1"
-  - "ffmpeg:yi_camera#audio=opus"
+go2rtc:
+  streams:
+    yi_camera:
+      - "rtsp://user:password@IP-CAM/ch0_0.h264#backchannel=0"
+    yi_camera_sub:
+      - "rtsp://user:password@IP-CAM/ch0_1.h264#backchannel=0"
+    yi_camera_twoway:
+      - "rtsp://user:password@IP-CAM/ch0_0.h264?backchannel=1"
+      - "ffmpeg:yi_camera_twoway#audio=opus"
 ```
 
 URL-encode special characters in the username or password before placing them in a go2rtc URL.
@@ -341,23 +503,6 @@ Current Frigate documentation for the relevant behavior:
 
 - https://docs.frigate.video/configuration/restream/
 - https://docs.frigate.video/configuration/live/
-
-#### Optional: keep the speaker backchannel free for another direct client
-
-Frigate's go2rtc normally establishes an available RTSP audio-output backchannel. If you want another application such as OpenIPC to connect directly to the camera and own the speaker independently while Frigate is continuously recording, use Frigate's defensive two-stream pattern instead:
-
-```yaml
-go2rtc:
-  streams:
-    yi_camera:
-      - "rtsp://IP-CAM/ch0_0.h264#backchannel=0"
-
-    yi_camera_twoway:
-      - "rtsp://IP-CAM/ch0_0.h264?backchannel=1"
-      - "ffmpeg:yi_camera_twoway#audio=opus"
-```
-
-Here `#backchannel=0` is a **Frigate/go2rtc client option** that deliberately stops the permanent recording stream from claiming a camera output channel. It is not required when Frigate is intended to be the single media hub and talkback endpoint.
 
 ### Minimal direct RTSP configuration
 
