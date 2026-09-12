@@ -1,11 +1,13 @@
 name: Build
 
 on:
-  push:
-    tags:
-    branches:
-      - main
-      - master
+  workflow_dispatch: 
+# on:
+#   push:
+#     tags:
+#     branches:
+#       - main
+#       - master
 
 env:
   SUNXI_TOOLCHAIN: /opt/yi/toolchain-sunxi-musl
