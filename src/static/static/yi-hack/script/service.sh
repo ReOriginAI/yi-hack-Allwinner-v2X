@@ -116,6 +116,12 @@ init_config()
         ONVIF_AUDIO_BC="none"
         ONVIF_AUDIO_DECODER="audio_decoder=$ONVIF_AUDIO_BC"
     fi
+
+    RTSP_BACKCHANNEL_QUERY=""
+    if [ "$RTSP_ALT" == "go2rtc" ] && [ "$ONVIF_AUDIO_BC" == "G711" ] && [ "$(get_config SPEAKER_AUDIO)" != "no" ]; then
+        RTSP_BACKCHANNEL_QUERY="?backchannel=1"
+    fi
+
     if [[ $(get_config ONVIF_ENABLE_MEDIA2) == "yes" ]] ; then
         ONVIF_ENABLE_MEDIA2=1
     else
@@ -154,6 +160,11 @@ start_rtsp()
     fi
 
     if [ "$RTSP_ALT" == "go2rtc" ]; then
+        GO2RTC_BACKCHANNEL=""
+        if [ "$(get_config SPEAKER_AUDIO)" != "no" ] && [ "$ONVIF_AUDIO_BC" == "G711" ]; then
+            GO2RTC_BACKCHANNEL="    - exec:$YI_HACK_PREFIX/bin/speaker stream ulaw#backchannel=1#audio=pcmu/8000#killsignal=15#killtimeout=2"
+        fi
+
         echo "streams:" > /tmp/go2rtc.yaml
         if [ "$RTSP_RES" == "high" ] || [ "$RTSP_RES" == "both" ]; then
             echo "  ch0_0.h264:" >> /tmp/go2rtc.yaml
@@ -162,12 +173,18 @@ start_rtsp()
         if [ "$RTSP_RES" != "low" ] && [ "$RTSP_AUDIO" == "aac" ] ; then
             echo "    - exec:h264grabber -m $MODEL_SUFFIX -r none -a#backchannel=0" >> /tmp/go2rtc.yaml
         fi
+        if [ ! -z "$GO2RTC_BACKCHANNEL" ] && { [ "$RTSP_RES" == "high" ] || [ "$RTSP_RES" == "both" ]; }; then
+            echo "$GO2RTC_BACKCHANNEL" >> /tmp/go2rtc.yaml
+        fi
         if [ "$RTSP_RES" == "low" ] || [ "$RTSP_RES" == "both" ]; then
             echo "  ch0_1.h264:" >> /tmp/go2rtc.yaml
             echo "    - exec:h264grabber -m $MODEL_SUFFIX $RTSP_G_STI -r low#backchannel=0" >> /tmp/go2rtc.yaml
         fi
         if [ "$RTSP_RES" == "low" ] && [ "$RTSP_AUDIO" == "aac" ] ; then
             echo "    - exec:h264grabber -m $MODEL_SUFFIX -r none -a#backchannel=0" >> /tmp/go2rtc.yaml
+        fi
+        if [ ! -z "$GO2RTC_BACKCHANNEL" ] && { [ "$RTSP_RES" == "low" ] || [ "$RTSP_RES" == "both" ]; }; then
+            echo "$GO2RTC_BACKCHANNEL" >> /tmp/go2rtc.yaml
         fi
 
         echo "" >> /tmp/go2rtc.yaml
@@ -237,21 +254,21 @@ start_onvif()
     fi
     if [[ $ONVIF_PROFILE == "high" ]]; then
         if [[ "$MODEL_SUFFIX" == "h51ga" ]] || [[ "$MODEL_SUFFIX" == "h60ga" ]] || [[ "$MODEL_SUFFIX" == "y623" ]]  || [[ "$MODEL_SUFFIX" == "qg311r" ]]; then
-            ONVIF_PROFILE_0="name=Profile_0\nwidth=2304\nheight=1296\nurl=rtsp://$RTSP_USERPWD%s$D_RTSP_PORT/ch0_0.h264\nsnapurl=http://$RTSP_USERPWD%s$D_HTTPD_PORT/cgi-bin/snapshot.sh?res=high$WATERMARK\ntype=H264\n$ONVIF_AUDIO_ENCODER\n$ONVIF_AUDIO_DECODER"
+            ONVIF_PROFILE_0="name=Profile_0\nwidth=2304\nheight=1296\nurl=rtsp://$RTSP_USERPWD%s$D_RTSP_PORT/ch0_0.h264$RTSP_BACKCHANNEL_QUERY\nsnapurl=http://$RTSP_USERPWD%s$D_HTTPD_PORT/cgi-bin/snapshot.sh?res=high$WATERMARK\ntype=H264\n$ONVIF_AUDIO_ENCODER\n$ONVIF_AUDIO_DECODER"
         else
-            ONVIF_PROFILE_0="name=Profile_0\nwidth=1920\nheight=1080\nurl=rtsp://$RTSP_USERPWD%s$D_RTSP_PORT/ch0_0.h264\nsnapurl=http://$RTSP_USERPWD%s$D_HTTPD_PORT/cgi-bin/snapshot.sh?res=high$WATERMARK\ntype=H264\n$ONVIF_AUDIO_ENCODER\n$ONVIF_AUDIO_DECODER"
+            ONVIF_PROFILE_0="name=Profile_0\nwidth=1920\nheight=1080\nurl=rtsp://$RTSP_USERPWD%s$D_RTSP_PORT/ch0_0.h264$RTSP_BACKCHANNEL_QUERY\nsnapurl=http://$RTSP_USERPWD%s$D_HTTPD_PORT/cgi-bin/snapshot.sh?res=high$WATERMARK\ntype=H264\n$ONVIF_AUDIO_ENCODER\n$ONVIF_AUDIO_DECODER"
         fi
     fi
     if [[ $ONVIF_PROFILE == "low" ]]; then
-        ONVIF_PROFILE_1="name=Profile_1\nwidth=640\nheight=360\nurl=rtsp://$RTSP_USERPWD%s$D_RTSP_PORT/ch0_1.h264\nsnapurl=http://$RTSP_USERPWD%s$D_HTTPD_PORT/cgi-bin/snapshot.sh?res=low$WATERMARK\ntype=H264\n$ONVIF_AUDIO_ENCODER\n$ONVIF_AUDIO_DECODER"
+        ONVIF_PROFILE_1="name=Profile_1\nwidth=640\nheight=360\nurl=rtsp://$RTSP_USERPWD%s$D_RTSP_PORT/ch0_1.h264$RTSP_BACKCHANNEL_QUERY\nsnapurl=http://$RTSP_USERPWD%s$D_HTTPD_PORT/cgi-bin/snapshot.sh?res=low$WATERMARK\ntype=H264\n$ONVIF_AUDIO_ENCODER\n$ONVIF_AUDIO_DECODER"
     fi
     if [[ $ONVIF_PROFILE == "both" ]]; then
         if [[ "$MODEL_SUFFIX" == "h51ga" ]] || [[ "$MODEL_SUFFIX" == "h60ga" ]] || [[ "$MODEL_SUFFIX" == "y623" ]]  || [[ "$MODEL_SUFFIX" == "qg311r" ]]; then
-            ONVIF_PROFILE_0="name=Profile_0\nwidth=2304\nheight=1296\nurl=rtsp://$RTSP_USERPWD%s$D_RTSP_PORT/ch0_0.h264\nsnapurl=http://$RTSP_USERPWD%s$D_HTTPD_PORT/cgi-bin/snapshot.sh?res=high$WATERMARK\ntype=H264\n$ONVIF_AUDIO_ENCODER\n$ONVIF_AUDIO_DECODER"
+            ONVIF_PROFILE_0="name=Profile_0\nwidth=2304\nheight=1296\nurl=rtsp://$RTSP_USERPWD%s$D_RTSP_PORT/ch0_0.h264$RTSP_BACKCHANNEL_QUERY\nsnapurl=http://$RTSP_USERPWD%s$D_HTTPD_PORT/cgi-bin/snapshot.sh?res=high$WATERMARK\ntype=H264\n$ONVIF_AUDIO_ENCODER\n$ONVIF_AUDIO_DECODER"
         else
-            ONVIF_PROFILE_0="name=Profile_0\nwidth=1920\nheight=1080\nurl=rtsp://$RTSP_USERPWD%s$D_RTSP_PORT/ch0_0.h264\nsnapurl=http://$RTSP_USERPWD%s$D_HTTPD_PORT/cgi-bin/snapshot.sh?res=high$WATERMARK\ntype=H264\n$ONVIF_AUDIO_ENCODER\n$ONVIF_AUDIO_DECODER"
+            ONVIF_PROFILE_0="name=Profile_0\nwidth=1920\nheight=1080\nurl=rtsp://$RTSP_USERPWD%s$D_RTSP_PORT/ch0_0.h264$RTSP_BACKCHANNEL_QUERY\nsnapurl=http://$RTSP_USERPWD%s$D_HTTPD_PORT/cgi-bin/snapshot.sh?res=high$WATERMARK\ntype=H264\n$ONVIF_AUDIO_ENCODER\n$ONVIF_AUDIO_DECODER"
         fi
-        ONVIF_PROFILE_1="name=Profile_1\nwidth=640\nheight=360\nurl=rtsp://$RTSP_USERPWD%s$D_RTSP_PORT/ch0_1.h264\nsnapurl=http://$RTSP_USERPWD%s$D_HTTPD_PORT/cgi-bin/snapshot.sh?res=low$WATERMARK\ntype=H264\n$ONVIF_AUDIO_ENCODER\n$ONVIF_AUDIO_DECODER"
+        ONVIF_PROFILE_1="name=Profile_1\nwidth=640\nheight=360\nurl=rtsp://$RTSP_USERPWD%s$D_RTSP_PORT/ch0_1.h264$RTSP_BACKCHANNEL_QUERY\nsnapurl=http://$RTSP_USERPWD%s$D_HTTPD_PORT/cgi-bin/snapshot.sh?res=low$WATERMARK\ntype=H264\n$ONVIF_AUDIO_ENCODER\n$ONVIF_AUDIO_DECODER"
     fi
 
     ONVIF_SRVD_CONF="/tmp/onvif_simple_server.conf"

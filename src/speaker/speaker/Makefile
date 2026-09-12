@@ -1,4 +1,5 @@
 OBJECTS = speaker.o
+LIBS += -pthread -lrt
 
 all: speaker
 
