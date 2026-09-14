@@ -1,0 +1,12 @@
+#!/bin/bash
+set -e
+
+SCRIPT_DIR=$(cd `dirname $0` && pwd)
+cd "$SCRIPT_DIR"
+
+[ -x ./_install/bin/nanotts ] || { echo "nanotts binary missing" >&2; exit 1; }
+[ -d ./_install/usr/share/pico/lang ] || { echo "Pico voice data missing" >&2; exit 1; }
+
+# Prebuilt ARM-musl binary supplied with the project; nothing to compile.
+file ./_install/bin/nanotts
+readelf -d ./_install/bin/nanotts | grep NEEDED

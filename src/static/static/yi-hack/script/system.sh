@@ -24,16 +24,9 @@ get_config()
 
 start_buffer()
 {
-    # Trick to start circular buffer filling
-    ./cloud &
-    IDX=`hexdump -n 16 /dev/shm/fshare_frame_buf | awk 'NR==1{print $8}'`
-    N=0
-    while [ "$IDX" -eq "0000" ] && [ $N -lt 60 ]; do
-        IDX=`hexdump -n 16 /dev/shm/fshare_frame_buf | awk 'NR==1{print $8}'`
-        N=$(($N+1))
-        sleep 0.2
-    done
-    killall cloud
+    # Strict local-only mode: never execute vendor cloud.
+    # The local IPC kick is sufficient to start/keep the shared encoded buffer flowing
+    # on the tested Allwinner y623 and y28ga firmware families.
     ipc_cmd -x
 }
 
@@ -250,38 +243,18 @@ else
         # Trick to start circular buffer filling
         start_buffer
         if [[ $(get_config REC_WITHOUT_CLOUD) == "yes" ]] ; then
-            if [[ $(get_config TIME_OSD) == "yes" ]] ; then
-                (sleep 30; export TZP=`TZ=$TZ_TMP date +%z`; export TZP=${TZP:0:3}:${TZP:3:2}; export TZ=GMT$TZP; ./mp4record) &
-            else
-                ./mp4record &
-            fi
+            $START_STOP_SCRIPT mp4record start
         fi
-        ./cloud &
+        # Strict local-only: vendor cloud intentionally not started.
 
-        if [ "$HV" == "11" ] || [ "$HV" == "12" ]; then
-            ipc_cmd -1
-            sleep 0.5
-            if [[ $(get_config MOTION_DETECTION) == "yes" ]] ; then
-                ipc_cmd -O on
-            else
-                if [[ $(get_config AI_HUMAN_DETECTION) == "yes" ]] ; then
-                    ipc_cmd -a on
-                    sleep 0.1
-                fi
-                if [[ $(get_config AI_VEHICLE_DETECTION) == "yes" ]] ; then
-                    ipc_cmd -E on
-                    sleep 0.1
-                fi
-                if [[ $(get_config AI_ANIMAL_DETECTION) == "yes" ]] ; then
-                    ipc_cmd -N on
-                    sleep 0.1
-                fi
-            fi
-        fi
     )
 fi
 
 log "Yi processes started successfully" 1
+
+# Model-aware local motion service. y623-class firmware uses low-RAM H264
+# encoder statistics; y28ga uses generic IVA motion published through local IPC.
+$START_STOP_SCRIPT motion start
 
 # The cam works in GMT time when the hack is disabled
 # Yi processes receive the time from the clound
@@ -324,11 +297,17 @@ if [[ $(get_config NTPD) == "yes" ]] ; then
     sleep 5 && ntpd -p $(get_config NTP_SERVER) &
 fi
 
-log "Starting mqtt services"
-$START_STOP_SCRIPT mqtt start
 if [[ $(get_config MQTT) == "yes" ]] ; then
+    log "Starting mqtt services"
+    $START_STOP_SCRIPT mqtt start
     $START_STOP_SCRIPT mqtt-config start
     $YI_HACK_PREFIX/script/conf2mqtt.sh &
+else
+    # Do not run the legacy MQTT bridge when MQTT is disabled. Besides wasting
+    # RAM, mqttv4 mirrors vendor detector state back into camera.conf and can
+    # overwrite the local generic-motion setting on y28ga.
+    $START_STOP_SCRIPT mqtt stop >/dev/null 2>&1
+    $START_STOP_SCRIPT mqtt-config stop >/dev/null 2>&1
 fi
 
 sleep 5

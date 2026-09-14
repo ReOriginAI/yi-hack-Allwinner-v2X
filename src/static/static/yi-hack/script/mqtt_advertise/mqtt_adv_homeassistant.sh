@@ -365,29 +365,14 @@ if [ "$MQTT_ADV_CAMERA_SETTING_ENABLE" == "yes" ]; then
     # Switch On
     hass_setup_switch "SWITCH_ON" "Switch Status" "video" $MQTT_ADV_CAMERA_SETTING_TOPIC "config"
     mqtt_publish
-    # Save video on motion
-    hass_setup_switch "SAVE_VIDEO_ON_MOTION" "Save video on motion" "content-save" $MQTT_ADV_CAMERA_SETTING_TOPIC "config"
+    # Local SD motion backup
+    hass_setup_switch "SAVE_VIDEO_ON_MOTION" "Local SD motion backup" "content-save" $MQTT_ADV_CAMERA_SETTING_TOPIC "config"
     mqtt_publish
-    # Motion detection (generic motion detection)
-    hass_setup_switch "MOTION_DETECTION" "Motion Detection" "motion-sensor" $MQTT_ADV_CAMERA_SETTING_TOPIC "config"
+    # Model-aware local motion service
+    hass_setup_switch "MOTION_DETECTION" "Local Motion Detection" "motion-sensor" $MQTT_ADV_CAMERA_SETTING_TOPIC "config"
     mqtt_publish
-    # Detection sensitivity
-    hass_setup_select "SENSITIVITY" "Detection sensitivity" "knob" $MQTT_ADV_CAMERA_SETTING_TOPIC '"low","medium","high"' "config"
-    mqtt_publish
-    # AI Human detection
-    hass_setup_switch "AI_HUMAN_DETECTION" "AI Human Detection" "human-greeting-variant" $MQTT_ADV_CAMERA_SETTING_TOPIC "config"
-    mqtt_publish
-    # AI Vehicle detection
-    hass_setup_switch "AI_VEHICLE_DETECTION" "AI Vehicle Detection" "car" $MQTT_ADV_CAMERA_SETTING_TOPIC "config"
-    mqtt_publish
-    # AI Animal detection
-    hass_setup_switch "AI_ANIMAL_DETECTION" "AI Animal Detection" "dog-side" $MQTT_ADV_CAMERA_SETTING_TOPIC "config"
-    mqtt_publish
-    # Face detection
-    hass_setup_switch "FACE_DETECTION" "Face Detection" "face-recognition" $MQTT_ADV_CAMERA_SETTING_TOPIC "config"
-    mqtt_publish
-    # Motion Tracking sensor
-    hass_setup_switch "MOTION_TRACKING" "Motion Tracking sensor" "motion" $MQTT_ADV_CAMERA_SETTING_TOPIC "config"
+    # Encoder-statistics sensitivity (ignored by backends that do not support it)
+    hass_setup_number "MOTION_SENSITIVITY" "Motion sensitivity" "knob" $MQTT_ADV_CAMERA_SETTING_TOPIC 1 10 1 "slider" "config"
     mqtt_publish
     # Sound Detection
     hass_setup_switch "SOUND_DETECTION" "Sound Detection" "music-note" $MQTT_ADV_CAMERA_SETTING_TOPIC "config"

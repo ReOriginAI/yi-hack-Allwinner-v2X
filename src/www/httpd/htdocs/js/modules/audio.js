@@ -8,21 +8,27 @@ APP.audio = (function($) {
     }
 
     function registerEventHandler() {
-        $(document).on("click", '#audio-library-upload', function(e) {
+        $(document).off(".audioModule");
+        $(document).on("submit.audioModule", '#tts-form', function(e) {
+            e.preventDefault();
+            speakText();
+        });
+
+        $(document).on("click.audioModule", '#audio-library-upload', function(e) {
             uploadFile();
         });
 
-        $(document).on("click", '#audio-library-refresh', function(e) {
+        $(document).on("click.audioModule", '#audio-library-refresh', function(e) {
             loadFiles();
         });
 
-        $(document).on("click", '.audio-library-play', function(e) {
+        $(document).on("click.audioModule", '.audio-library-play', function(e) {
             var file = $(this).attr('data-file');
             var volume = $(this).closest('tr').find('.audio-library-volume').prop('value');
             playFile(file, volume);
         });
 
-        $(document).on("click", '.audio-library-delete', function(e) {
+        $(document).on("click.audioModule", '.audio-library-delete', function(e) {
             var file = $(this).attr('data-file');
             deleteFile(file);
         });
@@ -32,11 +38,69 @@ APP.audio = (function($) {
         $('#audio-library-status').text(text || '');
     }
 
+    function setTtsStatus(text) {
+        $('#tts-status').text(text || '');
+    }
+
     function responseDescription(xhr, fallback) {
         if (xhr && xhr.responseJSON && xhr.responseJSON.description) {
             return xhr.responseJSON.description;
         }
         return fallback;
+    }
+
+    function validNumber(value, min, max) {
+        var n = parseFloat(value);
+        return isFinite(n) && n >= min && n <= max;
+    }
+
+    function speakText() {
+        var text = $('#tts-text').prop('value') || '';
+        var voice = $('#tts-voice').prop('value') || 'en-US';
+        var speed = $('#tts-speed').prop('value') || '1.0';
+        var pitch = $('#tts-pitch').prop('value') || '1.0';
+        var volume = $('#tts-volume').prop('value') || '1.0';
+
+        if (!text.trim()) {
+            setTtsStatus('Enter some text first.');
+            return;
+        }
+        if (text.length > 1024) {
+            setTtsStatus('Text is too long.');
+            return;
+        }
+        if (!validNumber(speed, 0.2, 5.0) || !validNumber(pitch, 0.5, 2.0) || !validNumber(volume, 0.0, 5.0)) {
+            setTtsStatus('Speed, pitch, or volume is outside the supported range.');
+            return;
+        }
+
+        $('#tts-speak').attr('disabled', true);
+        setTtsStatus('Speaking...');
+
+        $.ajax({
+            url: 'cgi-bin/tts.sh?voice=' + encodeURIComponent(voice) +
+                '&speed=' + encodeURIComponent(speed) +
+                '&pitch=' + encodeURIComponent(pitch) +
+                '&volume=' + encodeURIComponent(volume),
+            type: 'POST',
+            contentType: 'text/plain; charset=UTF-8',
+            processData: false,
+            dataType: 'json',
+            data: text,
+            success: function(data) {
+                if (data.error) {
+                    setTtsStatus(data.description || 'Text-to-speech failed.');
+                } else {
+                    setTtsStatus('Finished speaking.');
+                }
+            },
+            error: function(xhr) {
+                setTtsStatus(responseDescription(xhr, 'Text-to-speech failed.'));
+            },
+            complete: function() {
+                $('#tts-speak').attr('disabled', false);
+            }
+        });
     }
 
     function formatBytes(bytes) {

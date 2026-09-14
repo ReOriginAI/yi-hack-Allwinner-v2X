@@ -189,7 +189,7 @@ if [ "$ACTION" = "play" ]; then
     [ -e /tmp/audio_in_fifo ] || json_error "Audio input is not available"
     speaker decode "$AUDIO_FILE" >/dev/null 2>&1 || json_error "Unsupported audio format"
 
-    speaker decode "$AUDIO_FILE" 2>/dev/null | pcmvol -G "$VOLDB" | speaker stream pcm >/dev/null 2>&1
+    { speaker decode "$AUDIO_FILE" 2>/dev/null | pcmvol -G "$VOLDB"; /bin/dd if=/dev/zero bs=32000 count=1 2>/dev/null; } | speaker stream pcm >/dev/null 2>&1
     RES=$?
 
     if [ "$RES" -ne 0 ]; then

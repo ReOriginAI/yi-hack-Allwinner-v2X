@@ -2,7 +2,8 @@
 
 printf "Content-type: application/json\r\n\r\n"
 
-NAME="yi-hack-allwinner-v2"
+NAME="yi-hack-allwinner-v2x"
+VARIANT="Yi Pro / Yi 1080p custom variant"
 HOSTNAME=$(hostname)
 FW_VERSION=$(cat /tmp/sd/yi-hack/version)
 HOME_VERSION=$(cat /home/app/.appver)
@@ -43,10 +44,9 @@ GATEWAY=$(route -n | awk 'NR==3{print $2}')
 WLAN_ESSID=$(iwconfig wlan0 | grep ESSID | cut -d\" -f2)
 WLAN_STRENGTH=$(cat /proc/net/wireless | grep wlan0 | awk '{ print $3 }' | sed 's/\.$//')
 
-# Yeah, it's pretty ugly.. but hey, it works.
-
 printf "{\n"
 printf "\"%s\":\"%s\",\n" "name"            "$NAME"
+printf "\"%s\":\"%s\",\n" "variant"         "$VARIANT"
 printf "\"%s\":\"%s\",\n" "hostname"        "$HOSTNAME"
 printf "\"%s\":\"%s\",\n" "fw_version"      "$FW_VERSION"
 printf "\"%s\":\"%s\",\n" "home_version"    "$HOME_VERSION"

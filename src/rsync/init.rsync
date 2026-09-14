@@ -1,0 +1,15 @@
+#!/bin/bash
+set -e
+
+SCRIPT_DIR=$(cd `dirname $0` && pwd)
+cd "$SCRIPT_DIR"
+
+SOURCE_TARBALL="rsync-3.5.0.tar.gz"
+SOURCE_SHA256="c7ffd1ef653e99540f661e47cb00b7f9cad1ee6b972399b16f93d672656e0d33"
+
+printf '%s  %s\n' "$SOURCE_SHA256" "$SOURCE_TARBALL" | sha256sum -c -
+
+rm -rf ./_build ./_install
+mkdir -p ./_build ./_install/bin
+
+tar xzf "$SOURCE_TARBALL" -C ./_build

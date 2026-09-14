@@ -165,7 +165,10 @@ start_rtsp()
             GO2RTC_BACKCHANNEL="    - exec:$YI_HACK_PREFIX/bin/speaker stream ulaw#backchannel=1#audio=pcmu/8000#killsignal=15#killtimeout=2"
         fi
 
-        echo "streams:" > /tmp/go2rtc.yaml
+        echo "app:" > /tmp/go2rtc.yaml
+        echo "  modules: [rtsp, exec]" >> /tmp/go2rtc.yaml
+        echo "" >> /tmp/go2rtc.yaml
+        echo "streams:" >> /tmp/go2rtc.yaml
         if [ "$RTSP_RES" == "high" ] || [ "$RTSP_RES" == "both" ]; then
             echo "  ch0_0.h264:" >> /tmp/go2rtc.yaml
             echo "    - exec:h264grabber -m $MODEL_SUFFIX $RTSP_G_STI -r high#backchannel=0" >> /tmp/go2rtc.yaml
@@ -187,12 +190,6 @@ start_rtsp()
             echo "$GO2RTC_BACKCHANNEL" >> /tmp/go2rtc.yaml
         fi
 
-        echo "" >> /tmp/go2rtc.yaml
-        echo "api:" >> /tmp/go2rtc.yaml
-        echo "  listen: \"\"" >> /tmp/go2rtc.yaml
-        echo "" >> /tmp/go2rtc.yaml
-        echo "webrtc:" >> /tmp/go2rtc.yaml
-        echo "  listen: \"\"" >> /tmp/go2rtc.yaml
         echo "" >> /tmp/go2rtc.yaml
         echo "rtsp:" >> /tmp/go2rtc.yaml
         echo "  listen: \":$RTSP_PORT\"" >> /tmp/go2rtc.yaml
@@ -428,6 +425,11 @@ stop_ftpd()
     fi
 }
 
+mp4record_count()
+{
+    ps | awk '$5 == "./mp4record" || $5 == "/home/app/mp4record" { n++ } END { print n+0 }'
+}
+
 ps_program()
 {
     PS_PROGRAM=$(ps | grep $1 | grep -v grep | grep -c ^)
@@ -481,14 +483,20 @@ if [ "$ACTION" == "start" ] ; then
     elif [ "$NAME" == "mqtt-config" ]; then
         mqtt-config > /dev/null &
     elif [ "$NAME" == "mp4record" ]; then
-        cd /home/app
-        if [[ $(get_config TIME_OSD) == "yes" ]] ; then
-            TZP=`TZ=$TZ_TMP date +%z`
-            TZP=${TZP:0:3}:${TZP:3:2}
-            TZ=GMT$TZP ./mp4record > /dev/null &
-        else
-            ./mp4record > /dev/null &
+        # mp4record is not internally singleton-safe. Never start a duplicate.
+        MP4_COUNT=$(mp4record_count)
+        if [ "$MP4_COUNT" -eq 0 ]; then
+            cd /home/app
+            if [[ $(get_config TIME_OSD) == "yes" ]] ; then
+                TZP=`TZ=$TZ_TMP date +%z`
+                TZP=${TZP:0:3}:${TZP:3:2}
+                TZ=GMT$TZP ./mp4record > /dev/null &
+            else
+                ./mp4record > /dev/null &
+            fi
         fi
+    elif [ "$NAME" == "motion" ]; then
+        $YI_HACK_PREFIX/script/motion_service.sh start
     elif [ "$NAME" == "all" ]; then
         start_rtsp
         start_onvif
@@ -500,14 +508,8 @@ if [ "$ACTION" == "start" ] ; then
             mqttv4 > /dev/null &
         fi
         mqtt-config > /dev/null &
-        cd /home/app
-        if [[ $(get_config TIME_OSD) == "yes" ]] ; then
-            TZP=`TZ=$TZ_TMP date +%z`
-            TZP=${TZP:0:3}:${TZP:3:2}
-            TZ=GMT$TZP ./mp4record > /dev/null &
-        else
-            ./mp4record > /dev/null &
-        fi
+        $YI_HACK_PREFIX/script/service.sh mp4record start
+        $YI_HACK_PREFIX/script/motion_service.sh start
     fi
 elif [ "$ACTION" == "stop" ] ; then
     if [ "$NAME" == "rtsp" ]; then
@@ -523,7 +525,11 @@ elif [ "$ACTION" == "stop" ] ; then
     elif [ "$NAME" == "mqtt" ]; then
         killall mqttv4
     elif [ "$NAME" == "mp4record" ]; then
-        killall mp4record
+        if [ $(mp4record_count) -gt 0 ]; then
+            killall mp4record
+        fi
+    elif [ "$NAME" == "motion" ]; then
+        $YI_HACK_PREFIX/script/motion_service.sh stop
     elif [ "$NAME" == "all" ]; then
         stop_rtsp
         stop_onvif
@@ -531,7 +537,10 @@ elif [ "$ACTION" == "stop" ] ; then
         stop_ftpd
         killall mqtt-config
         killall mqttv4
-        killall mp4record
+        $YI_HACK_PREFIX/script/motion_service.sh stop
+        if [ $(mp4record_count) -gt 0 ]; then
+            killall mp4record
+        fi
     fi
 elif [ "$ACTION" == "status" ] ; then
     if [ "$NAME" == "rtsp" ]; then
@@ -547,7 +556,9 @@ elif [ "$ACTION" == "status" ] ; then
     elif [ "$NAME" == "mqtt-config" ]; then
         RES=$(ps_program mqtt-config)
     elif [ "$NAME" == "mp4record" ]; then
-        RES=$(ps_program mp4record)
+        if [ $(mp4record_count) -gt 0 ]; then RES="started"; else RES="stopped"; fi
+    elif [ "$NAME" == "motion" ]; then
+        RES=$($YI_HACK_PREFIX/script/motion_service.sh status)
     elif [ "$NAME" == "all" ]; then
         RES=$(ps_program rRTSPServer)
     fi

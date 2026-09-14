@@ -1,0 +1,13 @@
+#!/bin/bash
+set -e
+
+SCRIPT_DIR=$(cd `dirname $0` && pwd)
+cd "$SCRIPT_DIR"
+
+rm -rf ./_install
+mkdir -p ./_install
+
+tar xzf nanotts.tgz -C ./_install
+chmod 0755 ./_install/bin/nanotts
+cp ./tts ./_install/bin/tts
+chmod 0755 ./_install/bin/tts

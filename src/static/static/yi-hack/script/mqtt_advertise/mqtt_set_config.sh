@@ -89,61 +89,29 @@ $YI_HACK_PREFIX/bin/mqtt-sub -h $HOST $MQTT_TLS $MQTT_CA_CERT $MQTT_CLIENT_CERT 
     VAL=$(echo $SUBSCRIBED | awk '{print $2}')
     sed -i "s/^\(${CONF_UPPER}\s*=\s*\).*$/\1${VAL}/" $YI_HACK_PREFIX/$CONF_FILE
     IPC_OPT=""
+    MOTION_CHANGE=0
     case "$CONF" in
-        switch_on)
-            IPC_OPT="-t"
-        ;;
-        save_video_on_motion)
-            IPC_OPT="-v"
-            if [ "$VAL" == "no" ] || [ "$VAL" == "off" ] ; then
-                VAL="always"
-            else
-                VAL="detect"
-            fi
-        ;;
-        motion_detection)
-            IPC_OPT="-O"
-        ;;
-        sensitivity)
-            IPC_OPT="-s"
-        ;;
-        ai_human_detection)
-            IPC_OPT="-a"
-        ;;
-        ai_vehicle_detection)
-            IPC_OPT="-E"
-        ;;
-        ai_animal_detection)
-            IPC_OPT="-N"
-        ;;
-        face_detection)
-            IPC_OPT="-c"
-        ;;
-        motion_tracking)
-            IPC_OPT="-o"
-        ;;
-        sound_detection)
-            IPC_OPT="-b"
-        ;;
-        led)
-            IPC_OPT="-l"
-        ;;
-        ir)
-            IPC_OPT="-i"
-        ;;
-        rotate)
-            IPC_OPT="-r"
-        ;;
-        ptz_preset)
-            IPC_OPT="-p"
-        ;;
+        switch_on) IPC_OPT="-t" ;;
+        save_video_on_motion|motion_detection|motion_sensitivity) MOTION_CHANGE=1 ;;
+        sound_detection) IPC_OPT="-b" ;;
+        sound_sensitivity) IPC_OPT="-n" ;;
+        led) IPC_OPT="-l" ;;
+        ir) IPC_OPT="-i" ;;
+        rotate) IPC_OPT="-r" ;;
+        ptz_preset) IPC_OPT="-p" ;;
     esac
-    if [ "$VAL" == "no" ] || [ "$VAL" == "off" ] ; then
-        VAL="off"
-    elif [ "$VAL" == "yes" ] || [ "$VAL" == "on" ] ; then
-        VAL="on"
+
+    if [ "$MOTION_CHANGE" -eq 1 ]; then
+        $YI_HACK_PREFIX/script/motion_service.sh restart >/dev/null 2>&1
+    elif [ -n "$IPC_OPT" ]; then
+        IPC_VAL="$VAL"
+        if [ "$IPC_VAL" = "no" ] || [ "$IPC_VAL" = "off" ]; then
+            IPC_VAL="off"
+        elif [ "$IPC_VAL" = "yes" ] || [ "$IPC_VAL" = "on" ]; then
+            IPC_VAL="on"
+        fi
+        ipc_cmd $IPC_OPT $IPC_VAL &
     fi
-    ipc_cmd $IPC_OPT $VAL &
 
     $YI_HACK_PREFIX/$CONFIG_SET
 done

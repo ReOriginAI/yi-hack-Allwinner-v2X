@@ -11,7 +11,7 @@ SSHD=yes
 FTPD=yes
 BUSYBOX_FTPD=no
 MDNSD=yes
-DISABLE_CLOUD=no
+DISABLE_CLOUD=yes
 REC_WITHOUT_CLOUD=no
 MQTT=no
 RTSP=yes
@@ -73,12 +73,7 @@ PARMS2="
 SWITCH_ON=yes
 SAVE_VIDEO_ON_MOTION=yes
 MOTION_DETECTION=no
-SENSITIVITY=low
-AI_HUMAN_DETECTION=no
-AI_VEHICLE_DETECTION=no
-AI_ANIMAL_DETECTION=no
-FACE_DETECTION=no
-MOTION_TRACKING=no
+MOTION_SENSITIVITY=5
 SOUND_DETECTION=no
 SOUND_SENSITIVITY=80
 LED=no
@@ -131,6 +126,13 @@ do
     fi
 done
 
+# Local-only build: Yi vendor cloud is intentionally and permanently disabled.
+if grep -q '^DISABLE_CLOUD=' "$SYSTEM_CONF_FILE" 2>/dev/null; then
+    sed -i 's/^DISABLE_CLOUD=.*/DISABLE_CLOUD=yes/' "$SYSTEM_CONF_FILE"
+else
+    echo 'DISABLE_CLOUD=yes' >> "$SYSTEM_CONF_FILE"
+fi
+
 if [ ! -f $CAMERA_CONF_FILE ]; then
     touch $CAMERA_CONF_FILE
 fi
@@ -143,6 +145,12 @@ do
             echo "$i" >> $CAMERA_CONF_FILE
         fi
     fi
+done
+
+# Remove deprecated YI/Pilot motion controls from upgraded configurations.
+for PAR in SENSITIVITY AI_HUMAN_DETECTION AI_VEHICLE_DETECTION AI_ANIMAL_DETECTION FACE_DETECTION MOTION_TRACKING
+do
+    sed -i "/^${PAR}=/d" "$CAMERA_CONF_FILE"
 done
 
 if [ ! -f $MQTTV4_CONF_FILE ]; then
@@ -158,3 +166,22 @@ do
         fi
     fi
 done
+
+# y28ga old firmware has a lightweight generic IVA motion path but also runs
+# face/NNA and PTZ-tracking analysis.  Prepare a hash-guarded patched copy on
+# SD and bind it over the vendor rmm for this boot only.  The flash copy is
+# never modified, and any unknown firmware hash falls back to stock rmm.
+if [ "$(cat /tmp/sd/yi-hack/model_suffix 2>/dev/null)" = "y28ga" ]; then
+    RMM_PATCH_LOG=/tmp/rmm_patch.log
+    rm -f "$RMM_PATCH_LOG"
+    RMM_PATCHED=$(MODEL_SUFFIX=y28ga sh /tmp/sd/yi-hack/script/prepare_rmm.sh 2>"$RMM_PATCH_LOG")
+    if [ $? -eq 0 ] && [ -n "$RMM_PATCHED" ] && [ -x "$RMM_PATCHED" ]; then
+        if ! grep -q ' /home/app/rmm ' /proc/mounts 2>/dev/null; then
+            if ! mount --bind "$RMM_PATCHED" /home/app/rmm; then
+                echo "check_conf: failed to bind patched y28ga rmm" >> "$RMM_PATCH_LOG"
+            fi
+        fi
+    else
+        echo "check_conf: using stock y28ga rmm" >> "$RMM_PATCH_LOG"
+    fi
+fi

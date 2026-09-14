@@ -23,26 +23,10 @@
 
 declare -A CAMERAS
 
-CAMERAS["y21ga"]="y21ga"
-CAMERAS["y211ga"]="y211ga"
-CAMERAS["y211ba"]="y211ba"
-CAMERAS["y213ga"]="y213ga"
-CAMERAS["h30ga"]="h30ga"
-CAMERAS["r30gb"]="r30gb"
-CAMERAS["r35gb"]="r35gb"
-CAMERAS["r37gb"]="r37gb"
-CAMERAS["h52ga"]="h52ga"
-CAMERAS["h51ga"]="h51ga"
-CAMERAS["y28ga"]="y28ga"
-CAMERAS["y29ga"]="y29ga"
-CAMERAS["y291ga"]="y291ga"
-CAMERAS["y623"]="y623"
-CAMERAS["r40ga"]="r40ga"
-CAMERAS["h60ga"]="h60ga"
-CAMERAS["q321br_lsx"]="q321br_lsx"
-CAMERAS["qg311r"]="qg311r"
-CAMERAS["q705br"]="q705br"
-CAMERAS["b091qp"]="b091qp"
+# Custom 3.7.x variant: only these two targets are built/supported by default.
+# Other upstream sysroot/sdhack directories remain as reference material.
+CAMERAS["y623"]="y623"   # Yi Pro 2K Home
+CAMERAS["y28ga"]="y28ga" # Yi 1080p-class / Kami Mini hardware family
 
 ###############################################################################
 # Common functions

@@ -2,24 +2,73 @@
     <div class="twelve columns">
         <div class="row">
             <div class="twelve columns">
-                <h3 class="no-margin inline-block" id="header">Audio Library</h3>
+                <h3 class="no-margin inline-block" id="header">Audio &amp; Text to Speech</h3>
             </div>
         </div>
         <hr class="tiny-margin"/>
 
         <div class="row">
             <p>
-                Upload reusable speaker clips to the SD card and play them from this page.
-                Playback uses the same speaker lock as RTSP/ONVIF talkback, so only one speaker source can run at a time.
-            </p>
-            <p>
-                Supported formats: raw PCM16LE, 16 kHz, 16-bit, mono (<code>.pcm</code>) or uncompressed PCM WAV with the same format (<code>.wav</code>).
+                Play local announcements or reusable speaker clips. All playback stays on the camera and uses the same speaker lock as RTSP/ONVIF talkback, so audio sources cannot overlap.
             </p>
         </div>
 
-        <h4 class="no-margin">Upload</h4>
+        <h4 class="no-margin">Text to Speech</h4>
         <hr class="tiny-margin"/>
         <div class="row">
+            <div class="twelve columns configs-switch">
+                <form id="tts-form" method="POST" action="cgi-bin/tts.sh" target="tts-submit-target">
+                <table class="u-full-width padded-table config-table">
+                    <tbody>
+                        <tr class="row">
+                            <td width="20%">Text</td>
+                            <td colspan="3">
+                                <textarea id="tts-text" name="text" maxlength="1024" rows="4" style="width: 100%;" placeholder="Type an announcement..."></textarea>
+                            </td>
+                        </tr>
+                        <tr class="row">
+                            <td>Voice</td>
+                            <td>
+                                <div class="standard-select">
+                                    <select id="tts-voice" name="voice">
+                                        <option value="en-US" selected>English (US)</option>
+                                        <option value="en-GB">English (UK)</option>
+                                        <option value="de-DE">German</option>
+                                        <option value="es-ES">Spanish</option>
+                                        <option value="fr-FR">French</option>
+                                        <option value="it-IT">Italian</option>
+                                    </select>
+                                </div>
+                            </td>
+                            <td>Speed</td>
+                            <td><input id="tts-speed" name="speed" type="number" min="0.2" max="5.0" step="0.1" value="1.0"/></td>
+                        </tr>
+                        <tr class="row">
+                            <td>Pitch</td>
+                            <td><input id="tts-pitch" name="pitch" type="number" min="0.5" max="2.0" step="0.1" value="1.0"/></td>
+                            <td>Volume</td>
+                            <td><input id="tts-volume" name="volume" type="number" min="0.0" max="5.0" step="0.1" value="1.0"/></td>
+                        </tr>
+                        <tr class="row">
+                            <td colspan="3">
+                                <span class="switch-description">NanoTTS runs fully offline. If two-way audio is active, the request fails cleanly as speaker busy.</span>
+                            </td>
+                            <td>
+                                <input class="button-primary" type="submit" id="tts-speak" value="Speak"/>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+                </form>
+            </div>
+        </div>
+        <div class="row"><p id="tts-status"></p></div>
+        <iframe name="tts-submit-target" id="tts-submit-target" style="display:none"></iframe>
+
+        <h4 class="no-margin">Upload Speaker Clip</h4>
+        <hr class="tiny-margin"/>
+        <div class="row">
+            <p>Supported formats: raw PCM16LE, 16 kHz, 16-bit, mono (<code>.pcm</code>) or uncompressed PCM WAV with the same format (<code>.wav</code>).</p>
             <div class="twelve columns configs-switch">
                 <table class="u-full-width padded-table config-table">
                     <tbody>

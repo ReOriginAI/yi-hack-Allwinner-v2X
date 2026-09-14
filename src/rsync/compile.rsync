@@ -1,0 +1,49 @@
+#!/bin/bash
+set -e
+
+SCRIPT_DIR=$(cd `dirname $0` && pwd)
+cd "$SCRIPT_DIR"
+
+if command -v arm-openwrt-linux-muslgnueabi-gcc >/dev/null 2>&1; then
+    CC=$(command -v arm-openwrt-linux-muslgnueabi-gcc)
+elif command -v arm-openwrt-linux-gcc >/dev/null 2>&1; then
+    CC=$(command -v arm-openwrt-linux-gcc)
+elif [ -x /tmp/lindenis-v536-prebuilt/gcc/linux-x86/arm/toolchain-sunxi-musl/toolchain/bin/arm-openwrt-linux-muslgnueabi-gcc ]; then
+    CC=/tmp/lindenis-v536-prebuilt/gcc/linux-x86/arm/toolchain-sunxi-musl/toolchain/bin/arm-openwrt-linux-muslgnueabi-gcc
+    : "${STAGING_DIR:=/tmp/lindenis-v536-prebuilt/gcc/linux-x86/arm/toolchain-sunxi-musl}"
+else
+    echo "ARM musl cross compiler not found" >&2
+    exit 1
+fi
+
+export STAGING_DIR
+CROSS_PREFIX=${CC%gcc}
+AR=${CROSS_PREFIX}ar
+RANLIB=${CROSS_PREFIX}ranlib
+STRIP=${CROSS_PREFIX}strip
+HOST=$(basename "$CC" | sed 's/-gcc$//')
+
+cd ./_build/rsync-3.5.0
+
+# Keep the camera build self-contained and small.  The supplied prebuilt rsync
+# needs libcrypto.so.1.1, which is absent on older Allwinner firmware, so this
+# build intentionally uses rsync's internal MD4/MD5 and bundled zlib/popt.
+ac_cv_header_mcheck_h=no rsync_cv_HAVE_SOCKETPAIR=yes \
+CC="$CC" AR="$AR" RANLIB="$RANLIB" \
+CFLAGS="-Os -ffunction-sections -fdata-sections" \
+LDFLAGS="-Wl,--gc-sections" \
+./configure \
+    --host="$HOST" \
+    --disable-openssl \
+    --disable-xxhash \
+    --disable-zstd \
+    --disable-lz4 \
+    --disable-iconv \
+    --disable-md2man \
+    --disable-roll-simd
+
+make -j "$(nproc)"
+"$STRIP" rsync
+
+cp rsync "$SCRIPT_DIR/_install/bin/rsync"
+chmod 0755 "$SCRIPT_DIR/_install/bin/rsync"

@@ -7,7 +7,11 @@ compress_html()
 
     echo "Compressing $SRC..."
     awk -f ./httpd/tools/remcomm.awk "$SRC" > ./_install/www/tmp.html
-    xmllint --html --noblanks ./_install/www/tmp.html > "$DST"
+    if command -v xmllint >/dev/null 2>&1; then
+        xmllint --html --noblanks ./_install/www/tmp.html > "$DST"
+    else
+        cp ./_install/www/tmp.html "$DST"
+    fi
     rm ./_install/www/tmp.html
 }
 
@@ -15,6 +19,7 @@ set -e
 
 SCRIPT_DIR=$(cd `dirname $0` && pwd)
 cd $SCRIPT_DIR
+rm -rf ./_install
 
 mkdir -p ./_install/www/cgi-bin
 mkdir -p ./_install/www/img
@@ -25,13 +30,21 @@ mkdir -p ./_install/www/pages
 echo "Compressing CSS files..."
 #find ./httpd/htdocs/css/* ! -name all.css -exec cat {} \+  > ./_install/www/htdocs/css/tmp.css
 cat ./httpd/htdocs/css/normalize.min.css ./httpd/htdocs/css/skeleton.min.css ./httpd/htdocs/css/custom.css > ./_install/www/css/tmp.css
-yui-compressor --type css -o ./_install/www/css/all.css ./_install/www/css/tmp.css
+if command -v yui-compressor >/dev/null 2>&1; then
+    yui-compressor --type css -o ./_install/www/css/all.css ./_install/www/css/tmp.css
+else
+    cp ./_install/www/css/tmp.css ./_install/www/css/all.css
+fi
 rm ./_install/www/css/tmp.css
 
 echo "Compressing JS files..."
 cp ./httpd/htdocs/js/jquery.min.js ./_install/www/js/jquery.min.js
 cat ./httpd/htdocs/js/utils.js ./httpd/htdocs/js/app.js ./httpd/htdocs/js/modules/*.js > ./_install/www/js/tmp.js
-yui-compressor -v --type js -o ./_install/www/js/all.js ./_install/www/js/tmp.js
+if command -v yui-compressor >/dev/null 2>&1; then
+    yui-compressor -v --type js -o ./_install/www/js/all.js ./_install/www/js/tmp.js
+else
+    cp ./_install/www/js/tmp.js ./_install/www/js/all.js
+fi
 rm ./_install/www/js/tmp.js
 
 echo "Compressing HTML files..."

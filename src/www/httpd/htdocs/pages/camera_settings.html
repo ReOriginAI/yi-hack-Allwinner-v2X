@@ -9,9 +9,10 @@
         <hr class="tiny-margin"/>
         <div class="row">
             <p>
-                On this page you can change some camera settings.
+                Configure local camera features. Legacy YI cloud/AI motion controls have been removed; motion is managed only by the local motion service.
             </p>
         </div>
+
         <h4 class="no-margin">General</h4>
         <hr class="tiny-margin"/>
         <div class="row">
@@ -26,13 +27,62 @@
                                 <span class="slider round"></span>
                                 <span class="switch-text"></span>
                             </label>
-                            <span class="switch-description">
-                                Switch on/off the video on the camera.
+                            <span class="switch-description">Switch video capture on/off.</span>
+                        </td>
+                    </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <h4 class="no-margin">Local Motion Detection</h4>
+        <hr class="tiny-margin"/>
+        <div class="row">
+            <div class="twelve columns configs-switch">
+                <table class="u-full-width padded-table config-table">
+                    <tbody>
+                    <tr class="row">
+                        <td>Motion detection</td>
+                        <td>
+                            <label class="switch small">
+                                <input type="checkbox" id="MOTION_DETECTION" data-key="MOTION_DETECTION"/>
+                                <span class="slider round"></span>
+                                <span class="switch-text"></span>
+                            </label>
+                            <span class="switch-description">Enable the local model-aware motion service. On y28ga this uses the lightweight generic firmware IVA detector and local IPC events. The old firmware motion-publication gate is used internally; human/vehicle/animal classifiers, face detection, and PTZ tracking remain disabled.</span>
+                        </td>
+                    </tr>
+                    <tr class="row">
+                        <td>Backend</td>
+                        <td>
+                            <strong id="motion-backend-status">Checking...</strong><br/>
+                            <span class="switch-description" id="motion-runtime-status"></span>
+                        </td>
+                    </tr>
+                    <tr class="row">
+                        <td>Motion sensitivity</td>
+                        <td>
+                            <div class="standard-select">
+                                <select data-key="MOTION_SENSITIVITY" id="MOTION_SENSITIVITY">
+                                    <option value="1">1 - Lowest</option>
+                                    <option value="2">2</option>
+                                    <option value="3">3</option>
+                                    <option value="4">4</option>
+                                    <option value="5">5 - Recommended</option>
+                                    <option value="6">6</option>
+                                    <option value="7">7</option>
+                                    <option value="8">8</option>
+                                    <option value="9">9</option>
+                                    <option value="10">10 - Highest</option>
+                                </select>
+                            </div>
+                            <span class="switch-description" id="motion-sensitivity-description">
+                                Sensitivity for the active local motion detector.
                             </span>
                         </td>
                     </tr>
                     <tr class="row">
-                        <td>Save video when a motion is detected</td>
+                        <td>Local SD motion backup</td>
                         <td>
                             <label class="switch small">
                                 <input type="checkbox" data-key="SAVE_VIDEO_ON_MOTION"/>
@@ -40,116 +90,21 @@
                                 <span class="switch-text"></span>
                             </label>
                             <span class="switch-description">
-                                If enabled, video will be saved only when a motion is detected.
-                            </span>
-                            <br/>
-                            <span class="switch-description">
-                                If disabled, video will be always saved.
-                            </span>
-                            <br/>
-                            <span class="switch-description">
-                                (It takes effect only if recording is enabled)
+                                Start exactly one local recorder for motion events. When disabled, motion detection remains available but no motion-owned recorder is kept running.
                             </span>
                         </td>
                     </tr>
-                    <tr class="row no_fw12">
-                        <td>Motion Detection</td>
-                        <td>
-                            <span class="switch-description">
-                                You don't need to enable motion detection, it's always enabled.
-                            </span>
-                        </td>
-                    </tr>
-                    <tr class="row fw12">
-                        <td>Motion Detection</td>
-                        <td>
-                            <label class="switch small">
-                                <input type="checkbox" id="MOTION_DETECTION" data-key="MOTION_DETECTION"/>
-                                <span class="slider round"></span>
-                                <span class="switch-text"></span>
-                            </label>
-                            <span class="switch-description">
-                                Enable/disable generic Motion Detection (if you select this option, all AI detections will be disabled).
-                            </span>
-                        </td>
-                    </tr>
-                    <tr class="row">
-                        <td>Detection sensitivity</td>
-                        <td>
-                            <div class="standard-select">
-                                <select data-key="SENSITIVITY" id="SENSITIVITY">
-                                    <option value="low">Low</option>
-                                    <option value="medium">Medium</option>
-                                    <option value="high">High</option>
-                                </select>
-                            </div>
-                        </td>
-                    </tr>
-                    <tr class="row">
-                        <td>AI Human Detection</td>
-                        <td>
-                            <label class="switch small">
-                                <input type="checkbox" id="AI_HUMAN_DETECTION" data-key="AI_HUMAN_DETECTION"/>
-                                <span class="slider round"></span>
-                                <span class="switch-text"></span>
-                            </label>
-                            <span class="switch-description">
-                                Enable/disable AI Human Detection (requires plan).
-                            </span>
-                        </td>
-                    </tr>
-                    <tr class="row fw12">
-                        <td>AI Vehicle Detection</td>
-                        <td>
-                            <label class="switch small">
-                                <input type="checkbox" id="AI_VEHICLE_DETECTION" data-key="AI_VEHICLE_DETECTION"/>
-                                <span class="slider round"></span>
-                                <span class="switch-text"></span>
-                            </label>
-                            <span class="switch-description">
-                                Enable/disable AI Vehicle Human Detection (requires plan).
-                            </span>
-                        </td>
-                    </tr>
-                    <tr class="row fw12">
-                        <td>AI Animal Detection</td>
-                        <td>
-                            <label class="switch small">
-                                <input type="checkbox" id="AI_ANIMAL_DETECTION" data-key="AI_ANIMAL_DETECTION"/>
-                                <span class="slider round"></span>
-                                <span class="switch-text"></span>
-                            </label>
-                            <span class="switch-description">
-                                Enable/disable AI Animal Detection (requires plan).
-                            </span>
-                        </td>
-                    </tr>
-                    <tr class="row no_fw12">
-                        <td>Face Detection</td>
-                        <td>
-                            <label class="switch small">
-                                <input type="checkbox" data-key="FACE_DETECTION"/>
-                                <span class="slider round"></span>
-                                <span class="switch-text"></span>
-                            </label>
-                            <span class="switch-description">
-                                Enable/disable Face Detection (if your cam supports it).
-                            </span>
-                        </td>
-                    </tr>
-                    <tr class="row no_fw12">
-                        <td>Motion Tracking sensor</td>
-                        <td>
-                            <label class="switch small">
-                                <input type="checkbox" data-key="MOTION_TRACKING"/>
-                                <span class="slider round"></span>
-                                <span class="switch-text"></span>
-                            </label>
-                            <span class="switch-description">
-                                Enable/disable Motion Tracking sensor (if your cam supports it).
-                            </span>
-                        </td>
-                    </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <h4 class="no-margin">Other Camera Features</h4>
+        <hr class="tiny-margin"/>
+        <div class="row">
+            <div class="twelve columns configs-switch">
+                <table class="u-full-width padded-table config-table">
+                    <tbody>
                     <tr class="row">
                         <td>Sound Detection</td>
                         <td>
@@ -158,9 +113,7 @@
                                 <span class="slider round"></span>
                                 <span class="switch-text"></span>
                             </label>
-                            <span class="switch-description">
-                                Enable/disable sound detection.
-                            </span>
+                            <span class="switch-description">Enable/disable sound detection.</span>
                         </td>
                     </tr>
                     <tr class="row">
@@ -189,9 +142,7 @@
                                 <span class="slider round"></span>
                                 <span class="switch-text"></span>
                             </label>
-                            <span class="switch-description">
-                                Set status led on or off.
-                            </span>
+                            <span class="switch-description">Set status LED on or off.</span>
                         </td>
                     </tr>
                     <tr class="row">
@@ -202,9 +153,7 @@
                                 <span class="slider round"></span>
                                 <span class="switch-text"></span>
                             </label>
-                            <span class="switch-description">
-                                Enable IR led for night vision.
-                            </span>
+                            <span class="switch-description">Enable automatic IR/night-vision hardware.</span>
                         </td>
                     </tr>
                     <tr class="row">
@@ -215,9 +164,7 @@
                                 <span class="slider round"></span>
                                 <span class="switch-text"></span>
                             </label>
-                            <span class="switch-description">
-                                Enable image rotation for ceiling mount.
-                            </span>
+                            <span class="switch-description">Enable image rotation for ceiling mount.</span>
                         </td>
                     </tr>
                     <tr class="row ptz">
@@ -236,10 +183,9 @@
                 </table>
             </div>
         </div>
+
         <div class="align-right">
-            <span class="strong">Any change will take effect immediately.</span>
-            <br/>
-            <span class="strong">Note that these settings are not synchronized with the settings made with the app.</span>
+            <span class="strong">Changes take effect immediately after Save Configuration.</span>
         </div>
         <br/>
         <div class="float-right">

@@ -1,0 +1,107 @@
+#!/bin/sh
+
+YI_HACK_PREFIX="/tmp/sd/yi-hack"
+NANOTTS="$YI_HACK_PREFIX/bin/nanotts"
+SPEAKER="$YI_HACK_PREFIX/bin/speaker"
+LANG_DIR="$YI_HACK_PREFIX/usr/share/pico/lang"
+LOCK_DIR="/tmp/tts.lock"
+
+VOICE="en-US"
+SPEED="1.0"
+PITCH="1.0"
+VOLUME="1.0"
+
+usage()
+{
+    cat <<'EOF'
+Usage: tts [options] TEXT...
+
+Speak text locally through the camera speaker using NanoTTS.
+
+Options:
+  -v, --voice VOICE    en-US, en-GB, de-DE, es-ES, fr-FR, it-IT (default en-US)
+      --speed VALUE    0.2-5.0 (default 1.0)
+      --pitch VALUE    0.5-2.0 (default 1.0)
+      --volume VALUE   0.0-5.0 (default 1.0)
+  -h, --help           Show this help
+
+Example:
+  tts -v en-US --speed 0.9 "Motion detected at the front door"
+EOF
+}
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        -v|--voice)
+            [ $# -ge 2 ] || { echo "Missing voice" >&2; exit 2; }
+            VOICE="$2"
+            shift 2
+            ;;
+        --speed)
+            [ $# -ge 2 ] || { echo "Missing speed" >&2; exit 2; }
+            SPEED="$2"
+            shift 2
+            ;;
+        --pitch)
+            [ $# -ge 2 ] || { echo "Missing pitch" >&2; exit 2; }
+            PITCH="$2"
+            shift 2
+            ;;
+        --volume)
+            [ $# -ge 2 ] || { echo "Missing volume" >&2; exit 2; }
+            VOLUME="$2"
+            shift 2
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        --)
+            shift
+            break
+            ;;
+        -*)
+            echo "Unknown option: $1" >&2
+            usage >&2
+            exit 2
+            ;;
+        *)
+            break
+            ;;
+    esac
+done
+
+[ $# -gt 0 ] || { usage >&2; exit 2; }
+TEXT="$*"
+
+case "$VOICE" in
+    en-US) TA="en-US_ta.bin"; SG="en-US_lh0_sg.bin" ;;
+    en-GB) TA="en-GB_ta.bin"; SG="en-GB_kh0_sg.bin" ;;
+    de-DE) TA="de-DE_ta.bin"; SG="de-DE_gl0_sg.bin" ;;
+    es-ES) TA="es-ES_ta.bin"; SG="es-ES_zl0_sg.bin" ;;
+    fr-FR) TA="fr-FR_ta.bin"; SG="fr-FR_nk0_sg.bin" ;;
+    it-IT) TA="it-IT_ta.bin"; SG="it-IT_cm0_sg.bin" ;;
+    *)
+        echo "Unsupported voice: $VOICE" >&2
+        exit 2
+        ;;
+esac
+
+[ -x "$NANOTTS" ] || { echo "NanoTTS is not installed" >&2; exit 1; }
+[ -x "$SPEAKER" ] || { echo "speaker helper is not installed" >&2; exit 1; }
+[ -r "$LANG_DIR/$TA" ] && [ -r "$LANG_DIR/$SG" ] || {
+    echo "Voice data for $VOICE is not installed" >&2
+    exit 1
+}
+
+# Serialize TTS requests. The speaker helper has its own POSIX semaphore and
+# will also refuse playback if a live intercom/backchannel stream owns it.
+if ! mkdir "$LOCK_DIR" 2>/dev/null; then
+    echo "TTS is already speaking" >&2
+    exit 1
+fi
+trap 'rmdir "$LOCK_DIR" 2>/dev/null' 0 HUP INT TERM
+
+"$NANOTTS" -l "$LANG_DIR" -v "$VOICE" -i "$TEXT" \
+    --speed "$SPEED" --pitch "$PITCH" --volume "$VOLUME" -c |
+    "$SPEAKER" stream pcm

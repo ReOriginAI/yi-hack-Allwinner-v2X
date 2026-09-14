@@ -9,7 +9,7 @@
         <hr class="tiny-margin"/>
         <div class="row">
             <p>
-                In this page you can enable and disable services, change the camera hostname, disable the cloud features and more.
+                In this page you can configure local services and change the camera hostname. Yi vendor cloud is disabled by this local-only build.
             </p>
         </div>
         <h4 class="no-margin">General</h4>
@@ -37,15 +37,11 @@
                         </td>
                     </tr>
                     <tr class="row">
-                        <td>Disable Cloud</td>
+                        <td>Yi Cloud</td>
                         <td>
-                            <label class="switch small">
-                                <input type="checkbox" data-key="DISABLE_CLOUD"/>
-                                <span class="slider round"></span>
-                                <span class="switch-text"></span>
-                            </label>
+                            <span class="strong">Disabled</span>
                             <span class="switch-description">
-                                Disable the Yi App and all the Cloud features (aka private mode).
+                                Vendor cloud, Yi App cloud connectivity, and cloud-dependent services are disabled by this local-only build.
                             </span>
                         </td>
                     </tr>
@@ -58,7 +54,7 @@
                                 <span class="switch-text"></span>
                             </label>
                             <span class="switch-description">
-                                Enable recording on the SD card even with the Cloud features disabled. (It takes effect only if the "Disable Cloud" option is enabled).
+                                Enable the stock SD-card recorder while the camera operates in local-only mode.
                             </span>
                         </td>
                     </tr>

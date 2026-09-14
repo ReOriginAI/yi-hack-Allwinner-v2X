@@ -1,0 +1,8 @@
+#!/bin/bash
+set -e
+
+SCRIPT_DIR=$(cd `dirname $0` && pwd)
+cd "$SCRIPT_DIR"
+
+mkdir -p ../../build/yi-hack/bin ../../build/yi-hack/usr/share/pico/lang
+rsync -a ./_install/ ../../build/yi-hack/

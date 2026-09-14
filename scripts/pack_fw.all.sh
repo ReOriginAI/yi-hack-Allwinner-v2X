@@ -30,6 +30,7 @@ require_root
 
 SCRIPT_DIR=$(get_script_dir)
 
-for CAMERA_NAME in "${!CAMERAS[@]}"; do 
-    $SCRIPT_DIR/pack_fw.sh $CAMERA_NAME
+# This custom variant intentionally builds only the two validated targets.
+for CAMERA_NAME in y623 y28ga; do
+    $SCRIPT_DIR/pack_fw.sh "$CAMERA_NAME"
 done

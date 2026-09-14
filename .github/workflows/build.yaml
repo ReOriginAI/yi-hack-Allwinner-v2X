@@ -1,24 +1,30 @@
-name: Build
+name: Build Yi Pro / Yi 1080p firmware
 
 on:
-  workflow_dispatch: 
-# on:
-#   push:
-#     tags:
-#     branches:
-#       - main
-#       - master
+  workflow_dispatch:
+  push:
+    tags:
+      - "3.*"
 
 env:
   SUNXI_TOOLCHAIN: /opt/yi/toolchain-sunxi-musl
 
 jobs:
   build:
+    name: Build ${{ matrix.camera }}
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        camera:
+          - y623
+          - y28ga
+
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           submodules: recursive
+
       - name: Install deps
         run: |
           sudo apt update
@@ -26,18 +32,23 @@ jobs:
             bison bisonc++ libbison-dev autoconf autotools-dev \
             automake libssl-dev zlib1g-dev libzzip-dev flex libfl-dev \
             yui-compressor closure-compiler optipng jpegoptim libtidy5deb1 node-less \
-            sassc sass-spec libhtml-tidy-perl libxml2-utils rsync qemu-user-static
+            sassc sass-spec libhtml-tidy-perl libxml2-utils rsync qemu-user-static p7zip-full
+
       - name: Download toolchain
         run: |
-          git clone https://github.com/lindenis-org/lindenis-v536-prebuilt
-          sudo mkdir -p ${SUNXI_TOOLCHAIN}
-          sudo cp -r lindenis-v536-prebuilt/gcc/linux-x86/arm/toolchain-sunxi-musl/toolchain ${SUNXI_TOOLCHAIN}/
-      - name: Build
+          git clone --depth 1 https://github.com/lindenis-org/lindenis-v536-prebuilt
+          sudo mkdir -p "${SUNXI_TOOLCHAIN}"
+          sudo cp -r lindenis-v536-prebuilt/gcc/linux-x86/arm/toolchain-sunxi-musl/toolchain "${SUNXI_TOOLCHAIN}/"
+
+      - name: Build shared firmware payload
         run: bash -ex scripts/compile.sh
-      - name: Pack
-        run: sudo bash -ex scripts/pack_fw.all.sh
-      - name: Upload
+
+      - name: Pack ${{ matrix.camera }}
+        run: sudo bash -ex scripts/pack_fw.sh "${{ matrix.camera }}"
+
+      - name: Upload ${{ matrix.camera }}
         uses: actions/upload-artifact@v4
         with:
-          name: build
-          path: out/**/*.tgz
+          name: firmware-${{ matrix.camera }}
+          path: out/${{ matrix.camera }}/*.tgz
+          if-no-files-found: error

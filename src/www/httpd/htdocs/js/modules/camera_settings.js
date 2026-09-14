@@ -2,32 +2,24 @@ var APP = APP || {};
 
 APP.camera_settings = (function($) {
 
+    var motionStatusTimer = null;
+
     function init() {
         registerEventHandler();
         fetchConfigs();
+        startMotionStatusPolling();
         updatePage();
     }
 
     function registerEventHandler() {
-        $(document).on("click", '#button-save', function(e) {
+        $(document).off(".cameraSettingsModule");
+        $(document).on("click.cameraSettingsModule", '#button-save', function(e) {
             saveConfigs();
-        });
-        $(document).on("change", '#MOTION_DETECTION', function(e) {
-            motionDetection('#MOTION_DETECTION');
-        });
-        $(document).on("change", '#AI_HUMAN_DETECTION', function(e) {
-            aiMotionDetections('#AI_HUMAN_DETECTION');
-        });
-        $(document).on("change", '#AI_VEHICLE_DETECTION', function(e) {
-            aiMotionDetections('#AI_VEHICLE_DETECTION');
-        });
-        $(document).on("change", '#AI_ANIMAL_DETECTION', function(e) {
-            aiMotionDetections('#AI_ANIMAL_DETECTION');
         });
     }
 
     function fetchConfigs() {
-        loadingStatusElem = $('#loading-status');
+        var loadingStatusElem = $('#loading-status');
         loadingStatusElem.text("Loading...");
 
         $.ajax({
@@ -38,81 +30,116 @@ APP.camera_settings = (function($) {
                 loadingStatusElem.fadeOut(500);
 
                 $.each(response, function(key, state) {
-                    if(key=="SENSITIVITY" || key=="SOUND_SENSITIVITY" || key=="CRUISE")
+                    if (key === "MOTION_SENSITIVITY" || key === "SOUND_SENSITIVITY" || key === "CRUISE") {
                         $('select[data-key="' + key + '"]').prop('value', state);
-                    else
+                    } else {
                         $('input[type="checkbox"][data-key="' + key + '"]').prop('checked', state === 'yes');
+                    }
                 });
-                if (response["HOMEVER"].startsWith("11") || response["HOMEVER"].startsWith("12")) {
-                    var objects = document.querySelectorAll(".fw12");
-                    for (var i = 0; i < objects.length; i++) {
-                        objects[i].style.display = "table-row";
-                    }
-                } else {
-                    var objects = document.querySelectorAll(".no_fw12");
-                    for (var i = 0; i < objects.length; i++) {
-                        objects[i].style.display = "table-row";
-                    }
-                }
-                aiMotionDetections();
             },
             error: function(response) {
+                loadingStatusElem.text("Unable to load settings");
                 console.log('error', response);
             }
         });
     }
 
-    function motionDetection(el) {
-        if ($(el).prop('checked')) {
-            $("#AI_HUMAN_DETECTION").prop('checked', false)
-            $("#AI_VEHICLE_DETECTION").prop('checked', false)
-            $("#AI_ANIMAL_DETECTION").prop('checked', false)
+    function startMotionStatusPolling() {
+        if (motionStatusTimer) {
+            clearTimeout(motionStatusTimer);
+            motionStatusTimer = null;
         }
+
+        function poll() {
+            if (!$('#motion-backend-status').length) {
+                motionStatusTimer = null;
+                return;
+            }
+            fetchMotionStatus();
+            motionStatusTimer = setTimeout(poll, 2000);
+        }
+
+        poll();
     }
 
-    function aiMotionDetections(el) {
-        if ($(el).prop('checked')) {
-            $("#MOTION_DETECTION").prop('checked', false)
-        }
+    function fetchMotionStatus() {
+        $.ajax({
+            type: "GET",
+            url: 'cgi-bin/motion_status.sh',
+            dataType: "json",
+            cache: false,
+            success: function(data) {
+                if (data.error) return;
+
+                $('#motion-backend-status').text(data.backend_label || data.backend || 'Unknown');
+                $('#motion-runtime-status').text('Service: ' + (data.status || 'unknown') + ', state: ' + (data.state || 'unknown'));
+
+                if (data.sensitivity_supported) {
+                    $('#MOTION_SENSITIVITY').prop('disabled', false);
+                    $('#motion-sensitivity-description').text('Sensitivity for the active local motion detector.');
+                } else {
+                    $('#MOTION_SENSITIVITY').prop('disabled', true);
+                    if (data.backend === 'ipc-events') {
+                        $('#motion-sensitivity-description').text('This model uses the generic firmware IVA detector with local IPC events. Sensitivity is mapped to the firmware detector; legacy AI motion remains disabled.');
+                    } else {
+                        $('#motion-sensitivity-description').text('This backend uses firmware-native sensitivity; the legacy YI sensitivity control is intentionally not exposed.');
+                    }
+                }
+            },
+            error: function(response) {
+                $('#motion-backend-status').text('Status unavailable');
+                $('#motion-runtime-status').text('');
+            }
+        });
     }
 
     function saveConfigs() {
-        var saveStatusElem;
-        let configs = {};
-
-        saveStatusElem = $('#save-status');
+        var saveStatusElem = $('#save-status');
+        var configs = {};
 
         saveStatusElem.text("Saving...");
 
-        $('.configs-switch input[type="checkbox"]').each(function() {
+        $('.configs-switch input[type="checkbox"][data-key]').each(function() {
             configs[$(this).attr('data-key')] = $(this).prop('checked') ? 'yes' : 'no';
         });
 
-        configs["SENSITIVITY"] = $('select[data-key="SENSITIVITY"]').prop('value');
+        configs["MOTION_SENSITIVITY"] = $('select[data-key="MOTION_SENSITIVITY"]').prop('value');
         configs["SOUND_SENSITIVITY"] = $('select[data-key="SOUND_SENSITIVITY"]').prop('value');
         configs["CRUISE"] = $('select[data-key="CRUISE"]').prop('value');
 
         $.ajax({
-            type: "GET",
-            url: 'cgi-bin/camera_settings.sh?' +
-                'save_video_on_motion=' + configs["SAVE_VIDEO_ON_MOTION"] +
-                '&motion_detection=' + configs["MOTION_DETECTION"] +
-                '&sensitivity=' + configs["SENSITIVITY"] +
-                '&ai_human_detection=' + configs["AI_HUMAN_DETECTION"] +
-                '&ai_vehicle_detection=' + configs["AI_VEHICLE_DETECTION"] +
-                '&ai_animal_detection=' + configs["AI_ANIMAL_DETECTION"] +
-                '&face_detection=' + configs["FACE_DETECTION"] +
-                '&motion_tracking=' + configs["MOTION_TRACKING"] +
-                '&sound_detection=' + configs["SOUND_DETECTION"] +
-                '&sound_sensitivity=' + configs["SOUND_SENSITIVITY"] +
-                '&led=' + configs["LED"] +
-                '&ir=' + configs["IR"] +
-                '&rotate=' + configs["ROTATE"] +
-                '&cruise=' + configs["CRUISE"] +
-                '&switch_on=' + configs["SWITCH_ON"],
+            type: "POST",
+            url: 'cgi-bin/set_configs.sh?conf=camera',
+            data: JSON.stringify(configs),
             dataType: "json",
             success: function(response) {
-                saveStatusElem.text("Saved");
+                var params = [
+                    'switch_on=' + configs["SWITCH_ON"],
+                    'save_video_on_motion=' + configs["SAVE_VIDEO_ON_MOTION"],
+                    'motion_detection=' + configs["MOTION_DETECTION"],
+                    'motion_sensitivity=' + configs["MOTION_SENSITIVITY"],
+                    'sound_detection=' + configs["SOUND_DETECTION"],
+                    'sound_sensitivity=' + configs["SOUND_SENSITIVITY"],
+                    'led=' + configs["LED"],
+                    'ir=' + configs["IR"],
+                    'rotate=' + configs["ROTATE"],
+                    'cruise=' + configs["CRUISE"]
+                ];
+
+                $.ajax({
+                    type: "GET",
+                    url: 'cgi-bin/camera_settings.sh?' + params.join('&'),
+                    dataType: "json",
+                    success: function(response) {
+                        saveStatusElem.text("Saved");
+                        fetchMotionStatus();
+                    },
+                    error: function(response) {
+                        saveStatusElem.text("Saved, but runtime apply failed");
+                        fetchMotionStatus();
+                        console.log('error', response);
+                    }
+                });
             },
             error: function(response) {
                 saveStatusElem.text("Error while saving");
@@ -127,18 +154,11 @@ APP.camera_settings = (function($) {
             url: 'cgi-bin/status.json',
             dataType: "json",
             success: function(data) {
-                ptz_enabled = ["r30gb", "r35gb", "r37gb", "r40ga", "h51ga", "h52ga", "h60ga", "q321br_lsx", "qg311r", "b091qp"];
-                this_model = data["model_suffix"] || "unknown";
-                if (ptz_enabled.includes(this_model)) {
-                    var lst = document.querySelectorAll(".ptz");
-                    for(var i = 0; i < lst.length; ++i) {
-                        lst[i].style.display = 'table-row';
-                    }
-                } else {
-                    var lst = document.querySelectorAll(".ptz");
-                    for(var i = 0; i < lst.length; ++i) {
-                        lst[i].style.display = 'none';
-                    }
+                var ptz_enabled = ["r30gb", "r35gb", "r37gb", "r40ga", "h51ga", "h52ga", "h60ga", "q321br_lsx", "qg311r", "b091qp"];
+                var this_model = data["model_suffix"] || "unknown";
+                var lst = document.querySelectorAll(".ptz");
+                for (var i = 0; i < lst.length; ++i) {
+                    lst[i].style.display = ptz_enabled.includes(this_model) ? 'table-row' : 'none';
                 }
             },
             error: function(response) {

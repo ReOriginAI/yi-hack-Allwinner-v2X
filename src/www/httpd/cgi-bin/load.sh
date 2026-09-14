@@ -103,14 +103,6 @@ else
     ipc_cmd -t on
 fi
 
-if [[ $(get_config SAVE_VIDEO_ON_MOTION) == "no" ]] ; then
-    ipc_cmd -v always
-else
-    ipc_cmd -v detect
-fi
-
-ipc_cmd -s $(get_config SENSITIVITY)
-
 if [[ $(get_config LED) == "no" ]] ; then
     ipc_cmd -l off
 else
@@ -140,3 +132,5 @@ elif [[ $(get_config CRUISE) == "360" ]] ; then
     sleep 0.5
     ipc_cmd -C 360
 fi
+
+$YI_HACK_PREFIX/script/motion_service.sh restart >/dev/null 2>&1
