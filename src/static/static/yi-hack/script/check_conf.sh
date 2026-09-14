@@ -167,21 +167,24 @@ do
     fi
 done
 
-# y28ga old firmware has a lightweight generic IVA motion path but also runs
-# face/NNA and PTZ-tracking analysis.  Prepare a hash-guarded patched copy on
-# SD and bind it over the vendor rmm for this boot only.  The flash copy is
-# never modified, and any unknown firmware hash falls back to stock rmm.
-if [ "$(cat /tmp/sd/yi-hack/model_suffix 2>/dev/null)" = "y28ga" ]; then
-    RMM_PATCH_LOG=/tmp/rmm_patch.log
-    rm -f "$RMM_PATCH_LOG"
-    RMM_PATCHED=$(MODEL_SUFFIX=y28ga sh /tmp/sd/yi-hack/script/prepare_rmm.sh 2>"$RMM_PATCH_LOG")
-    if [ $? -eq 0 ] && [ -n "$RMM_PATCHED" ] && [ -x "$RMM_PATCHED" ]; then
-        if ! grep -q ' /home/app/rmm ' /proc/mounts 2>/dev/null; then
-            if ! mount --bind "$RMM_PATCHED" /home/app/rmm; then
-                echo "check_conf: failed to bind patched y28ga rmm" >> "$RMM_PATCH_LOG"
+# Both supported camera families use a small, hash-guarded rmm patch tailored
+# to their exact known vendor binary. The flash copy is never modified: a
+# verified patched copy is generated on SD and bind-mounted for this boot.
+# Unknown rmm builds are refused and safely fall back to the vendor binary.
+RMM_MODEL=$(cat /tmp/sd/yi-hack/model_suffix 2>/dev/null)
+case "$RMM_MODEL" in
+    y623|y28ga)
+        RMM_PATCH_LOG=/tmp/rmm_patch.log
+        rm -f "$RMM_PATCH_LOG"
+        RMM_PATCHED=$(MODEL_SUFFIX="$RMM_MODEL" sh /tmp/sd/yi-hack/script/prepare_rmm.sh 2>"$RMM_PATCH_LOG")
+        if [ $? -eq 0 ] && [ -n "$RMM_PATCHED" ] && [ -x "$RMM_PATCHED" ]; then
+            if ! grep -q ' /home/app/rmm ' /proc/mounts 2>/dev/null; then
+                if ! mount --bind "$RMM_PATCHED" /home/app/rmm; then
+                    echo "check_conf: failed to bind patched $RMM_MODEL rmm" >> "$RMM_PATCH_LOG"
+                fi
             fi
+        else
+            echo "check_conf: using stock $RMM_MODEL rmm" >> "$RMM_PATCH_LOG"
         fi
-    else
-        echo "check_conf: using stock y28ga rmm" >> "$RMM_PATCH_LOG"
-    fi
-fi
+        ;;
+esac

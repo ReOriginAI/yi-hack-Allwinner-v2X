@@ -1,6 +1,6 @@
 # yi-hack-Allwinner-v2X 3.7.0
 
-Custom local-first yi-hack variant focused on **Yi Pro 2K (`y623`)** and **Yi 1080p (`y28ga`)**.
+Custom local-first yi-hack variant focused on **Yi Pro 2K (`y623`)** and **Kami 1080p (`y28ga`)**.
 
 This project is derived from `yi-hack-Allwinner-v2` and keeps the upstream structure and attribution, but the 3.7.x branch intentionally narrows the supported build/release targets to the two camera families that have been tested directly. The focus is low RAM usage, local RTSP/ONVIF operation, two-way audio, local text-to-speech, and local motion detection without the vendor cloud/AI stack.
 
@@ -11,9 +11,7 @@ Other upstream `sysroot/` and `sdhack/` directories remain in the repository as 
 | Camera family | Build target | Tested firmware family | Main stream | Motion backend |
 | --- | --- | --- | --- | --- |
 | Yi Pro 2K Home | `y623` | 12.0.51-class | 2304x1296 H.264 | Low-RAM encoder-statistics `motiond` |
-| Yi 1080p | `y28ga` | 9.0.20-class / older y28ga layout | 1920x1080 H.264 | Generic firmware IVA motion with AI classifiers removed |
-
-The `y28ga` target is the older 1080p hardware/firmware family also associated with Kami Mini-derived hardware. The 3.7.x runtime work was validated on a Yi 1080p unit using this firmware layout.
+| Kami 1080p | `y28ga` | 9.0.20-class / older y28ga layout | 1920x1080 H.264 | Generic firmware IVA motion with AI classifiers removed |
 
 **Do not rename firmware files to force installation on another model.**
 
@@ -39,15 +37,17 @@ The tested Yi Pro 2K hardware uses a `gc3003_mipi` sensor path and produces a 23
 
 Its firmware exposes encoder motion statistics under `/sys/kernel/debug/mpp/ve`. The 3.7.x build uses those statistics for the low-RAM `motiond` service, so the raw VI2 analysis path and vendor AI/YUV analysis work can be removed more aggressively.
 
-### Yi 1080p — `y28ga`
+The y623 `rmm` optimization is generated from the known vendor binary only after a strict MD5 check. It disables the Pilot AI frame path, reduces the unused virtual-channel allocation, and removes the raw VI2 analysis setup. The verified copy is bind-mounted for the boot; the stock flash binary is never overwritten.
 
-The tested Yi 1080p hardware uses a `sp2305_mipi` sensor path and produces a 1920x1080 main stream plus a 640x360 low stream.
+### Kami 1080p — `y28ga`
+
+The tested Kami 1080p hardware uses a `sp2305_mipi` sensor path and produces a 1920x1080 main stream plus a 640x360 low stream.
 
 The older y28ga firmware does **not** expose the same `mpp/ve` encoder-statistics interface. Instead, 3.7.x keeps the firmware's lightweight 640x360 VI2 analysis feed and generic `ivaDetectMotion()` path while disabling the expensive human/vehicle/animal classifier, face/NNA processing, and PTZ tracking work.
 
 The y28ga `rmm` optimization is generated from the camera's own known stock binary and is hash-checked before use. The stock flash binary is not overwritten; the verified optimized copy is bind-mounted for the current boot. Unknown `rmm` builds are refused and fall back to stock.
 
-On the tested Yi 1080p unit this reduced `rmm` from roughly **32.6 MB RSS to 28.7 MB RSS**, with an additional small ION reduction, while retaining RTSP, audio, VI2, and generic motion.
+On the tested Kami 1080p unit this reduced `rmm` from roughly **32.6 MB RSS to 28.7 MB RSS**, with an additional small ION reduction, while retaining RTSP, audio, VI2, and generic motion.
 
 ## What is different in this custom variant
 
@@ -72,15 +72,39 @@ Version 3.7.0 includes the model-specific work developed for these two platforms
 
 Installation remains SD-card based. Make a backup of the original camera firmware first.
 
-1. Format a microSD card as FAT32.
-2. Download the archive for the **exact** target: `y623` or `y28ga`.
-3. Extract the archive to the SD-card root.
-4. Configure Wi-Fi in `Factory/configure_wifi.cfg` if necessary.
-5. Insert the card and reboot the camera.
-6. Open `http://IP-CAM/` after the camera returns online.
-7. Keep the microSD card installed; this hack uses it as part of the runtime filesystem.
+1. Download the GitHub Actions firmware artifact or release bundle.
+2. The bundle contains one `.tgz` for **Yi Pro 2K (`y623`)** and one `.tgz` for **Kami 1080p (`y28ga`)**.
+3. Select the archive for the **exact** camera target.
+4. Extract that target archive to a FAT32 microSD card as required by the yi-hack SD-card layout.
+5. Configure Wi-Fi in `Factory/configure_wifi.cfg` if necessary.
+6. Insert the card and reboot the camera.
+7. Open `http://IP-CAM/` after the camera returns online.
+8. Keep the microSD card installed; this hack uses it as part of the runtime filesystem.
 
 This project is derived from the upstream installation model documented by `roleoroleo/yi-hack-Allwinner-v2`.
+
+## WebUI
+
+Both supported targets use the same current WebUI. Model-specific differences are handled below the UI rather than by maintaining separate pages.
+
+The shared interface includes:
+
+- local motion enable/disable
+- motion sensitivity
+- live motion backend/runtime state polling
+- local SD motion recording control
+- Audio Library upload/list/play/delete controls
+- per-clip playback gain
+- offline TTS controls
+- RTSP/ONVIF configuration
+- status information identifying this custom variant
+
+The motion backend shown by the UI differs by model:
+
+| Model | WebUI motion backend |
+| --- | --- |
+| Yi Pro 2K `y623` | `H264 encoder statistics` |
+| Kami 1080p `y28ga` | `Generic firmware IVA motion` |
 
 ## Core services
 
@@ -240,7 +264,7 @@ with the stored clip basename as the plain-text body.
 GET /cgi-bin/motion_status.sh
 ```
 
-Example y28ga response:
+Example Kami 1080p response:
 
 ```json
 {"error":false,"model":"y28ga","backend":"ipc-events","backend_label":"Generic firmware IVA motion","status":"started","state":"idle","sensitivity":5,"sensitivity_supported":true,"sd_backup":"yes"}
@@ -280,7 +304,7 @@ The Camera Settings WebUI intentionally persists configuration through `set_conf
 
 The Yi Pro firmware exposes motion-related encoder statistics. `motiond` reads those statistics rather than running the vendor AI stack. This allows the more aggressive Yi Pro `rmm`/VI optimizations and avoids retaining the raw AI analysis pipeline solely for motion detection.
 
-### `y28ga` Yi 1080p
+### `y28ga` Kami 1080p
 
 The older y28ga firmware needs the VI2 640x360 raw analysis path for generic `ivaDetectMotion()`. Version 3.7.0 therefore keeps that lightweight path but removes/stubs the expensive classifier and tracking work.
 
@@ -363,8 +387,8 @@ sudo ./scripts/pack_fw.all.sh
 `pack_fw.all.sh` intentionally packages only:
 
 ```text
-y623
-y28ga
+y623   # Yi Pro 2K
+y28ga  # Kami 1080p
 ```
 
 To package one target explicitly:
@@ -378,14 +402,26 @@ Other upstream model names are rejected by `scripts/common.sh` in this custom br
 
 ### GitHub Actions
 
-`.github/workflows/build.yaml` uses an explicit two-target matrix:
+`.github/workflows/build.yaml` uses **one build job** for both supported targets.
+
+The job:
+
+1. checks out the repository and submodules
+2. installs the ARM build dependencies/toolchain
+3. runs `scripts/compile.sh` **once** to build the shared payload
+4. runs `scripts/pack_fw.all.sh` to produce both target archives
+5. verifies there is exactly one `.tgz` for `y623` and exactly one `.tgz` for `y28ga`
+6. uploads both `.tgz` files in **one GitHub Actions artifact** named `yi-hack-Allwinner-v2X-firmware`
+
+GitHub Actions artifact downloads are ZIP files, so downloading that single artifact produces one ZIP containing the two target `.tgz` files:
 
 ```text
-y623
-y28ga
+yi-hack-Allwinner-v2X-firmware.zip
+├── <Yi Pro y623 firmware>.tgz
+└── <Kami 1080p y28ga firmware>.tgz
 ```
 
-Each job builds the shared payload and packages only its assigned target. Artifacts are uploaded separately as `firmware-y623` and `firmware-y28ga`.
+The `.tgz` files stay independently installable; select the one matching the camera model.
 
 The workflow can be started manually and also runs for `3.*` version tags.
 

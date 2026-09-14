@@ -1,4 +1,4 @@
-name: Build Yi Pro / Yi 1080p firmware
+name: Build Yi Pro / Kami 1080p firmware bundle
 
 on:
   workflow_dispatch:
@@ -11,14 +11,8 @@ env:
 
 jobs:
   build:
-    name: Build ${{ matrix.camera }}
+    name: Build firmware bundle
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        camera:
-          - y623
-          - y28ga
 
     steps:
       - uses: actions/checkout@v4
@@ -43,12 +37,24 @@ jobs:
       - name: Build shared firmware payload
         run: bash -ex scripts/compile.sh
 
-      - name: Pack ${{ matrix.camera }}
-        run: sudo bash -ex scripts/pack_fw.sh "${{ matrix.camera }}"
+      - name: Pack Yi Pro and Kami 1080p firmware
+        run: |
+          rm -rf out/y623 out/y28ga out/all
+          sudo bash -ex scripts/pack_fw.all.sh
 
-      - name: Upload ${{ matrix.camera }}
+      - name: Verify bundle contents
+        run: |
+          set -e
+          test "$(find out/all -maxdepth 1 -type f -name '*.tgz' | wc -l)" -eq 2
+          test "$(find out/all -maxdepth 1 -type f -name 'y623_*.tgz' | wc -l)" -eq 1
+          test "$(find out/all -maxdepth 1 -type f -name 'y28ga_*.tgz' | wc -l)" -eq 1
+          echo "Firmware bundle contents:"
+          find out/all -maxdepth 1 -type f -name '*.tgz' -printf '  %f\n' | sort
+
+      - name: Upload firmware bundle
         uses: actions/upload-artifact@v4
         with:
-          name: firmware-${{ matrix.camera }}
-          path: out/${{ matrix.camera }}/*.tgz
+          name: yi-hack-Allwinner-v2X-firmware
+          path: out/all/*.tgz
           if-no-files-found: error
+          compression-level: 0

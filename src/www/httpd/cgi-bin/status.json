@@ -3,7 +3,7 @@
 printf "Content-type: application/json\r\n\r\n"
 
 NAME="yi-hack-allwinner-v2x"
-VARIANT="Yi Pro / Yi 1080p custom variant"
+VARIANT="Yi Pro / Kami 1080p custom variant"
 HOSTNAME=$(hostname)
 FW_VERSION=$(cat /tmp/sd/yi-hack/version)
 HOME_VERSION=$(cat /home/app/.appver)
