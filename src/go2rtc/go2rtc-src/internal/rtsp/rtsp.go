@@ -146,6 +146,7 @@ func rtspHandler(rawURL string) (core.Producer, error) {
 func tcpHandler(conn *rtsp.Conn) {
 	var name string
 	var closer func()
+	var described bool
 
 	trace := log.Trace().Enabled()
 	level := zerolog.WarnLevel
@@ -166,6 +167,13 @@ func tcpHandler(conn *rtsp.Conn) {
 
 		switch msg {
 		case rtsp.MethodDescribe:
+			// A connection is one RTSP consumer. Repeated DESCRIBE requests must
+			// reuse the tracks already registered for it instead of appending
+			// duplicate senders and duplicate stream consumer references.
+			if described {
+				return
+			}
+
 			if len(conn.URL.Path) == 0 {
 				log.Warn().Msg("[rtsp] server empty URL on DESCRIBE")
 				return
@@ -226,6 +234,7 @@ func tcpHandler(conn *rtsp.Conn) {
 				log.WithLevel(level).Err(err).Str("stream", name).Msg("[rtsp]")
 				return
 			}
+			described = true
 
 			closer = func() {
 				stream.RemoveConsumer(conn)

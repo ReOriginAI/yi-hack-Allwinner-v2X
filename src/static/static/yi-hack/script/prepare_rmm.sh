@@ -14,7 +14,7 @@ case "$MODEL_SUFFIX" in
     y623)
         PATCHED_RMM=${RMM_PATCHED_PATH:-$YI_HACK_PREFIX/bin/rmm-y623-motionlite}
         EXPECTED_STOCK_MD5=f8164a1c221ba8c1d4888322a3cf0706
-        EXPECTED_PATCHED_MD5=45be10e9be161e4c36e9ce48958abb9f
+        EXPECTED_PATCHED_MD5=4b7dd522614a92979b795575fd064986
         ;;
     y28ga)
         PATCHED_RMM=${RMM_PATCHED_PATH:-$YI_HACK_PREFIX/bin/rmm-y28ga-motionlite}
@@ -57,7 +57,9 @@ case "$MODEL_SUFFIX" in
         #  - vi_algo_process: return 0 (removes Pilot AI/model initialization)
         #  - VIPP1 virtual channels: 3 -> 1
         #  - skip the unused VI2/raw-analysis setup; motiond uses H264 encoder stats
+        #  - vi_get_yuv_data: return 0 (unused raw-YUV feeder; snapshots work without it)
         printf '\000\000\240\343\036\377\057\341' | dd of="$TMP_RMM" bs=1 seek=105144 conv=notrunc 2>/dev/null
+        printf '\000\000\240\343\036\377\057\341' | dd of="$TMP_RMM" bs=1 seek=107356 conv=notrunc 2>/dev/null
         printf '\001' | dd of="$TMP_RMM" bs=1 seek=113568 conv=notrunc 2>/dev/null
         printf '\002\000\240\343\000\020\240\343\314\177\000\353\052\000\000\352' | dd of="$TMP_RMM" bs=1 seek=124076 conv=notrunc 2>/dev/null
         ;;

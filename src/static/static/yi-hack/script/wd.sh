@@ -106,20 +106,13 @@ check_rtsp_alt()
 check_rtsp_go2rtc()
 {
     if [[ $(get_camera_config SWITCH_ON) == "yes" ]] ; then
-        #  echo "$(date +'%Y-%m-%d %H:%M:%S') - Checking RTSP process..." >> $LOG_FILE
+        # go2rtc exec producers are lazy: zero h264grabber processes is the
+        # normal idle state. Health is one go2rtc daemon plus its listen socket.
         LISTEN=`$YI_HACK_PREFIX/bin/netstat -an 2>&1 | grep ":$RTSP_PORT_NUMBER " | grep LISTEN | grep -c ^`
-        CPU1=`top -b -n 2 -d 1 | grep h264grabber | grep -v grep | tail -n 1 | awk '{print $8}'`
-        CPU2=`top -b -n 2 -d 1 | grep go2rtc | grep -v grep | tail -n 1 | awk '{print $8}'`
+        GO2RTC_COUNT=$(ps | awk '$5 == "go2rtc" { n++ } END { print n+0 }')
 
-        if [ $LISTEN -eq 0 ]; then
-            echo "$(date +'%Y-%m-%d %H:%M:%S') - Restarting rtsp process" >> $LOG_FILE
-            killall -q go2rtc
-            killall -q h264grabber
-            sleep 1
-            restart_rtsp
-        fi
-        if [ "$CPU1" == "" ] || [ "$CPU2" == "" ]; then
-            echo "$(date +'%Y-%m-%d %H:%M:%S') - No running processes, restarting..." >> $LOG_FILE
+        if [ "$LISTEN" -eq 0 ] || [ "$GO2RTC_COUNT" -ne 1 ]; then
+            echo "$(date +'%Y-%m-%d %H:%M:%S') - Restarting go2rtc (listen=$LISTEN count=$GO2RTC_COUNT)" >> $LOG_FILE
             killall -q go2rtc
             killall -q h264grabber
             sleep 1
@@ -171,6 +164,19 @@ check_rmm()
     if [ $FAIL_COUNT -ge 5 ]; then
         echo "$(date +'%Y-%m-%d %H:%M:%S') - rmm failed 5 times consecutively, rebooting..." >> $LOG_FILE
         reboot
+    fi
+}
+
+check_motion()
+{
+    [ "$MODEL_SUFFIX" = "y623" ] || return 0
+    [ "$(get_config DISABLE_CLOUD)" = "yes" ] || return 0
+    [ "$(get_camera_config MOTION_DETECTION)" = "yes" ] || return 0
+
+    COUNT=$(ps | awk '$5 == "/tmp/sd/yi-hack/bin/motiond" { n++ } END { print n+0 }')
+    if [ "$COUNT" -ne 1 ]; then
+        echo "$(date +'%Y-%m-%d %H:%M:%S') - Restarting local motion detector (count=$COUNT)" >> $LOG_FILE
+        "$YI_HACK_PREFIX/script/motion_service.sh" restart >/dev/null 2>&1
     fi
 }
 
@@ -276,6 +282,15 @@ check_wifi()
 }
 
 if [[ $(get_config RTSP) == "no" ]] ; then
+    # Local motion recovery must also work when streaming is disabled.
+    if [ "$MODEL_SUFFIX" = "y623" ] &&
+       [ "$(get_config DISABLE_CLOUD)" = "yes" ] &&
+       [ "$(get_camera_config MOTION_DETECTION)" = "yes" ]; then
+        while true; do
+            check_motion
+            sleep "$INTERVAL"
+        done
+    fi
     exit
 fi
 
@@ -302,6 +317,7 @@ do
         check_rtsp_go2rtc
     fi
     check_rmm
+    check_motion
     check_mqtt
     check_wifi
 

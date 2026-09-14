@@ -8,11 +8,16 @@
 #include <errno.h>
 #include <signal.h>
 #include <mqueue.h>
+#include <ctype.h>
 
 #define VE_PATH "/sys/kernel/debug/mpp/ve"
+#define BUDDY_PATH "/proc/buddyinfo"
 #define STATE_PATH "/tmp/motion.state"
 #define IPC_QUEUE_NAME "/ipc_dispatch"
 #define BUF_SZ 8192
+#define VE_MIN_ORDER3_UNITS 4
+#define VE_PRESSURE_RETRY_MS 500
+#define VE_OPEN_RETRY_MS 1000
 
 static const unsigned char IPC_MOTION_START[16] = {
     0x01,0x00,0x00,0x00, 0x02,0x00,0x00,0x00,
@@ -24,6 +29,7 @@ static const unsigned char IPC_MOTION_STOP[16] = {
 };
 
 static volatile sig_atomic_t running = 1;
+static long long ve_retry_after_ms = 0;
 
 struct motion_stats {
     int scene;
@@ -64,16 +70,102 @@ static long long mono_ms(void) {
     return (long long)ts.tv_sec * 1000LL + ts.tv_nsec / 1000000LL;
 }
 
+/*
+ * The tested y623 VE node is non-seekable and its open callback appears to
+ * require an order-3 (32 KiB with 4 KiB pages) contiguous allocation. Small
+ * free pages and swap cannot satisfy that allocation when memory fragments.
+ * Require four order-3 equivalents in one Normal zone (three left in reserve).
+ * This is a snapshot, not a reservation: another allocator can still race us.
+ * Missing, unreadable or malformed buddyinfo must never permit a VE open.
+ */
+static int ve_order3_reserve_ok(void) {
+    char line[512];
+    FILE *fp = fopen(BUDDY_PATH, "r");
+    if (!fp) return 0;
+
+    int reserve_ok = 0;
+    int invalid = 0;
+    while (fgets(line, sizeof(line), fp)) {
+        char zone[32];
+        int offset = 0;
+        if (!strchr(line, '\n') ||
+            sscanf(line, "Node %*u, zone %31s %n", zone, &offset) != 1 ||
+            offset == 0) {
+            invalid = 1;
+            break;
+        }
+        if (strcmp(zone, "Normal") != 0) continue;
+
+        unsigned int units = 0;
+        unsigned int weight = 1;
+        unsigned int order = 0;
+        char *p = line + offset;
+        while (*p) {
+            while (isspace((unsigned char)*p)) ++p;
+            if (!*p) break;
+            if (!isdigit((unsigned char)*p)) {
+                invalid = 1;
+                break;
+            }
+            char *end;
+            errno = 0;
+            unsigned long count = strtoul(p, &end, 10);
+            if (errno == ERANGE || (*end && !isspace((unsigned char)*end))) {
+                invalid = 1;
+                break;
+            }
+            if (order >= 3) {
+                /* Saturate before multiplying, including on 32-bit ARM. */
+                unsigned int capped = count >= VE_MIN_ORDER3_UNITS ?
+                                      VE_MIN_ORDER3_UNITS : (unsigned int)count;
+                units += capped * weight;
+                if (units > VE_MIN_ORDER3_UNITS) units = VE_MIN_ORDER3_UNITS;
+                if (weight < VE_MIN_ORDER3_UNITS) weight *= 2;
+            }
+            ++order;
+            p = end;
+        }
+        if (order < 4) invalid = 1;
+        if (invalid) break;
+        if (units >= VE_MIN_ORDER3_UNITS) reserve_ok = 1;
+    }
+    if (ferror(fp)) invalid = 1;
+    fclose(fp);
+    return !invalid && reserve_ok;
+}
+
 static int read_stats(struct motion_stats *s) {
     char buf[BUF_SZ];
+    long long now = mono_ms();
+
+    if (now < ve_retry_after_ms) {
+        errno = EAGAIN;
+        return -5;
+    }
+
+    if (!ve_order3_reserve_ok()) {
+        ve_retry_after_ms = now + VE_PRESSURE_RETRY_MS;
+        errno = EAGAIN;
+        return -5;
+    }
+
     int fd = open(VE_PATH, O_RDONLY | O_CLOEXEC);
-    if (fd < 0) return -1;
+    if (fd < 0) {
+        ve_retry_after_ms = mono_ms() + VE_OPEN_RETRY_MS;
+        return -1;
+    }
 
     ssize_t n = read(fd, buf, sizeof(buf) - 1);
     int saved = errno;
     close(fd);
     errno = saved;
-    if (n <= 0) return -1;
+    if (n <= 0) {
+        if (n == 0) errno = EIO;
+        ve_retry_after_ms = mono_ms() + VE_OPEN_RETRY_MS;
+        return -1;
+    }
+    /* Incomplete vendor output also needs a fresh, potentially costly open. */
+    ve_retry_after_ms = mono_ms() + VE_OPEN_RETRY_MS;
     buf[n] = '\0';
 
     char *p = strstr(buf, "Channal[1]");
@@ -94,6 +186,7 @@ static int read_stats(struct motion_stats *s) {
     if (got != 5) return -4;
 
     *s = x;
+    ve_retry_after_ms = 0;
     return 0;
 }
 
@@ -170,7 +263,7 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    printf("motiond v1.0 sens=%d trigger=%.2f release=%.2f confirm=%d quiet_ms=%d interval_ms=%d record_events=%d\n",
+    printf("motiond v1.1 sens=%d trigger=%.2f release=%.2f confirm=%d quiet_ms=%d interval_ms=%d record_events=%d\n",
            sensitivity, c->trigger, c->release, c->confirm_samples,
            c->quiet_ms, interval_ms, record_events);
     fflush(stdout);
@@ -235,10 +328,15 @@ int main(int argc, char **argv) {
                 last_heartbeat = now;
             }
             prev = s;
-        } else if (now - last_heartbeat >= 2000) {
-            fprintf(stderr, "t=%lld read_error=%d errno=%d\n", now, rc, errno);
-            fflush(stderr);
-            last_heartbeat = now;
+        } else {
+            /* Missing samples establish neither motion nor a quiet period. */
+            positives = 0;
+            quiet_since = -1;
+            if (now - last_heartbeat >= 2000) {
+                fprintf(stderr, "t=%lld read_error=%d errno=%d\n", now, rc, errno);
+                fflush(stderr);
+                last_heartbeat = now;
+            }
         }
 
         struct timespec req;

@@ -144,8 +144,26 @@ init_config()
     fi
 }
 
+ensure_rtsp_watchdog()
+{
+    WD_COUNT=$(ps | grep wd.sh | grep -v grep | grep -c ^)
+    if [ "$WD_COUNT" -eq 0 ]; then
+        (sleep 30; $YI_HACK_PREFIX/script/wd.sh >/dev/null) &
+    fi
+}
+
 start_rtsp()
 {
+    RTSP_LOCKDIR=/tmp/rtsp_service.lock.d
+    mkdir "$RTSP_LOCKDIR" 2>/dev/null || return 0
+    trap 'rmdir /tmp/rtsp_service.lock.d 2>/dev/null' 0
+
+    RTSP_COUNT=$(ps | awk -v daemon="$RTSP_DAEMON" '$5 == daemon { n++ } END { print n+0 }')
+    if [ "$RTSP_ALT" != "go2rtc" ] && [ "$RTSP_COUNT" -gt 0 ]; then
+        ensure_rtsp_watchdog
+        return 0
+    fi
+
     # If "null" use default
 
     if [ "$1" == "low" ] || [ "$1" == "high" ] || [ "$1" == "both" ]; then
@@ -160,6 +178,20 @@ start_rtsp()
     fi
 
     if [ "$RTSP_ALT" == "go2rtc" ]; then
+        # Starting RTSP must be idempotent. A second go2rtc daemon can remain
+        # resident after losing the listen-port race, wasting scarce RAM.
+        GO2RTC_COUNT=$(ps | awk '$5 == "go2rtc" { n++ } END { print n+0 }')
+        GO2RTC_LISTEN=$($YI_HACK_PREFIX/bin/netstat -an 2>/dev/null | grep ":$RTSP_PORT " | grep LISTEN | grep -c ^)
+        if [ "$GO2RTC_COUNT" -eq 1 ] && [ "$GO2RTC_LISTEN" -gt 0 ]; then
+            ensure_rtsp_watchdog
+            return 0
+        fi
+        if [ "$GO2RTC_COUNT" -gt 0 ]; then
+            killall -q go2rtc
+            killall -q h264grabber
+            sleep 1
+        fi
+
         GO2RTC_BACKCHANNEL=""
         if [ "$(get_config SPEAKER_AUDIO)" != "no" ] && [ "$ONVIF_AUDIO_BC" == "G711" ]; then
             GO2RTC_BACKCHANNEL="    - exec:$YI_HACK_PREFIX/bin/speaker stream ulaw#backchannel=1#audio=pcmu/8000#killsignal=15#killtimeout=2"
@@ -221,11 +253,9 @@ start_rtsp()
             $RTSP_DAEMON -m $MODEL_SUFFIX -r both $RTSP_STI $RTSP_AUDIO_OPTION $P_RTSP_PORT $RTSP_USER $RTSP_PASSWORD $RTSP_AUDIO_BC &
         fi
 
-        WD_COUNT=$(ps | grep wd.sh | grep -v grep | grep -c ^)
-        if [ $WD_COUNT -eq 0 ]; then
-            (sleep 30; $YI_HACK_PREFIX/script/wd.sh >/dev/null) &
-        fi
     fi
+
+    ensure_rtsp_watchdog
 }
 
 stop_rtsp()
@@ -544,7 +574,7 @@ elif [ "$ACTION" == "stop" ] ; then
     fi
 elif [ "$ACTION" == "status" ] ; then
     if [ "$NAME" == "rtsp" ]; then
-        RES=$(ps_program rRTSPServer)
+        RES=$(ps_program "$RTSP_DAEMON")
     elif [ "$NAME" == "onvif" ]; then
         RES=$(ps_program onvif_notify_server)
     elif [ "$NAME" == "wsdd" ]; then

@@ -138,6 +138,7 @@
 #define FIFO_NAME_LOW "/tmp/h264_low_fifo"
 #define FIFO_NAME_HIGH "/tmp/h264_high_fifo"
 #define FIFO_NAME_AAC  "/tmp/aac_audio_fifo"
+#define STDOUT_BUFFER_SIZE 4096
 
 #define CODEC_NONE 0
 #define CODEC_H264 264
@@ -824,20 +825,20 @@ int main(int argc, char **argv) {
     // Opening/setting output file
     if (fifo == 0) {
         if (resolution == RESOLUTION_LOW) {
-            stdoutbuf = (char *) malloc(sizeof(char) * sizeof(stdoutbuf));
-            if (setvbuf(stdout, stdoutbuf, _IOFBF, sizeof(stdoutbuf)) != 0) {
+            stdoutbuf = (char *) malloc(STDOUT_BUFFER_SIZE);
+            if (setvbuf(stdout, stdoutbuf, _IOFBF, STDOUT_BUFFER_SIZE) != 0) {
                 fprintf(stderr, "Error setting stdout buffer\n");
             }
             fOutLow = stdout;
         } else if (resolution == RESOLUTION_HIGH) {
-            stdoutbuf = (char *) malloc(sizeof(char) * sizeof(stdoutbuf));
-            if (setvbuf(stdout, stdoutbuf, _IOFBF, sizeof(stdoutbuf)) != 0) {
+            stdoutbuf = (char *) malloc(STDOUT_BUFFER_SIZE);
+            if (setvbuf(stdout, stdoutbuf, _IOFBF, STDOUT_BUFFER_SIZE) != 0) {
                 fprintf(stderr, "Error setting stdout buffer\n");
             }
             fOutHigh = stdout;
         } else if (audio == 1) {
-            stdoutbuf = (char *) malloc(sizeof(char) * sizeof(stdoutbuf));
-            if (setvbuf(stdout, stdoutbuf, _IOFBF, sizeof(stdoutbuf)) != 0) {
+            stdoutbuf = (char *) malloc(STDOUT_BUFFER_SIZE);
+            if (setvbuf(stdout, stdoutbuf, _IOFBF, STDOUT_BUFFER_SIZE) != 0) {
                 fprintf(stderr, "Error setting stdout buffer\n");
             }
             fOutAac = stdout;
@@ -962,6 +963,9 @@ int main(int argc, char **argv) {
         // Check if the header is ok
         memcpy(&i, addr + 12, sizeof(i));
         if (buf_idx_end != addr + buf_offset + i) {
+#ifdef USE_SEMAPHORE
+            sem_write_unlock();
+#endif
             usleep(1000);
             continue;
         }
@@ -1274,6 +1278,7 @@ int main(int argc, char **argv) {
                             fwrite(buf_idx_start, 1, frame_len, fOut);
                         }
                     }
+                    if (fifo == 0) fflush(fOut);
                     if (debug) fprintf(stderr, "%lld: writing frame, length %d\n", current_timestamp(), frame_len);
                 }
             }

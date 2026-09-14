@@ -135,6 +135,27 @@ configure_y28ga_generic_motion()
 
 stop_motiond()
 {
+    if [ "$MODEL_SUFFIX" = "y623" ]; then
+        # Ignore stale pidfiles: a recycled PID may belong to rmm or a service.
+        for SIGNAL in TERM KILL; do
+            PIDS=$(ps | awk '$5 == "/tmp/sd/yi-hack/bin/motiond" { print $1 }')
+            [ -n "$PIDS" ] || break
+            kill -"$SIGNAL" $PIDS 2>/dev/null
+            N=0
+            while [ "$(process_count motiond)" -gt 0 ] && [ "$N" -lt 20 ]; do
+                sleep 0.1
+                N=$((N+1))
+            done
+        done
+        if [ "$(process_count motiond)" -ne 0 ]; then
+            echo "unable to stop all motiond instances" >&2
+            return 1
+        fi
+        rm -f "$PIDFILE"
+        echo 0 > "$STATEFILE"
+        return 0
+    fi
+
     if [ -f "$PIDFILE" ]; then
         PID=$(cat "$PIDFILE" 2>/dev/null)
         if [ -n "$PID" ] && [ -d "/proc/$PID" ]; then
@@ -201,6 +222,11 @@ ensure_single_mp4record()
         "$SERVICE" mp4record stop >/dev/null 2>&1
         sleep 0.5
         COUNT=0
+        if [ "$MODEL_SUFFIX" = "y623" ]; then
+            COUNT=$(process_count mp4record)
+            # Do not start another recorder while old instances are exiting.
+            [ "$COUNT" -le 1 ] || return 1
+        fi
     fi
 
     if [ "$COUNT" -eq 0 ]; then
@@ -255,6 +281,13 @@ start_encoder_backend()
     "$MOTIOND" -s "$SENS" -i 100 $RECORD_OPT > "$LOGFILE" 2>&1 &
     PID=$!
     echo "$PID" > "$PIDFILE"
+
+    # motiond is expendable compared with rmm: if the kernel must choose an
+    # OOM victim, prefer losing/restarting motion detection over video capture.
+    if [ -w "/proc/$PID/oom_score_adj" ]; then
+        echo 500 > "/proc/$PID/oom_score_adj" 2>/dev/null || true
+    fi
+
     sleep 0.2
 
     if [ ! -d "/proc/$PID" ]; then
@@ -293,7 +326,7 @@ start_ipc_backend()
 
 start_motion()
 {
-    stop_motiond
+    stop_motiond || return 1
 
     # Never leave y28ga classifiers/tracking enabled from a stale session.
     disable_y28ga_classifiers >/dev/null 2>&1 || true
@@ -333,7 +366,7 @@ start_motion()
 
 stop_motion()
 {
-    stop_motiond
+    stop_motiond || return 1
     stop_owned_mp4record
     disable_y28ga_classifiers >/dev/null 2>&1 || true
     set_y28ga_generic_motion_gate off >/dev/null 2>&1 || true
@@ -374,6 +407,21 @@ status_motion()
             ;;
     esac
 }
+
+# Serialize y623 lifecycle operations from watchdog and configuration callers.
+# This kernel returns ENOSYS for flock. An atomic mkdir works without it.
+# Fail closed on contention; watchdog retries later. /tmp clears on reboot.
+# SIGKILL of this service shell (not motiond) requires removing a stale lock.
+if [ "$MODEL_SUFFIX" = "y623" ]; then
+    case "$1" in
+        start|restart|stop)
+            LOCKDIR=/tmp/motion_service.lock.d
+            mkdir "$LOCKDIR" 2>/dev/null || exit 1
+            trap 'rmdir "$LOCKDIR" 2>/dev/null' 0
+            trap 'exit 1' HUP INT TERM
+            ;;
+    esac
+fi
 
 case "$1" in
     start|restart)

@@ -37,7 +37,9 @@ The tested Yi Pro 2K hardware uses a `gc3003_mipi` sensor path and produces a 23
 
 Its firmware exposes encoder motion statistics under `/sys/kernel/debug/mpp/ve`. The 3.7.x build uses those statistics for the low-RAM `motiond` service, so the raw VI2 analysis path and vendor AI/YUV analysis work can be removed more aggressively.
 
-The y623 `rmm` optimization is generated from the known vendor binary only after a strict MD5 check. It disables the Pilot AI frame path, reduces the unused virtual-channel allocation, and removes the raw VI2 analysis setup. The verified copy is bind-mounted for the boot; the stock flash binary is never overwritten.
+The y623 `rmm` optimization is generated from the known vendor binary only after a strict MD5 check. It disables the Pilot AI frame path, reduces the unused virtual-channel allocation, removes the raw VI2 analysis setup, and makes the unused `vi_get_yuv_data` feeder return immediately. The verified copy is bind-mounted for the boot; the stock flash binary is never overwritten.
+
+The no-YUV patch generates MD5 `4b7dd522614a92979b795575fd064986`. Previous live testing reported roughly 3–5 CPU percentage points saved while retaining high/low H.264, AAC, local motion, recording, and snapshots. Snapshot comparisons used swap to accommodate their transient memory demand. The generated binary matches that tested artifact; final clean-boot validation of this script integration remains pending. This additional patch applies only to y623.
 
 ### Kami 1080p — `y28ga`
 

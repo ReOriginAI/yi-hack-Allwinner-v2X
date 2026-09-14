@@ -1,0 +1,21 @@
+--- a/internal/exec/exec.go
++++ b/internal/exec/exec.go
+@@ -1,7 +1,6 @@
+ package exec
+ 
+ import (
+-	"bufio"
+ 	"crypto/md5"
+ 	"encoding/hex"
+ 	"errors"
+@@ -138,8 +137,8 @@
+ 		io.Reader
+ 		io.Closer
+ 	}{
+-		// add buffer for pipe reader to reduce syscall
+-		bufio.NewReaderSize(stdout, core.BufferSize),
++		// direct pipe reader on RAM-constrained Yi
++		stdout,
+ 		// stop cmd on close pipe call
+ 		cmd,
+ 	}

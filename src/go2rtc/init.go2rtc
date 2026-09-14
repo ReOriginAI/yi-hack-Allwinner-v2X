@@ -16,11 +16,19 @@ tar -xzf go2rtc-src.tar.gz
 mv go2rtc-${VERSION#v} go2rtc-src
 
 patch -d go2rtc-src -p1 < onvif-backchannel.patch
+patch -d go2rtc-src -p1 < rtsp-lifecycle.patch
+patch -d go2rtc-src -p1 < exec-direct-pipe.patch
+
+# Keep the camera build intentionally small: RTSP + streams + exec only.
+# Upstream releases do not contain this Yi-specific entry point, so recreate it
+# after every clean source extraction before building.
+mkdir -p go2rtc-src/cmd/yi
+cp yi-main.go go2rtc-src/cmd/yi/main.go
 
 (
     cd go2rtc-src
     CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=7 \
-        go build -buildvcs=false -trimpath -ldflags="-s -w" -o ../go2rtc/go2rtc .
+        go build -buildvcs=false -trimpath -ldflags="-s -w" -o ../go2rtc/go2rtc ./cmd/yi
 )
 
 chmod 0755 go2rtc/go2rtc
