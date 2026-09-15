@@ -26,6 +26,9 @@ APP.maintenance = (function($) {
         $(document).on("click", '#button-upgrade', function(e) {
             upgradeFirmware();
         });
+        $(document).on("click", '#button-fw-upload', function(e) {
+            uploadFirmware();
+        });
     }
 
     function saveConfig() {
@@ -44,6 +47,10 @@ APP.maintenance = (function($) {
                 }).hide().appendTo("body")[0].click();
                 URL.revokeObjectURL(url);
             }
+            $('#button-save').attr("disabled", false);
+        };
+        xhr.onerror = function() {
+            $('#button-save').attr("disabled", false);
         };
         xhr.send();
     }
@@ -62,11 +69,13 @@ APP.maintenance = (function($) {
         var xhr = new XMLHttpRequest();
         xhr.open('POST', 'cgi-bin/load.sh', true);
         xhr.onload = function() {
-            if (xhr.status === 200) {
-                $('#button-load').attr("disabled", false);
-            }
+            $('#button-load').attr("disabled", false);
             var myText = xhr.response;
             $('#text-load').text(myText);
+        };
+        xhr.onerror = function() {
+            $('#button-load').attr("disabled", false);
+            $('#text-load').text("Upload failed.");
         };
         xhr.send(formData);
     }
@@ -133,37 +142,143 @@ APP.maintenance = (function($) {
         }
     }
 
+    function setUpgradeControlsDisabled(disabled) {
+        $('#button-upgrade').attr("disabled", disabled);
+        $('#button-fw-upload').attr("disabled", disabled);
+        $('#button-fw-file').attr("disabled", disabled);
+    }
+
+    function uploadFirmware() {
+        var fileSelect = document.getElementById('button-fw-file');
+        var file = fileSelect && fileSelect.files ? fileSelect.files[0] : null;
+
+        if (!file) {
+            $('#text-fw-upload').text("Select a firmware .tgz first.");
+            return;
+        }
+        if (!/\.tgz$/i.test(file.name)) {
+            $('#text-fw-upload').text("Only .tgz firmware packages are supported.");
+            return;
+        }
+        if (file.size <= 0 || file.size > 67108864) {
+            $('#text-fw-upload').text("Firmware must be between 1 byte and 64 MiB.");
+            return;
+        }
+
+        var confirmation = confirm(
+            "Upload " + file.name + " and start the firmware upgrade? " +
+            "The camera will reboot and may reboot more than once. Do not remove power or the SD card."
+        );
+        if (!confirmation) {
+            return;
+        }
+
+        setUpgradeControlsDisabled(true);
+        $('#text-fw-upload').text("Uploading 0%...");
+        setFwStatus("Firmware upload in progress.");
+
+        var xhr = new XMLHttpRequest();
+        xhr.open('POST', 'cgi-bin/fw_upload.sh', true);
+        xhr.setRequestHeader('Content-Type', 'application/gzip');
+
+        xhr.upload.onprogress = function(e) {
+            if (e.lengthComputable && e.total > 0) {
+                var percent = Math.min(100, Math.round((e.loaded * 100) / e.total));
+                $('#text-fw-upload').text("Uploading " + percent + "%...");
+            }
+        };
+
+        xhr.onload = function() {
+            var data;
+            try {
+                data = JSON.parse(xhr.responseText);
+            } catch (e) {
+                data = { error: true, description: "Invalid response from camera." };
+            }
+
+            if (xhr.status !== 200 || data.error) {
+                var message = data.description || "Firmware upload failed.";
+                $('#text-fw-upload').text(message);
+                setFwStatus(message);
+                setUpgradeControlsDisabled(false);
+                return;
+            }
+
+            var staged = "Validated " + data.model + " firmware " + data.version + ".";
+            $('#text-fw-upload').text(staged + " Starting upgrade...");
+            setFwStatus(staged + " Preparing upgrade.");
+            runFirmwareUpgrade();
+        };
+
+        xhr.onerror = function() {
+            $('#text-fw-upload').text("Firmware upload failed.");
+            setFwStatus("Firmware upload failed.");
+            setUpgradeControlsDisabled(false);
+        };
+
+        xhr.send(file);
+    }
+
     function upgradeFirmware() {
-        $('#button-upgrade').attr("disabled", true);
         setFwStatus("Firmware download in progress.");
+        runFirmwareUpgrade();
+    }
+
+    function runFirmwareUpgrade() {
+        setUpgradeControlsDisabled(true);
         $.ajax({
             type: "GET",
             url: 'cgi-bin/fw_upgrade.sh?get=upgrade',
             error: function(response) {
                 console.log('error', response);
+                setFwStatus("Unable to start firmware upgrade.");
+                setUpgradeControlsDisabled(false);
             },
             success: function(response) {
                 setFwStatus(response);
-                waitForUpgrade();
-            },
-            complete: function () {
-                $('#button-upgrade').attr("disabled", false);
+                if (response.indexOf("rebooting") !== -1 || response.indexOf("upgrading") !== -1) {
+                    waitForUpgrade();
+                } else {
+                    setUpgradeControlsDisabled(false);
+                }
             }
         });
     }
 
     function waitForUpgrade() {
-        setInterval(function() {
+        var sawOffline = false;
+        var onlineSuccesses = 0;
+
+        if (timeoutVar) {
+            clearInterval(timeoutVar);
+        }
+
+        timeoutVar = setInterval(function() {
             $.ajax({
                 url: 'index.html',
                 cache: false,
                 success: function(data) {
-                    setFwStatus("Camera is upgrading.");
-                    $('#button-upgrade').attr("disabled", false);
+                    if (!sawOffline) {
+                        setFwStatus("Upgrade staged; waiting for reboot...");
+                        return;
+                    }
+
+                    onlineSuccesses++;
+                    if (onlineSuccesses < 2) {
+                        setFwStatus("Camera is coming back online...");
+                        return;
+                    }
+
+                    clearInterval(timeoutVar);
+                    timeoutVar = null;
+                    setFwStatus("Firmware upgrade completed; redirecting to home.");
+                    setUpgradeControlsDisabled(false);
                     window.location.href = "index.html";
                 },
                 error: function(data) {
-                    setFwStatus("Waiting for the camera to come back online...");
+                    sawOffline = true;
+                    onlineSuccesses = 0;
+                    setFwStatus("Firmware upgrade in progress; waiting for camera...");
                 },
                 timeout: 3000,
             });

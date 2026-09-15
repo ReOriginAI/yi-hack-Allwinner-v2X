@@ -16,6 +16,8 @@ COUNTER=0
 COUNTER_LIMIT=10
 INTERVAL=10
 WIFI_FAILSAFE_COUNTER=0
+WIFI_FAILSAFE_STARTED=0
+WIFI_MAINTENANCE_FAILSAFE_COUNTER=0
 
 get_camera_config()
 {
@@ -194,73 +196,166 @@ check_mqtt()
 
 check_wifi()
 {
-    # Check WiFi connection using multiple methods for compatibility
-    # Some camera models (e.g., r37gb) have broken wpa_cli that causes segfaults
+    MAINT_STATE=$(cat /tmp/wifi_maintenance_active 2>/dev/null)
+
+    # After primary failover, monitor only the maintenance profile. Never poll
+    # or retry the primary SSID until reboot. If maintenance itself cannot
+    # establish or keep a usable connection for six recovery attempts, reboot
+    # so the WiFi driver/hardware and the primary boot profile get a clean start.
+    if [ "$(get_config WIFI_MAINTENANCE_ENABLED)" = "yes" ] &&
+       { [ "$MAINT_STATE" = "maintenance_pending" ] || [ "$MAINT_STATE" = "maintenance" ]; }; then
+        WIFI_CONNECTED=0
+        WPA_STATUS_VALID=0
+
+        if [ -x /home/base/tools/wpa_cli ]; then
+            (sleep 2 && killall -9 wpa_cli 2>/dev/null) &
+            KILLER_PID=$!
+            WPA_OUTPUT=$(/home/base/tools/wpa_cli -i wlan0 status 2>/dev/null)
+            WPA_EXIT=$?
+            kill $KILLER_PID 2>/dev/null
+            wait $KILLER_PID 2>/dev/null
+            if [ $WPA_EXIT -eq 0 ] && echo "$WPA_OUTPUT" | grep -q "wpa_state="; then
+                WPA_STATUS_VALID=1
+                if echo "$WPA_OUTPUT" | grep -q "wpa_state=COMPLETED"; then
+                    WIFI_CONNECTED=1
+                fi
+            fi
+        fi
+
+        # Only trust an existing IPv4 address when wpa_cli is unavailable/broken.
+        # If wpa_cli explicitly reports a non-COMPLETED state, the old address
+        # may be stale and must not hide a failed maintenance association.
+        if [ $WIFI_CONNECTED -eq 0 ] && [ $WPA_STATUS_VALID -eq 0 ] && ifconfig wlan0 2>/dev/null | grep -q "inet addr:"; then
+            WIFI_CONNECTED=1
+        fi
+
+        if [ $WIFI_CONNECTED -eq 1 ]; then
+            MAINT_SSID=$(get_config WIFI_MAINTENANCE_SSID)
+            CURRENT_SSID=$(iwconfig wlan0 2>/dev/null | sed -n 's/.*ESSID:"\([^"]*\)".*/\1/p')
+            if [ -z "$MAINT_SSID" ] || [ "$CURRENT_SSID" != "$MAINT_SSID" ]; then
+                WIFI_CONNECTED=0
+            fi
+        fi
+
+        if [ $WIFI_CONNECTED -eq 0 ] && [ -f /sys/class/net/wlan0/carrier ]; then
+            CARRIER=$(cat /sys/class/net/wlan0/carrier 2>/dev/null)
+            [ "$CARRIER" = "1" ] || WIFI_CONNECTED=0
+        fi
+
+        if [ $WIFI_CONNECTED -eq 1 ]; then
+            if [ "$MAINT_STATE" != "maintenance" ]; then
+                echo "maintenance" > /tmp/wifi_maintenance_active
+                echo -e "$(date): Maintenance WiFi connected; primary will not be retried until reboot" >> "$LOGWIFI_FILE"
+            elif [ "$WIFI_MAINTENANCE_FAILSAFE_COUNTER" -gt 0 ]; then
+                echo -e "$(date): Maintenance WiFi connection restored" >> "$LOGWIFI_FILE"
+            fi
+            WIFI_MAINTENANCE_FAILSAFE_COUNTER=0
+            return 0
+        fi
+
+        WIFI_MAINTENANCE_FAILSAFE_COUNTER=$((WIFI_MAINTENANCE_FAILSAFE_COUNTER + 1))
+        echo -e "$(date): Maintenance WiFi unavailable (failsafe attempt $WIFI_MAINTENANCE_FAILSAFE_COUNTER/6)" >> "$LOGWIFI_FILE"
+
+        if [ "$WIFI_MAINTENANCE_FAILSAFE_COUNTER" -ge 6 ]; then
+            echo -e "$(date): Primary and maintenance WiFi both failed; rebooting for clean driver/hardware recovery" >> "$LOGWIFI_FILE"
+            reboot
+            return 0
+        fi
+
+        echo -e "$(date): Retrying maintenance WiFi only" >> "$LOGWIFI_FILE"
+        "$YI_HACK_PREFIX/script/wifi_failover.sh" >/dev/null 2>&1
+        return 0
+    fi
 
     WIFI_CONNECTED=0
 
-    # Method 1: Try wpa_cli if available and working (preferred method)
-    # Wrap in timeout to avoid hanging - wpa_cli may block on some models
+    # Method 1: Try wpa_cli if available and working.
     if [ -x /home/base/tools/wpa_cli ]; then
-        # Run wpa_cli with auto-kill after 2 seconds if it hangs
         (sleep 2 && killall -9 wpa_cli 2>/dev/null) &
         KILLER_PID=$!
-
         WPA_OUTPUT=$(/home/base/tools/wpa_cli -i wlan0 status 2>/dev/null)
         WPA_EXIT=$?
-
-        # Kill the timeout killer if wpa_cli finished
         kill $KILLER_PID 2>/dev/null
         wait $KILLER_PID 2>/dev/null
 
-        # Check if wpa_cli succeeded and returned valid output
         if [ $WPA_EXIT -eq 0 ] && echo "$WPA_OUTPUT" | grep -q "wpa_state=COMPLETED"; then
             WIFI_CONNECTED=1
         fi
     fi
 
-    # Method 2: Fallback - check if interface has IP address (reliable on all models)
+    # Method 2: Fallback to an assigned IPv4 address.
     if [ $WIFI_CONNECTED -eq 0 ]; then
         if ifconfig wlan0 2>/dev/null | grep -q "inet addr:"; then
             WIFI_CONNECTED=1
         fi
     fi
 
-    # Method 3: Additional check - interface carrier state
-    if [ $WIFI_CONNECTED -eq 0 ]; then
-        if [ -f /sys/class/net/wlan0/carrier ]; then
-            CARRIER=$(cat /sys/class/net/wlan0/carrier 2>/dev/null)
-            if [ "$CARRIER" != "1" ]; then
-                WIFI_CONNECTED=0
-            fi
+    # With maintenance failover enabled, only the configured primary SSID
+    # counts as healthy during the grace period. This prevents a vendor
+    # secondary network block from masking loss of the real primary network.
+    if [ "$(get_config WIFI_MAINTENANCE_ENABLED)" = "yes" ] && [ $WIFI_CONNECTED -eq 1 ]; then
+        PRIMARY_SSID=$(dd bs=1 skip=28 count=64 if=/dev/mtdblock7 2>/dev/null | tr -d "\000\r")
+        CURRENT_SSID=$(iwconfig wlan0 2>/dev/null | sed -n 's/.*ESSID:"\([^"]*\)".*/\1/p')
+        if [ -z "$PRIMARY_SSID" ] || [ "$CURRENT_SSID" != "$PRIMARY_SSID" ]; then
+            WIFI_CONNECTED=0
         fi
     fi
 
-    # Handle WiFi disconnection
+    # Preserve the vendor carrier sanity check.
+    if [ $WIFI_CONNECTED -eq 0 ] && [ -f /sys/class/net/wlan0/carrier ]; then
+        CARRIER=$(cat /sys/class/net/wlan0/carrier 2>/dev/null)
+        [ "$CARRIER" = "1" ] || WIFI_CONNECTED=0
+    fi
+
     if [ $WIFI_CONNECTED -eq 0 ]; then
-        # Rotate log file to prevent it from growing too large
         if [ -e "$LOGWIFI_FILE" ]; then
             $YI_HACK_PREFIX/usr/bin/tail -n 145 "$LOGWIFI_FILE" > "$LOGWIFI_FILE.tmp" && mv "$LOGWIFI_FILE.tmp" "$LOGWIFI_FILE"
         fi
 
-        echo -e "$(date): WiFi connection lost (failsafe attempt $((WIFI_FAILSAFE_COUNTER + 1))/6)" >> "$LOGWIFI_FILE"
-
         WIFI_FAILSAFE_COUNTER=$((WIFI_FAILSAFE_COUNTER + 1))
 
-        if [ "$WIFI_FAILSAFE_COUNTER" -ge 6 ]; then
-            echo -e "$(date): WiFi connection could not be restored after 6 attempts. Rebooting..." >> "$LOGWIFI_FILE"
-            reboot
-        else
-            echo -e "$(date): Attempting WiFi reconnect..." >> "$LOGWIFI_FILE"
+        if [ "$(get_config WIFI_MAINTENANCE_ENABLED)" = "yes" ]; then
+            WIFI_GRACE=$(get_config WIFI_MAINTENANCE_GRACE)
+            case "$WIFI_GRACE" in ''|*[!0-9]*) WIFI_GRACE=180 ;; esac
+            [ "$WIFI_GRACE" -ge 30 ] 2>/dev/null || WIFI_GRACE=30
+            [ "$WIFI_GRACE" -le 3600 ] 2>/dev/null || WIFI_GRACE=3600
+            WIFI_NOW=$(cut -d. -f1 /proc/uptime 2>/dev/null)
+            case "$WIFI_NOW" in ''|*[!0-9]*) WIFI_NOW=$((WIFI_FAILSAFE_COUNTER * INTERVAL)) ;; esac
+            if [ "$WIFI_FAILSAFE_STARTED" -eq 0 ]; then
+                WIFI_FAILSAFE_STARTED=$WIFI_NOW
+            fi
+            WIFI_LOST_SECONDS=$((WIFI_NOW - WIFI_FAILSAFE_STARTED))
 
-            # Try to reconnect
+            echo -e "$(date): Primary WiFi unavailable (${WIFI_LOST_SECONDS}s/${WIFI_GRACE}s, recovery attempt $WIFI_FAILSAFE_COUNTER/6 before maintenance handoff)" >> "$LOGWIFI_FILE"
+
+            if [ "$WIFI_LOST_SECONDS" -ge "$WIFI_GRACE" ] && [ "$WIFI_FAILSAFE_COUNTER" -ge 6 ]; then
+                echo -e "$(date): Grace period expired; switching to maintenance WiFi" >> "$LOGWIFI_FILE"
+                if "$YI_HACK_PREFIX/script/wifi_failover.sh" >/dev/null 2>&1; then
+                    WIFI_FAILSAFE_COUNTER=0
+                    WIFI_FAILSAFE_STARTED=0
+                    WIFI_MAINTENANCE_FAILSAFE_COUNTER=0
+                    return 0
+                fi
+                # A failed maintenance launcher is still a maintenance failure.
+                # wifi_failover.sh leaves maintenance_pending set so subsequent
+                # watchdog passes retry maintenance only and reboot after six
+                # failures rather than falling back into primary polling.
+                WIFI_FAILSAFE_COUNTER=0
+                WIFI_FAILSAFE_STARTED=0
+                echo "maintenance_pending" > /tmp/wifi_maintenance_active
+                WIFI_MAINTENANCE_FAILSAFE_COUNTER=1
+                echo -e "$(date): Maintenance handoff attempt 1/6 failed; entering maintenance-only recovery" >> "$LOGWIFI_FILE"
+                return 0
+            fi
+
+            # During the grace period, preserve the existing reconnect behavior
+            # but never reboot. This gives the primary network time to recover.
             sleep 2
             ifconfig wlan0 down
             sleep 1
             ifconfig wlan0 up
             sleep 1
 
-            # Try wpa_cli reconfigure if available and working
             if [ -x /home/base/tools/wpa_cli ]; then
                 (sleep 2 && killall -9 wpa_cli 2>/dev/null) &
                 KILLER_PID=$!
@@ -269,20 +364,57 @@ check_wifi()
                 wait $KILLER_PID 2>/dev/null
             fi
 
-            # Run wifidhcp.sh
+            $YI_HACK_PREFIX/script/wifidhcp.sh
+            return 0
+        fi
+
+        # Legacy behavior is unchanged when maintenance failover is disabled.
+        echo -e "$(date): WiFi connection lost (failsafe attempt $WIFI_FAILSAFE_COUNTER/6)" >> "$LOGWIFI_FILE"
+
+        if [ "$WIFI_FAILSAFE_COUNTER" -ge 6 ]; then
+            echo -e "$(date): WiFi connection could not be restored after 6 attempts. Rebooting..." >> "$LOGWIFI_FILE"
+            reboot
+        else
+            echo -e "$(date): Attempting WiFi reconnect..." >> "$LOGWIFI_FILE"
+
+            sleep 2
+            ifconfig wlan0 down
+            sleep 1
+            ifconfig wlan0 up
+            sleep 1
+
+            if [ -x /home/base/tools/wpa_cli ]; then
+                (sleep 2 && killall -9 wpa_cli 2>/dev/null) &
+                KILLER_PID=$!
+                /home/base/tools/wpa_cli -i wlan0 reconfigure 2>/dev/null
+                kill $KILLER_PID 2>/dev/null
+                wait $KILLER_PID 2>/dev/null
+            fi
+
             $YI_HACK_PREFIX/script/wifidhcp.sh
         fi
     else
-        # WiFi is connected - reset failure counter
         if [ $WIFI_FAILSAFE_COUNTER -gt 0 ]; then
             echo -e "$(date): WiFi connection restored" >> "$LOGWIFI_FILE"
             WIFI_FAILSAFE_COUNTER=0
+            WIFI_FAILSAFE_STARTED=0
         fi
     fi
 }
 
 if [[ $(get_config RTSP) == "no" ]] ; then
-    # Local motion recovery must also work when streaming is disabled.
+    # With streaming disabled, wd.sh is normally unnecessary. Keep it alive
+    # only when maintenance failover needs the existing 10-second watchdog loop.
+    if [ "$(get_config WIFI_MAINTENANCE_ENABLED)" = "yes" ]; then
+        while true; do
+            check_rmm
+            check_motion
+            check_wifi
+            sleep "$INTERVAL"
+        done
+    fi
+
+    # Preserve the prior local-motion-only behavior for y623.
     if [ "$MODEL_SUFFIX" = "y623" ] &&
        [ "$(get_config DISABLE_CLOUD)" = "yes" ] &&
        [ "$(get_camera_config MOTION_DETECTION)" = "yes" ]; then

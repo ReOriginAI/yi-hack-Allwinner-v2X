@@ -62,29 +62,8 @@ if [ -d /sys/class/net/wlan0/ ]; then
     echo 1500 > /sys/class/net/wlan0/mtu
 fi
 
-if [[ $(get_config KERNEL_TUNING) == "yes" ]] ; then
-    sysctl -w vm.oom_dump_tasks=0
-    sysctl -w vm.vfs_cache_pressure=100
-    sysctl -w kernel.randomize_va_space=0
-    echo 0 > /sys/block/mmcblk0/queue/iostats
-    echo 4 > /sys/block/mmcblk0/queue/iosched/quantum
-    echo 80 > /sys/block/mmcblk0/queue/iosched/fifo_expire_sync
-    echo 330 > /sys/block/mmcblk0/queue/iosched/fifo_expire_async
-    echo 12582912 > /sys/block/mmcblk0/queue/iosched/back_seek_max
-    echo 1 > /sys/block/mmcblk0/queue/iosched/back_seek_penalty
-    echo 60 > /sys/block/mmcblk0/queue/iosched/slice_sync
-    echo 50 > /sys/block/mmcblk0/queue/iosched/slice_async
-    echo 2 > /sys/block/mmcblk0/queue/iosched/slice_async_rq
-    echo 0 > /sys/block/mmcblk0/queue/iosched/slice_idle
-    echo 0 > /sys/block/mmcblk0/queue/iosched/group_idle
-    echo 1 > /sys/block/mmcblk0/queue/iosched/low_latency
-    echo 300 > /sys/block/mmcblk0/queue/iosched/target_latency
-    mount -o remount,noatime /tmp/sd
-    mount -o remount,noatime /home/app/script/wifidhcp.sh
-    mount -o remount,noatime /backup/tools/wifidhcp.sh
-    mount -o remount,noatime /home/app/script/ethdhcp.sh
-    mount -o remount,noatime /backup/tools/ethdhcp.sh
-fi
+# Memory stability tuning is applied by memory_reaper.sh.
+# Legacy user-selectable kernel/SD tuning has been retired.
 
 # Remove core files, if any
 rm -f $YI_HACK_PREFIX/bin/core
@@ -447,6 +426,25 @@ echo "/lib:/usr/lib:/tmp/sd/yi-hack/lib" > /etc/ld-musl-armhf.path
 echo "" >> /etc/profile
 echo "# Custom yi-hack binaries" >> /etc/profile
 echo "PATH=/tmp/sd/yi-hack/bin:/tmp/sd/yi-hack/sbin:/tmp/sd/yi-hack/usr/bin:\$PATH" >> /etc/profile
+
+# RTSP normally owns wd.sh. If streaming is disabled but maintenance WiFi
+# failover is enabled, keep the same watchdog alive for network recovery only.
+# This avoids a second resident shell on the normal RTSP-enabled path.
+if [ "$(get_config WIFI_MAINTENANCE_ENABLED)" = "yes" ] && [ "$(get_config RTSP)" = "no" ]; then
+    WD_COUNT=$(ps | grep wd.sh | grep -v grep | grep -c ^)
+    if [ "$WD_COUNT" -eq 0 ]; then
+        "$YI_HACK_PREFIX/script/wd.sh" >/dev/null 2>&1 &
+    fi
+fi
+
+# Keep memory-pressure protection independent from the RTSP watchdog. The
+# reaper must remain alive while RTSP/go2rtc is deliberately shed.
+if [ -x "$YI_HACK_PREFIX/script/memory_reaper.sh" ]; then
+    REAPER_COUNT=$(ps | grep memory_reaper.sh | grep -v grep | grep -c ^)
+    if [ "$REAPER_COUNT" -eq 0 ]; then
+        "$YI_HACK_PREFIX/script/memory_reaper.sh" >/dev/null 2>&1 &
+    fi
+fi
 
 # Remove log files written to SD on boot containing the WiFi password
 #rm -f "/tmp/sd/log/log_first_login.tar.gz"

@@ -69,6 +69,27 @@
             </tbody>
         </table>
 
+        <h5 class="tiny-margin strong">Upload FW upgrade</h5>
+        <hr class="no-margin"/>
+
+        <table class="u-full-width padded-table">
+            <tbody>
+            <tr class="row">
+                <td>
+                    <input class="u-full-width" type="file" id="button-fw-file" accept=".tgz,application/gzip,application/x-gzip"/>
+                    <span class="switch-description">
+                        Select a model-matching yi-hack firmware .tgz. The archive is validated before the existing upgrade path is started.
+                    </span>
+                </td>
+                <td>
+                    <input class="button-primary" type="button" id="button-fw-upload" value="Upload &amp; Upgrade"/>
+                    <div id="text-fw-upload"></div>
+                </td>
+            </tr>
+            </tbody>
+        </table>
+        <p>Current yi-hack configuration is preserved. Do not remove power or the SD card while upgrading; the camera may reboot more than once.</p>
+
         <h5 class="tiny-margin strong">Online FW upgrade</h5>
         <hr class="no-margin"/>
 
