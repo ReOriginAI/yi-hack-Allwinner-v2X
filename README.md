@@ -4,6 +4,18 @@ Custom local-first yi-hack variant focused on **Yi Pro 2K (`y623`)** and **Kami 
 
 This project is derived from `yi-hack-Allwinner-v2` and keeps the upstream structure and attribution, but the 3.8.x branch intentionally narrows the supported build/release targets to the two camera families that have been tested directly. The focus is low RAM usage, local RTSP/ONVIF operation, two-way audio, local text-to-speech, and local motion detection without the vendor cloud/AI stack.
 
+## Divergent Features
+
+* In the original `yi-hack-Allwinner-v2` the Yi cams especially Yi Pro 2k (`y623`) are highly unstable and frequently crash due to RAM Out-of-memory and it requires a modern good quality SD card with `Swap File` enabled to mitigate that. An old or bad quality SD card would degrade the performance or make crashes more frequent.    
+
+* This variant was built to work without `Swap File` enabled, thus performance is maintained independent of SD card (performance may be better if quality of SD card is high and `Swap File` is enabled as well).  
+
+* In the original `yi-hack-Allwinner-v2`, Out-of-memory crashes were silent and unrecoverable since the video stream encoders were permanently lost yet the web server and SSH server remained and the only recovery path was through reboot.
+
+* This variant uses the kernel's priority based degradation and watchdog automatic recovery which preserves essential processes like the video stream encoder while ablating non-essential processes to free up memory then restarts the non-essential processes. This means Out-of-memory crashes self-recovers functionality without needing a reboot.
+
+* This variant is optimized on opinionated configs mainly selecting go2rtc as the `RTSP server program`.
+
 Other upstream `sysroot/` and `sdhack/` directories remain in the repository as reference material, but **they are not supported or built by default** by this custom variant.
 
 ## Supported targets
