@@ -108,6 +108,23 @@ The motion backend shown by the UI differs by model:
 | Yi Pro 2K `y623` | `H264 encoder statistics` |
 | Kami 1080p `y28ga` | `Generic firmware IVA motion` |
 
+### WiFi configuration and maintenance fallback
+
+The **WiFi Configuration** page manages the normal boot network and an optional maintenance network. Primary WiFi is written through the camera's vendor WiFi configuration mechanism; the maintenance profile is stored in `system.conf` and is only activated after the primary network has remained unavailable for the configured grace period. All WiFi changes take effect after reboot.
+
+The maintenance settings are:
+
+| Setting | Recommended value | Purpose |
+| --- | --- | --- |
+| `WIFI_MAINTENANCE_ENABLED` | `no` normally; `yes` when remote recovery is useful | Enables one-way failover from the normal network to a recovery network |
+| `WIFI_MAINTENANCE_SSID` | Separate recovery SSID | A phone hotspot or other network that is not dependent on the primary AP is ideal |
+| `WIFI_MAINTENANCE_PASSWORD` | WPA/WPA2 password, 8-63 characters | Credentials for the maintenance network |
+| `WIFI_MAINTENANCE_GRACE` | `180` | Seconds the primary network may be unavailable before failover; accepted range is 30-3600 seconds |
+
+`180` seconds is a good default because it tolerates an ordinary AP/router reboot without immediately abandoning the primary network. Use roughly 60-120 seconds when fast field recovery matters more, or 300-600 seconds on networks where AP/controller maintenance commonly takes several minutes.
+
+Once maintenance takeover succeeds, the camera intentionally stays on the maintenance profile and does **not** poll or retry the primary SSID until the next reboot. The maintenance profile uses DHCP even if the normal network uses a static address, so a DHCP reservation is usually the least surprising way to give the camera a predictable address. If maintenance WiFi itself fails six consecutive recovery attempts, the camera reboots and starts again from the normal primary profile.
+
 ## Core services
 
 ### RTSP
@@ -127,6 +144,43 @@ Require: www.onvif.org/ver20/backchannel
 ```
 
 The camera then exposes a `PCMU/8000` `sendonly` backchannel for that RTSP session. Normal viewers that do not request backchannel continue to receive only the camera-facing media tracks.
+
+#### Recommended camera-side settings for Frigate / ONVIF
+
+For a camera primarily used with Frigate, Home Assistant, or another local NVR, the following is a reasonable starting point:
+
+```ini
+RTSP=yes
+RTSP_ALT=go2rtc
+RTSP_STREAM=both
+RTSP_AUDIO=aac
+RTSP_STI=yes
+RTSP_PORT=554
+SPEAKER_AUDIO=yes
+
+ONVIF=yes
+ONVIF_WSDD=yes
+ONVIF_PROFILE=high
+ONVIF_NETIF=wlan0
+ONVIF_WM_SNAPSHOT=no
+ONVIF_AUDIO_BC=G711
+ONVIF_ENABLE_MEDIA2=no
+ONVIF_FAULT_IF_UNKNOWN=no
+ONVIF_FAULT_IF_SET=no
+ONVIF_SYNOLOGY_NVR=no
+```
+
+The important choices are:
+
+- **`RTSP_ALT=go2rtc`** uses the lightweight camera-side go2rtc server and lazy `h264grabber` producers. `RTSP_STREAM=both` makes both high and low endpoints available, but does not run two permanent software encoders.
+- **`RTSP_AUDIO=aac`** is the preferred camera-facing audio format for Frigate recording and browser/MSE playback. It avoids an unnecessary audio transcode on the camera. With `RTSP_STREAM=both`, AAC is attached to the high stream; the low stream remains a good lightweight detection feed.
+- **`ONVIF_PROFILE=high`** is the safest default for ONVIF discovery and talkback because the high stream carries AAC. Use `both` only when a client specifically needs the low profile advertised as well; with camera-side go2rtc and `RTSP_STREAM=both`, the low RTSP stream is intentionally video-only.
+- **`SPEAKER_AUDIO=yes` + `ONVIF_AUDIO_BC=G711`** enables the patched Profile T backchannel. Camera-side go2rtc presents the speaker path as `PCMU/8000` (`G.711 u-law`), which is widely supported for ONVIF two-way audio.
+- **`ONVIF_WSDD=yes`** is useful for discovery. If every client is configured manually by IP, WSDD can be disabled without affecting RTSP itself.
+- **`ONVIF_ENABLE_MEDIA2=no`** and the advanced fault/Synology compatibility switches should stay off unless a specific NVR needs them.
+- **`ONVIF_WM_SNAPSHOT=no`** keeps ONVIF snapshots clean and avoids the optional software snapshot timestamp/watermark pass. The live H.264 timestamp OSD is separate.
+
+If two-way audio is not needed, set `ONVIF_AUDIO_BC=NONE`; the rest of the streaming recommendations can stay the same.
 
 ### Snapshot
 
@@ -354,21 +408,77 @@ data:
 
 ## Frigate / go2rtc
 
-A practical configuration is to keep permanent recording/detection streams receive-only so they do not reserve the speaker backchannel, and use a separate normal RTSP source for talkback when needed.
+Frigate already bundles its own go2rtc. This is separate from the **camera-side go2rtc** selected by `RTSP_ALT=go2rtc`. The camera-side instance exposes the encoded Yi/Kami buffers as RTSP; Frigate's instance should normally open each required camera stream once and then share that local restream with recording, detection, live view, Home Assistant, and audio detection. This minimizes connections and avoids doing any video transcoding on the camera.
+
+For these cameras, a good division of work is:
+
+| Stream | Camera endpoint | Frigate use |
+| --- | --- | --- |
+| Main | `ch0_0.h264` | High-quality recording, live view, AAC audio, optional audio events |
+| Sub | `ch0_1.h264` | Object/motion detection at 640x360 |
+| Talk | `ch0_0.h264` without source modifiers | On-demand WebRTC/two-way talk only |
+
+Permanent recording/detection sources should include `#backchannel=0`. Otherwise go2rtc may reserve the camera speaker as soon as it opens the RTSP source. Keep a separate talk source with **no `#` modifiers on its bare `rtsp://` URL** so the backchannel remains available when Frigate actually needs it.
+
+A practical Frigate configuration is:
 
 ```yaml
 go2rtc:
   streams:
     yi_camera:
-      - "rtsp://IP-CAM/ch0_0.h264#backchannel=0"
+      # H.264 + camera-native AAC; no speaker reservation.
+      - "rtsp://USER:PASS@IP-CAM/ch0_0.h264#backchannel=0"
+      # Optional Opus producer for WebRTC clients. Runs on the Frigate host.
+      - "ffmpeg:yi_camera#audio=opus"
+
     yi_camera_sub:
-      - "rtsp://IP-CAM/ch0_1.h264#backchannel=0"
+      - "rtsp://USER:PASS@IP-CAM/ch0_1.h264#backchannel=0"
+
     yi_camera_twoway:
-      - "rtsp://IP-CAM/ch0_0.h264"
+      # Deliberately no # options here: this is the on-demand talkback source.
+      - "rtsp://USER:PASS@IP-CAM/ch0_0.h264"
       - "ffmpeg:yi_camera_twoway#audio=opus"
+
+cameras:
+  yi_camera:
+    ffmpeg:
+      output_args:
+        record: preset-record-generic-audio-copy
+      inputs:
+        - path: rtsp://127.0.0.1:8554/yi_camera
+          input_args: preset-rtsp-restream
+          roles:
+            - record
+            # Add this only if Frigate audio-event detection is enabled.
+            - audio
+
+        - path: rtsp://127.0.0.1:8554/yi_camera_sub
+          input_args: preset-rtsp-restream
+          roles:
+            - detect
+
+    detect:
+      width: 640
+      height: 360
+      fps: 5
+
+    record:
+      enabled: true
+
+    live:
+      streams:
+        Main: yi_camera
+        Sub: yi_camera_sub
+        Talk: yi_camera_twoway
 ```
 
-The camera already provides encoded high/low H.264. `h264grabber` reads the shared encoded buffers; it does not start a software encoder for every RTSP client.
+If Frigate audio-event detection is not being used, remove the `audio` role; that avoids an extra FFmpeg audio-analysis process. AAC should still remain enabled on the camera because it is useful for recordings and MSE live playback. The optional `ffmpeg:...#audio=opus` entries run on the Frigate host and are only there for WebRTC/browser compatibility; they do not make the camera transcode audio.
+
+If RTSP authentication is disabled on the camera, remove `USER:PASS@`. If credentials contain reserved URL characters, URL-encode them before placing them in an RTSP URL.
+
+Frigate's current setup wizard can also discover the camera through ONVIF. The explicit YAML above is useful when you want predictable stream roles and the dedicated no-backchannel/talkback split. For two-way talk in a browser, Frigate must be served from a secure context (HTTPS/authenticated UI) and WebRTC must be reachable; in a normal Frigate deployment that means making the Frigate host go2rtc WebRTC listener on port 8555 reachable over TCP and UDP.
+
+The camera already provides encoded H.264. `h264grabber` reads the shared encoded buffers; neither Frigate nor each RTSP client causes a new software video encoder to be started on the camera.
 
 ## Building
 

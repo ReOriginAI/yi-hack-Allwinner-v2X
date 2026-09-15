@@ -14,12 +14,12 @@ case "$MODEL_SUFFIX" in
     y623)
         PATCHED_RMM=${RMM_PATCHED_PATH:-$YI_HACK_PREFIX/bin/rmm-y623-motionlite}
         EXPECTED_STOCK_MD5=f8164a1c221ba8c1d4888322a3cf0706
-        EXPECTED_PATCHED_MD5=4b7dd522614a92979b795575fd064986
+        EXPECTED_PATCHED_MD5=b8782526e55d4b7ac95060ebcbe7ed18
         ;;
     y28ga)
         PATCHED_RMM=${RMM_PATCHED_PATH:-$YI_HACK_PREFIX/bin/rmm-y28ga-motionlite}
         EXPECTED_STOCK_MD5=46261d809c58dea5b39f3351e322d710
-        EXPECTED_PATCHED_MD5=b5e38328a3516de69f60e596add05c38
+        EXPECTED_PATCHED_MD5=c83016101b3bc9b669139b6b56cbb4d0
         ;;
     *)
         printf '%s\n' "$STOCK_RMM"
@@ -62,6 +62,8 @@ case "$MODEL_SUFFIX" in
         printf '\000\000\240\343\036\377\057\341' | dd of="$TMP_RMM" bs=1 seek=107356 conv=notrunc 2>/dev/null
         printf '\001' | dd of="$TMP_RMM" bs=1 seek=113568 conv=notrunc 2>/dev/null
         printf '\002\000\240\343\000\020\240\343\314\177\000\353\052\000\000\352' | dd of="$TMP_RMM" bs=1 seek=124076 conv=notrunc 2>/dev/null
+        # Disable the static vendor logo/watermark region. Timestamp OSD remains active.
+        printf '\000\000\240\343\036\377\057\341' | dd of="$TMP_RMM" bs=1 seek=94216 conv=notrunc 2>/dev/null
         ;;
     y28ga)
         # Kami 1080p old-firmware motion-lite patch:
@@ -72,6 +74,8 @@ case "$MODEL_SUFFIX" in
         printf '\001\060\240\343' | dd of="$TMP_RMM" bs=1 seek=91056 conv=notrunc 2>/dev/null
         printf '\000\000\240\343\036\377\057\341' | dd of="$TMP_RMM" bs=1 seek=74668 conv=notrunc 2>/dev/null
         printf '\000\000\240\343\036\377\057\341' | dd of="$TMP_RMM" bs=1 seek=79964 conv=notrunc 2>/dev/null
+        # Disable the static vendor logo/watermark region. Timestamp OSD remains active.
+        printf '\000\000\240\343\036\377\057\341' | dd of="$TMP_RMM" bs=1 seek=58912 conv=notrunc 2>/dev/null
         ;;
 esac
 
