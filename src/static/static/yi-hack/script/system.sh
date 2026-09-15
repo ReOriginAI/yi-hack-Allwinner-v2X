@@ -62,7 +62,7 @@ if [ -d /sys/class/net/wlan0/ ]; then
     echo 1500 > /sys/class/net/wlan0/mtu
 fi
 
-# Memory stability tuning is applied by memory_reaper.sh.
+# Kernel OOM victim priorities are applied by oom_policy.sh.
 # Legacy user-selectable kernel/SD tuning has been retired.
 
 # Remove core files, if any
@@ -427,23 +427,16 @@ echo "" >> /etc/profile
 echo "# Custom yi-hack binaries" >> /etc/profile
 echo "PATH=/tmp/sd/yi-hack/bin:/tmp/sd/yi-hack/sbin:/tmp/sd/yi-hack/usr/bin:\$PATH" >> /etc/profile
 
-# RTSP normally owns wd.sh. If streaming is disabled but maintenance WiFi
-# failover is enabled, keep the same watchdog alive for network recovery only.
-# This avoids a second resident shell on the normal RTSP-enabled path.
-if [ "$(get_config WIFI_MAINTENANCE_ENABLED)" = "yes" ] && [ "$(get_config RTSP)" = "no" ]; then
-    WD_COUNT=$(ps | grep wd.sh | grep -v grep | grep -c ^)
-    if [ "$WD_COUNT" -eq 0 ]; then
-        "$YI_HACK_PREFIX/script/wd.sh" >/dev/null 2>&1 &
-    fi
+# Let the kernel perform OOM victim selection. Apply the one-shot policy after
+# boot services exist, then keep exactly one lightweight supervisor to restore
+# configured services if the kernel later kills a restartable process.
+if [ -x "$YI_HACK_PREFIX/script/oom_policy.sh" ]; then
+    "$YI_HACK_PREFIX/script/oom_policy.sh" >/dev/null 2>&1
 fi
 
-# Keep memory-pressure protection independent from the RTSP watchdog. The
-# reaper must remain alive while RTSP/go2rtc is deliberately shed.
-if [ -x "$YI_HACK_PREFIX/script/memory_reaper.sh" ]; then
-    REAPER_COUNT=$(ps | grep memory_reaper.sh | grep -v grep | grep -c ^)
-    if [ "$REAPER_COUNT" -eq 0 ]; then
-        "$YI_HACK_PREFIX/script/memory_reaper.sh" >/dev/null 2>&1 &
-    fi
+WD_COUNT=$(ps | grep wd.sh | grep -v grep | grep -c ^)
+if [ "$WD_COUNT" -eq 0 ]; then
+    "$YI_HACK_PREFIX/script/wd.sh" >/dev/null 2>&1 &
 fi
 
 # Remove log files written to SD on boot containing the WiFi password

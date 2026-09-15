@@ -8,6 +8,23 @@ MODEL_SUFFIX=$(cat /tmp/sd/yi-hack/model_suffix)
 
 START_STOP_SCRIPT=$YI_HACK_PREFIX/script/service.sh
 
+# Singleton supervisor. service.sh may have a delayed watchdog launch pending
+# while another path starts wd.sh immediately; only one may survive.
+WD_LOCKDIR=/tmp/yi_hack_wd.lock.d
+if ! mkdir "$WD_LOCKDIR" 2>/dev/null; then
+    OLD_PID=$(cat "$WD_LOCKDIR/pid" 2>/dev/null)
+    case "$OLD_PID" in ''|*[!0-9]*) OLD_PID=0 ;; esac
+    if [ "$OLD_PID" -gt 0 ] && [ -d "/proc/$OLD_PID" ]; then
+        exit 0
+    fi
+    rm -rf "$WD_LOCKDIR" 2>/dev/null
+    mkdir "$WD_LOCKDIR" 2>/dev/null || exit 0
+fi
+echo $$ > "$WD_LOCKDIR/pid"
+cleanup_wd_lock() { rm -rf "$WD_LOCKDIR" 2>/dev/null; }
+trap 'cleanup_wd_lock' 0
+trap 'cleanup_wd_lock; exit 0' HUP INT TERM
+
 #LOG_FILE="/tmp/sd/wd.log"
 LOG_FILE="/dev/null"
 LOGWIFI_FILE="/tmp/sd/hack_wififailsafe.log"
@@ -18,6 +35,38 @@ INTERVAL=10
 WIFI_FAILSAFE_COUNTER=0
 WIFI_FAILSAFE_STARTED=0
 WIFI_MAINTENANCE_FAILSAFE_COUNTER=0
+
+# Kernel OOM recovery policy. The kernel chooses victims; this watchdog only
+# restarts configured services after enough memory has returned.
+OOM_POLICY="$YI_HACK_PREFIX/script/oom_policy.sh"
+RESTART_MIN_MEM_KB=4096
+OOM_POLICY_EVERY=6
+AUX_CHECK_EVERY=3
+OOM_POLICY_COUNTER=0
+AUX_COUNTER=0
+
+mem_available_kb()
+{
+    VALUE=$(awk '/^MemAvailable:/{print $2; exit}' /proc/meminfo 2>/dev/null)
+    case "$VALUE" in ''|*[!0-9]*) VALUE=0 ;; esac
+    echo "$VALUE"
+}
+
+restart_memory_ok()
+{
+    MEM=$(mem_available_kb)
+    [ "$MEM" -ge "$RESTART_MIN_MEM_KB" ]
+}
+
+refresh_oom_policy()
+{
+    [ -x "$OOM_POLICY" ] && "$OOM_POLICY" >/dev/null 2>&1
+}
+
+process_count()
+{
+    ps | grep "$1" | grep -v grep | grep -c ^
+}
 
 get_camera_config()
 {
@@ -33,7 +82,11 @@ get_config()
 
 restart_rtsp()
 {
-    $START_STOP_SCRIPT rtsp start
+    # Avoid an OOM restart loop. The killed service has to leave at least 4 MiB
+    # available before we recreate the RTSP stack.
+    restart_memory_ok || return 1
+    $START_STOP_SCRIPT rtsp start >/dev/null 2>&1
+    refresh_oom_policy
 }
 
 check_rtsp()
@@ -171,26 +224,115 @@ check_rmm()
 
 check_motion()
 {
-    [ "$MODEL_SUFFIX" = "y623" ] || return 0
+    case "$MODEL_SUFFIX" in
+        y623|y28ga) ;;
+        *) return 0 ;;
+    esac
     [ "$(get_config DISABLE_CLOUD)" = "yes" ] || return 0
     [ "$(get_camera_config MOTION_DETECTION)" = "yes" ] || return 0
 
-    COUNT=$(ps | awk '$5 == "/tmp/sd/yi-hack/bin/motiond" { n++ } END { print n+0 }')
-    if [ "$COUNT" -ne 1 ]; then
-        echo "$(date +'%Y-%m-%d %H:%M:%S') - Restarting local motion detector (count=$COUNT)" >> $LOG_FILE
+    STATUS=$("$YI_HACK_PREFIX/script/motion_service.sh" status 2>/dev/null)
+    if [ "$STATUS" != "started" ] && restart_memory_ok; then
+        echo "$(date +'%Y-%m-%d %H:%M:%S') - Restarting local motion service (model=$MODEL_SUFFIX status=$STATUS)" >> $LOG_FILE
         "$YI_HACK_PREFIX/script/motion_service.sh" restart >/dev/null 2>&1
+        refresh_oom_policy
     fi
 }
 
 check_mqtt()
 {
-    #  echo "$(date +'%Y-%m-%d %H:%M:%S') - Checking mqttv4 process..." >> $LOG_FILE
+    # Never resurrect MQTT when it is disabled. This was the source of the
+    # stray mqttv4 instances observed on y623.
+    if [ "$(get_config MQTT)" != "yes" ]; then
+        if [ "$(process_count mqttv4)" -gt 0 ]; then
+            $START_STOP_SCRIPT mqtt stop >/dev/null 2>&1
+        fi
+        if [ "$(process_count mqtt-config)" -gt 0 ]; then
+            $START_STOP_SCRIPT mqtt-config stop >/dev/null 2>&1
+        fi
+        return 0
+    fi
 
-    PS=`ps ww | grep mqttv4 | grep -v grep | grep -c ^`
+    if [ "$(process_count mqttv4)" -eq 0 ] && restart_memory_ok; then
+        echo "$(date +'%Y-%m-%d %H:%M:%S') - Restarting mqttv4" >> $LOG_FILE
+        $START_STOP_SCRIPT mqtt start >/dev/null 2>&1
+        refresh_oom_policy
+        return 0
+    fi
 
-    if [ $PS -eq 0 ]; then
-        echo "check_mqtt failed, restart it!" >> $LOG_FILE
-        $START_STOP_SCRIPT mqtt start
+    if [ "$(process_count mqtt-config)" -eq 0 ] && restart_memory_ok; then
+        $START_STOP_SCRIPT mqtt-config start >/dev/null 2>&1
+        refresh_oom_policy
+    fi
+}
+
+check_aux_services()
+{
+    # Restart at most one configured service per pass. This deliberately
+    # serializes recovery after an OOM kill instead of recreating every victim
+    # at once and immediately forcing another OOM cycle.
+    restart_memory_ok || return 0
+
+    if [ "$(get_config HTTPD)" = "yes" ] && [ "$(process_count httpd)" -eq 0 ]; then
+        PORT=$(get_config HTTPD_PORT)
+        case "$PORT" in ''|*[!0-9]*) PORT=80 ;; esac
+        httpd -p "$PORT" -h "$YI_HACK_PREFIX/www/" -c /tmp/httpd.conf
+        refresh_oom_policy
+        return 0
+    fi
+
+    if [ "$(get_config DISABLE_CLOUD)" = "yes" ] && [ "$(get_config REC_WITHOUT_CLOUD)" = "yes" ] && [ "$(process_count mp4record)" -eq 0 ]; then
+        $START_STOP_SCRIPT mp4record start >/dev/null 2>&1
+        refresh_oom_policy
+        return 0
+    fi
+
+    if [ "$(get_config ONVIF)" = "yes" ]; then
+        if [ "$(process_count onvif_notify_server)" -eq 0 ] || [ "$(process_count ipc2file)" -eq 0 ]; then
+            # ONVIF owns ipc2file as a pair. Recreate the pair cleanly rather
+            # than starting a duplicate survivor.
+            $START_STOP_SCRIPT onvif stop >/dev/null 2>&1
+            $START_STOP_SCRIPT onvif start >/dev/null 2>&1
+            refresh_oom_policy
+            return 0
+        fi
+        if [ "$(get_config ONVIF_WSDD)" = "yes" ] && [ "$(process_count wsd_simple_server)" -eq 0 ]; then
+            $START_STOP_SCRIPT wsdd start >/dev/null 2>&1
+            refresh_oom_policy
+            return 0
+        fi
+    fi
+
+    if [ "$(get_config MDNSD)" = "yes" ] && [ "$(process_count mdnsd)" -eq 0 ] && [ -d /tmp/mdns.d ]; then
+        "$YI_HACK_PREFIX/sbin/mdnsd" /tmp/mdns.d >/dev/null 2>&1
+        refresh_oom_policy
+        return 0
+    fi
+
+    if [ "$(get_config NTPD)" = "yes" ] && [ "$(process_count ntpd)" -eq 0 ]; then
+        SERVER=$(get_config NTP_SERVER)
+        [ -n "$SERVER" ] && "$YI_HACK_PREFIX/usr/sbin/ntpd" -p "$SERVER" >/dev/null 2>&1 &
+        refresh_oom_policy
+        return 0
+    fi
+
+    if [ "$(get_config FTPD)" = "yes" ]; then
+        if [ "$(get_config BUSYBOX_FTPD)" = "yes" ]; then
+            FTP_COUNT=$(process_count tcpsvd)
+        else
+            FTP_COUNT=$(process_count pure-ftpd)
+        fi
+        if [ "$FTP_COUNT" -eq 0 ]; then
+            $START_STOP_SCRIPT ftpd start >/dev/null 2>&1
+            refresh_oom_policy
+            return 0
+        fi
+    fi
+
+    if [ "$(process_count crond)" -eq 0 ]; then
+        "$YI_HACK_PREFIX/usr/sbin/crond" -c /var/spool/cron/crontabs/ >/dev/null 2>&1
+        refresh_oom_policy
+        return 0
     fi
 }
 
@@ -402,61 +544,57 @@ check_wifi()
     fi
 }
 
-if [[ $(get_config RTSP) == "no" ]] ; then
-    # With streaming disabled, wd.sh is normally unnecessary. Keep it alive
-    # only when maintenance failover needs the existing 10-second watchdog loop.
-    if [ "$(get_config WIFI_MAINTENANCE_ENABLED)" = "yes" ]; then
-        while true; do
-            check_rmm
-            check_motion
-            check_wifi
-            sleep "$INTERVAL"
-        done
-    fi
-
-    # Preserve the prior local-motion-only behavior for y623.
-    if [ "$MODEL_SUFFIX" = "y623" ] &&
-       [ "$(get_config DISABLE_CLOUD)" = "yes" ] &&
-       [ "$(get_camera_config MOTION_DETECTION)" = "yes" ]; then
-        while true; do
-            check_motion
-            sleep "$INTERVAL"
-        done
-    fi
-    exit
-fi
-
 case $(get_config RTSP_PORT) in
     ''|*[!0-9]*) RTSP_PORT=554 ;;
     *) RTSP_PORT=$(get_config RTSP_PORT) ;;
 esac
+RTSP_PORT_NUMBER=$RTSP_PORT
 
-if [ ! -z $RTSP_PORT ]; then
-    RTSP_PORT_NUMBER=$RTSP_PORT
-fi
+# Keep the supervisor itself difficult to kill. oom_policy.sh protects the
+# irreplaceable media/network processes and ranks restartable services.
+echo -900 > /proc/$$/oom_score_adj 2>/dev/null
+refresh_oom_policy
 
-RTSP_ALT=$(get_config RTSP_ALT)
-
-echo "$(date +'%Y-%m-%d %H:%M:%S') - Starting RTSP watchdog..." >> $LOG_FILE
+echo "$(date +'%Y-%m-%d %H:%M:%S') - Starting service supervisor..." >> $LOG_FILE
 
 while true
 do
-    if [[ "$RTSP_ALT" == "standard" ]] ; then
-        check_rtsp
-    elif [[ "$RTSP_ALT" == "alternative" ]] ; then
-        check_rtsp_alt
-    else
-        check_rtsp_go2rtc
+    RTSP_ENABLED=$(get_config RTSP)
+    if [ "$RTSP_ENABLED" = "yes" ]; then
+        RTSP_ALT=$(get_config RTSP_ALT)
+        if [ "$RTSP_ALT" = "standard" ]; then
+            check_rtsp
+        elif [ "$RTSP_ALT" = "alternative" ]; then
+            check_rtsp_alt
+        else
+            check_rtsp_go2rtc
+        fi
     fi
+
     check_rmm
     check_motion
     check_mqtt
-    check_wifi
 
-    echo 1500 > /sys/class/net/eth0/mtu
-    echo 1500 > /sys/class/net/wlan0/mtu
-
-    if [ $COUNTER -eq 0 ]; then
-        sleep $INTERVAL
+    AUX_COUNTER=$((AUX_COUNTER + 1))
+    if [ "$AUX_COUNTER" -ge "$AUX_CHECK_EVERY" ]; then
+        AUX_COUNTER=0
+        check_aux_services
     fi
+
+    OOM_POLICY_COUNTER=$((OOM_POLICY_COUNTER + 1))
+    if [ "$OOM_POLICY_COUNTER" -ge "$OOM_POLICY_EVERY" ]; then
+        OOM_POLICY_COUNTER=0
+        refresh_oom_policy
+    fi
+
+    # Preserve the existing Wi-Fi recovery loop when RTSP is active, and keep
+    # it available without RTSP when maintenance failover is explicitly used.
+    if [ "$RTSP_ENABLED" = "yes" ] || [ "$(get_config WIFI_MAINTENANCE_ENABLED)" = "yes" ]; then
+        check_wifi
+    fi
+
+    [ -e /sys/class/net/eth0/mtu ] && echo 1500 > /sys/class/net/eth0/mtu
+    [ -e /sys/class/net/wlan0/mtu ] && echo 1500 > /sys/class/net/wlan0/mtu
+
+    sleep "$INTERVAL"
 done

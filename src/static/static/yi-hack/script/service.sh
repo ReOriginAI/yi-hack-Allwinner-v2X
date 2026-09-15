@@ -148,7 +148,11 @@ ensure_rtsp_watchdog()
 {
     WD_COUNT=$(ps | grep wd.sh | grep -v grep | grep -c ^)
     if [ "$WD_COUNT" -eq 0 ]; then
-        (sleep 30; $YI_HACK_PREFIX/script/wd.sh >/dev/null) &
+        (
+            sleep 30
+            WD_COUNT=$(ps | grep wd.sh | grep -v grep | grep -c ^)
+            [ "$WD_COUNT" -eq 0 ] && $YI_HACK_PREFIX/script/wd.sh >/dev/null 2>&1
+        ) &
     fi
 }
 
@@ -501,17 +505,23 @@ if [ "$ACTION" == "start" ] ; then
     elif [ "$NAME" == "ftpd" ]; then
         start_ftpd $PARAM1
     elif [ "$NAME" == "mqtt" ]; then
-        if [ "$HV" == "11" ] || [ "$HV" == "12" ]; then
-            if [ "$MODEL_SUFFIX" != "y291ga" ] && [ "$MODEL_SUFFIX" != "y211ga" ] && [ "$MODEL_SUFFIX" != "y623" ]; then
-                mqttv4 -t local > /dev/null &
+        # mqttv4 is not internally singleton-safe. Avoid duplicate bridges when
+        # a watchdog/manual start races with an already-running instance.
+        if [ "$(ps_program mqttv4)" = "stopped" ]; then
+            if [ "$HV" == "11" ] || [ "$HV" == "12" ]; then
+                if [ "$MODEL_SUFFIX" != "y291ga" ] && [ "$MODEL_SUFFIX" != "y211ga" ] && [ "$MODEL_SUFFIX" != "y623" ]; then
+                    mqttv4 -t local > /dev/null &
+                else
+                    mqttv4 > /dev/null &
+                fi
             else
                 mqttv4 > /dev/null &
             fi
-        else
-            mqttv4 > /dev/null &
         fi
     elif [ "$NAME" == "mqtt-config" ]; then
-        mqtt-config > /dev/null &
+        if [ "$(ps_program mqtt-config)" = "stopped" ]; then
+            mqtt-config > /dev/null &
+        fi
     elif [ "$NAME" == "mp4record" ]; then
         # mp4record is not internally singleton-safe. Never start a duplicate.
         MP4_COUNT=$(mp4record_count)
