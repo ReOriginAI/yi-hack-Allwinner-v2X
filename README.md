@@ -4,7 +4,7 @@ Custom local-first yi-hack variant focused on **Yi Pro 2K (`y623`)** and **Kami 
 
 This project is derived from `yi-hack-Allwinner-v2` and keeps the upstream structure and attribution, but the 3.8.x branch intentionally narrows the supported build/release targets to the two camera families that have been tested directly. The focus is low RAM usage, local RTSP/ONVIF operation, two-way audio, local text-to-speech, and local motion detection without the vendor cloud/AI stack.
 
-## Divergent Features
+## Divergent Features for Stability
 
 * In the original `yi-hack-Allwinner-v2` the Yi cams especially Yi Pro 2k (`y623`) are highly unstable and frequently crash due to RAM Out-of-memory and it requires a modern good quality SD card with `Swap File` enabled to mitigate that. An old or bad quality SD card would degrade the performance or make crashes more frequent.    
 
