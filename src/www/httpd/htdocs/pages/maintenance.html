@@ -69,7 +69,7 @@
             </tbody>
         </table>
 
-        <h5 class="tiny-margin strong">Upload FW upgrade</h5>
+        <h5 class="tiny-margin strong">Upload firmware upgrade</h5>
         <hr class="no-margin"/>
 
         <table class="u-full-width padded-table">
@@ -78,7 +78,7 @@
                 <td>
                     <input class="u-full-width" type="file" id="button-fw-file" accept=".tgz,application/gzip,application/x-gzip"/>
                     <span class="switch-description">
-                        Select a model-matching yi-hack firmware .tgz. The archive is validated before the existing upgrade path is started.
+                        Select a model-matching firmware .tgz built by this fork. The archive, startup payload, and matching local-only bootstrap are validated before activation.
                     </span>
                 </td>
                 <td>
@@ -88,22 +88,7 @@
             </tr>
             </tbody>
         </table>
-        <p>Current yi-hack configuration is preserved. Do not remove power or the SD card while upgrading; the camera may reboot more than once.</p>
-
-        <h5 class="tiny-margin strong">Online FW upgrade</h5>
-        <hr class="no-margin"/>
-
-        <table class="u-full-width padded-table">
-            <tbody>
-            <tr class="row">
-                <td>
-                    <input class="u-full-width" type="text" placeholder="" readonly="" data-key="FW" id="FW"/>
-                </td>
-                <td>
-                    <input class="button-primary" type="button" id="button-upgrade" value="Upgrade Firmware"/>
-                </td>
-            </tr>
-            </tbody>
-        </table>
+        <p>Current yi-hack configuration is preserved. The SD payload and its matching internal bootstrap are switched together, then the camera reboots once. Do not remove power or the SD card while upgrading.</p>
+        <input class="u-full-width" type="text" placeholder="" readonly="" data-key="FW" id="FW"/>
     </div>
 </div>

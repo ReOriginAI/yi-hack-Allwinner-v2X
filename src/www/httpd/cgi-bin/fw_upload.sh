@@ -10,6 +10,7 @@ MIN_FREE_AFTER_KB=100000
 LOCKDIR="$SD_ROOT/.fw_upload.lock.d"
 UPLOAD_TMP="$SD_ROOT/.fw_upload.$$.tgz"
 LIST_TMP="$SD_ROOT/.fw_upload.$$.list"
+INIT_TMP="$SD_ROOT/.fw_upload.$$.init"
 
 json_error()
 {
@@ -32,7 +33,7 @@ file_size()
 
 cleanup()
 {
-    rm -f "$UPLOAD_TMP" "$LIST_TMP" 2>/dev/null
+    rm -f "$UPLOAD_TMP" "$LIST_TMP" "$INIT_TMP" 2>/dev/null
     rm -f "$LOCKDIR/pid" 2>/dev/null
     rmdir "$LOCKDIR" 2>/dev/null
 }
@@ -103,7 +104,9 @@ END { if (!seen || bad) exit 1; exit 0 }
 
 grep -qx 'yi-hack/model_suffix' "$LIST_TMP" || json_error "Firmware archive is missing model information"
 grep -qx 'yi-hack/version' "$LIST_TMP" || json_error "Firmware archive is missing version information"
-grep -qx 'yi-hack/fw_upgrade_in_progress' "$LIST_TMP" || json_error "Firmware archive is not an upgrade package"
+grep -qx 'Factory/local_init.sh' "$LIST_TMP" || json_error "Firmware archive is missing the local-only bootstrap"
+tar xOzf "$UPLOAD_TMP" Factory/local_init.sh > "$INIT_TMP" 2>/dev/null || json_error "Unable to extract firmware bootstrap"
+/bin/sh -n "$INIT_TMP" || json_error "Firmware bootstrap has invalid syntax"
 grep -qx 'lower_half_init.sh' "$LIST_TMP" || json_error "Firmware archive is incomplete"
 grep -q '^Factory/' "$LIST_TMP" || json_error "Firmware archive is missing Factory files"
 

@@ -4,7 +4,6 @@ CONF_FILE="etc/system.conf"
 
 YI_PREFIX="/home/app"
 YI_HACK_PREFIX="/tmp/sd/yi-hack"
-YI_HACK_UPGRADE_PATH="/tmp/sd/.fw_upgrade"
 START_STOP_SCRIPT=$YI_HACK_PREFIX/script/service.sh
 
 YI_HACK_VER=$(cat /tmp/sd/yi-hack/version)
@@ -74,22 +73,12 @@ rm -f $YI_HACK_PREFIX/core
 
 touch /tmp/httpd.conf
 
-if [ -f $YI_HACK_UPGRADE_PATH/yi-hack/fw_upgrade_in_progress ]; then
-    log "Upgrade in progress"
-    echo "#!/bin/sh" > /tmp/fw_upgrade_2p.sh
-    echo "# Complete fw upgrade and restore configuration" >> /tmp/fw_upgrade_2p.sh
-    echo "sleep 1" >> /tmp/fw_upgrade_2p.sh
-    echo "cd $YI_HACK_UPGRADE_PATH" >> /tmp/fw_upgrade_2p.sh
-    echo "cp -rf * .." >> /tmp/fw_upgrade_2p.sh
-    echo "cd .." >> /tmp/fw_upgrade_2p.sh
-    echo "rm -rf $YI_HACK_UPGRADE_PATH" >> /tmp/fw_upgrade_2p.sh
-    echo "rm $YI_HACK_PREFIX/fw_upgrade_in_progress" >> /tmp/fw_upgrade_2p.sh
-    echo "sync" >> /tmp/fw_upgrade_2p.sh
-    echo "sync" >> /tmp/fw_upgrade_2p.sh
-    echo "sync" >> /tmp/fw_upgrade_2p.sh
-    echo "reboot" >> /tmp/fw_upgrade_2p.sh
-    sh /tmp/fw_upgrade_2p.sh
-    exit
+# The old two-boot .fw_upgrade copier is incompatible with the local-only
+# bootstrap payload-integrity manifest. Upload upgrades are activated atomically
+# before reboot by the WebUI CGI path. Remove stale legacy staging if present.
+if [ -d /tmp/sd/.fw_upgrade ] || [ -d /tmp/sd/.fw_upgrade.conf ]; then
+    log "Remove unsupported legacy firmware upgrade staging"
+    rm -rf /tmp/sd/.fw_upgrade /tmp/sd/.fw_upgrade.conf
 fi
 
 $YI_HACK_PREFIX/script/check_conf.sh

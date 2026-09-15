@@ -548,6 +548,8 @@ yi-hack-Allwinner-v2X-firmware.zip
 
 The `.tgz` files stay independently installable; select the one matching the camera model.
 
+The WebUI firmware maintenance page supports **Upload & Upgrade** with a local model-matching `.tgz` only. The online updater has been removed from this fork: hardened packages bind the SD payload to a matching internal bootstrap, so upgrades validate and switch both together before a single reboot.
+
 The workflow can be started manually and also runs for `3.*` version tags.
 
 ## Versioning

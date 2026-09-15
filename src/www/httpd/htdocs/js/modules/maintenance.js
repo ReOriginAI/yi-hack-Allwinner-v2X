@@ -23,9 +23,6 @@ APP.maintenance = (function($) {
         $(document).on("click", '#button-reset', function(e) {
             resetCamera();
         });
-        $(document).on("click", '#button-upgrade', function(e) {
-            upgradeFirmware();
-        });
         $(document).on("click", '#button-fw-upload', function(e) {
             uploadFirmware();
         });
@@ -143,7 +140,6 @@ APP.maintenance = (function($) {
     }
 
     function setUpgradeControlsDisabled(disabled) {
-        $('#button-upgrade').attr("disabled", disabled);
         $('#button-fw-upload').attr("disabled", disabled);
         $('#button-fw-file').attr("disabled", disabled);
     }
@@ -167,7 +163,7 @@ APP.maintenance = (function($) {
 
         var confirmation = confirm(
             "Upload " + file.name + " and start the firmware upgrade? " +
-            "The camera will reboot and may reboot more than once. Do not remove power or the SD card."
+            "The matching payload and bootstrap will be activated together, then the camera will reboot once. Do not remove power or the SD card."
         );
         if (!confirmation) {
             return;
@@ -217,11 +213,6 @@ APP.maintenance = (function($) {
         };
 
         xhr.send(file);
-    }
-
-    function upgradeFirmware() {
-        setFwStatus("Firmware download in progress.");
-        runFirmwareUpgrade();
     }
 
     function runFirmwareUpgrade() {
@@ -304,17 +295,14 @@ APP.maintenance = (function($) {
             dataType: "json",
             error: function(response) {
                 console.log('error', response);
-                setFwStatus("Error getting fw info");
+                setFwStatus("Unable to read installed firmware version.");
             },
             success: function(data) {
+                var status = "Installed: " + data.fw_version;
                 if (data.local_fw) {
-                    setFwStatus("Installed: " + data.fw_version + " - Available: local SD");
-                } else {
-                    setFwStatus("Installed: " + data.fw_version + " - Available: " + data.latest_fw);
+                    status += " - Uploaded firmware is staged";
                 }
-                if ((data.fw_version == data.latest_fw) && (!data.local_fw)) {
-                    $('#button-upgrade').attr("disabled", true);
-                }
+                setFwStatus(status);
             }
         });
     }
