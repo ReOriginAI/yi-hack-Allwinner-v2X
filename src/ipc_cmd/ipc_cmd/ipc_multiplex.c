@@ -1,11 +1,14 @@
 #include "ipc_multiplex.h"
+#include <pthread.h>
 
 // May be set to true using the "IPC_MULTIPLEX_DEBUG" environment
 // variable for debugging purposes.
 bool debug = false;
 
-// True if message queue and function pointer were initialized.
-bool is_initialized = false;
+// Initialize the mirror handles once, including concurrent broker threads.
+static pthread_once_t initialize_once = PTHREAD_ONCE_INIT;
+static int first_queue = 2;
+static int last_queue = 2;
 
 // The message queue onto which all messages will be forwarded.
 mqd_t ipc_mq[10];
@@ -26,6 +29,14 @@ void ipc_multiplex_initialize() {
         debug = true;
     }
 
+    // Normal operation has one consumer: ipc2file on queue 2. Diagnostic
+    // readers can request the historical nine-queue fan-out before startup.
+    const char *all = getenv("IPC_MULTIPLEX_ALL");
+    if (all && strcmp(all, "1") == 0) {
+        first_queue = 1;
+        last_queue = 9;
+    }
+
     // Prepare attributes for opening message queues.
     struct mq_attr attr = {
         .mq_flags = 0,
@@ -35,22 +46,19 @@ void ipc_multiplex_initialize() {
     };
 
     char queue_name[64];
-    for (i = 1; i < 10; i++) {
+    for (i = first_queue; i <= last_queue; i++) {
         sprintf(queue_name, "%s_%d", IPC_QUEUE_NAME, i);
 
         // Open the message queue or create a new one if it does not exist
         ipc_mq[i] = mq_open(queue_name, O_RDWR | O_CREAT | O_NONBLOCK, 0644, &attr);
         if(ipc_mq[i] == INVALID_QUEUE) {
             fprintf(stderr, "*** [IPC_MULTIPLEX] Can't open mqueue %s. Error: %s\n", queue_name, strerror(errno));
-            exit(EXIT_FAILURE);
+            // A failed diagnostic/event sink must not kill the vendor broker.
         }
     }
 
     // Find original mq_receive symbol and store it for later usage
     original_mq_receive = dlsym(RTLD_NEXT, "mq_receive");
-
-    // Remember this function was called.
-    is_initialized = true;
 }
 
 /**
@@ -69,12 +77,19 @@ ssize_t mq_receive(mqd_t mqdes, char *msg_ptr, size_t msg_len, unsigned int *msg
     int i;
 
     // Initialize resources on first call.
-    if (is_initialized == false) {
-        ipc_multiplex_initialize();
+    int saved_errno = errno;
+    pthread_once(&initialize_once, ipc_multiplex_initialize);
+    if (!original_mq_receive) {
+        errno = ENOSYS;
+        return -1;
     }
+    errno = saved_errno;
 
     // Call original function to preserve behaviour
     ssize_t bytes_read = original_mq_receive(mqdes, msg_ptr, msg_len, msg_prio);
+    saved_errno = errno;
+    if (bytes_read < 0)
+        return bytes_read;
 
     if (debug) {
         fprintf(stderr, "*** [IPC_MULTIPLEX] ");
@@ -89,7 +104,9 @@ ssize_t mq_receive(mqd_t mqdes, char *msg_ptr, size_t msg_len, unsigned int *msg
 //    }
 
     // Resend the received message to the dispatch queues
-    for (i = 1; i < 10; i++) {
+    for (i = first_queue; i <= last_queue; i++) {
+        if (ipc_mq[i] == INVALID_QUEUE)
+            continue;
 
         // mq_send will fail with EAGAIN whenever the target message queue is full.
         if (mq_send(ipc_mq[i], msg_ptr, bytes_read, MESSAGE_PRIORITY) != 0 && errno != EAGAIN) {
@@ -98,5 +115,6 @@ ssize_t mq_receive(mqd_t mqdes, char *msg_ptr, size_t msg_len, unsigned int *msg
     }
 
     // Return like the original function would do
+    errno = saved_errno;
     return bytes_read;
 }

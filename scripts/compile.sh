@@ -91,7 +91,12 @@ echo ""
 # Hisilicon Linux, Cross-Toolchain PATH
 export STAGING_DIR="/opt/yi/toolchain-sunxi-musl"
 export PATH="/opt/yi/toolchain-sunxi-musl/toolchain/bin:~/.local/bin:$PATH"
-rm -rf "$(get_script_dir)/../build/"
+
+# Rebuild only the package payload. Development/recovery evidence is kept under
+# build/vendor-ablation and must never be deleted by an ordinary firmware build.
+BUILD_ROOT=$(normalize_path "$(get_script_dir)/../build")
+rm -rf "$BUILD_ROOT/yi-hack"
+mkdir -p "$BUILD_ROOT/yi-hack"
 
 #mkdir -p "$(get_script_dir)/../build/home"
 #mkdir -p "$(get_script_dir)/../build/rootfs"

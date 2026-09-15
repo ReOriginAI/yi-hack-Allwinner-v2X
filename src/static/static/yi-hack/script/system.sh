@@ -157,45 +157,11 @@ case $(get_config HTTPD_PORT) in
     *) HTTPD_PORT=$(get_config HTTPD_PORT) ;;
 esac
 
-log "Configuring cloudAPI"
-if [ ! -f $YI_HACK_PREFIX/bin/cloudAPI_real ]; then
-    cp $YI_PREFIX/cloudAPI $YI_HACK_PREFIX/bin/cloudAPI_real
-fi
-mount --bind $YI_HACK_PREFIX/bin/cloudAPI $YI_PREFIX/cloudAPI
+# Cloud is permanently disabled. The persistent bootstrap installs the primary
+# boundary before starting dispatch; this compatibility mount is local-only too.
+mount --bind "$YI_HACK_PREFIX/bin/cloudAPI" "$YI_PREFIX/cloudAPI" || exit 1
 
-log "Starting yi processes" 1
-if [[ $(get_config DISABLE_CLOUD) == "no" ]] ; then
-    (
-        if [ $(get_config RTSP_AUDIO) == "pcm" ] || [ $(get_config RTSP_AUDIO) == "alaw" ] || [ $(get_config RTSP_AUDIO) == "ulaw" ]; then
-            touch /tmp/audio_fifo.requested
-        fi
-        if [ $(get_config SPEAKER_AUDIO) != "no" ]; then
-            touch /tmp/audio_in_fifo.requested
-        fi
-        cd /home/app
-        set_tz_offset -c osd -o off
-        sleep 2
-        LD_LIBRARY_PATH="/tmp/sd/yi-hack/lib:/lib:/usr/lib:/home/lib:/home/qigan/lib:/home/app/locallib:/tmp/sd:/tmp/sd/gdb" ./rmm &
-        sleep 6
-        dd if=/tmp/audio_fifo of=/dev/null bs=1 count=8192
-        if [[ $(get_config TIME_OSD) == "yes" ]] ; then
-            (sleep 30; export TZP=`TZ=$TZ_TMP date +%z`; export TZP=${TZP:0:3}:${TZP:3:2}; export TZ=GMT$TZP; ./mp4record) &
-        else
-            ./mp4record &
-        fi
-        ./cloud &
-        ./p2p_tnp &
-        ./oss &
-        if [ -f ./oss_fast ]; then
-            ./oss_fast &
-        fi
-        if [ -f ./oss_lapse ]; then
-            ./oss_lapse &
-        fi
-        ./rtmp &
-        (sleep 30; ./watch_process) &
-    )
-else
+log "Starting local media processes" 1
     (
         while read -r line
         do
@@ -227,7 +193,6 @@ else
         # Strict local-only: vendor cloud intentionally not started.
 
     )
-fi
 
 log "Yi processes started successfully" 1
 

@@ -7,7 +7,6 @@ char *config_params[PARAM_NUM][PARAM_OPTIONS] = {
     { "system", "FTPD", "bool", "", "", "" , "", "", "" },
     { "system", "BUSYBOX_FTPD", "bool", "", "", "" , "", "", "" },
     { "system", "MDNSD", "bool", "", "", "" , "", "", "" },
-    { "system", "DISABLE_CLOUD", "bool", "", "", "" , "", "", "" },
     { "system", "REC_WITHOUT_CLOUD", "bool", "", "", "" , "", "", "" },
     { "system", "MQTT", "bool", "", "", "" , "", "", "" },
     { "system", "RTSP", "bool", "", "", "" , "", "", "" },

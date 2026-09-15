@@ -331,13 +331,6 @@ start_motion()
     # Never leave y28ga classifiers/tracking enabled from a stale session.
     disable_y28ga_classifiers >/dev/null 2>&1 || true
 
-    if [ "$(get_system_config DISABLE_CLOUD)" != "yes" ]; then
-        set_y28ga_generic_motion_gate off >/dev/null 2>&1 || true
-        rm -f "$IPC_EVENT_DIR/motion_alarm"
-        stop_owned_mp4record
-        echo "motion service requires local-only mode" > "$LOGFILE"
-        return 1
-    fi
 
     if [ "$(get_camera_config MOTION_DETECTION)" != "yes" ]; then
         set_y28ga_generic_motion_gate off >/dev/null 2>&1 || true

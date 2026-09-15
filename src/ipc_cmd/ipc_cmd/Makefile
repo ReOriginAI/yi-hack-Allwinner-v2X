@@ -9,8 +9,8 @@ all: ipc_cmd ipc_read ipc_notify ipc2file ipc_multiplex.so
 %.o: %.c $(HEADERS)
 	$(CC) -c $< -fPIC -Os -o $@
 
-ipc_multiplex.so: ipc_multiplex.c $(HEADERS)
-	$(CC) $< -fPIC -Os -shared -o $@
+ipc_multiplex.so: ipc_multiplex.c dispatch_poll.c ipc_multiplex.h
+	$(CC) ipc_multiplex.c dispatch_poll.c -fPIC -Os -shared -pthread -ldl -lrt -o $@
 
 ipc_cmd: $(OBJECTS_C)
 	$(CC) $(OBJECTS_C) $(LIBS) -fPIC -Os -o $@

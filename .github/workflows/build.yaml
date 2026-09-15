@@ -48,6 +48,17 @@ jobs:
           test "$(find out/all -maxdepth 1 -type f -name '*.tgz' | wc -l)" -eq 2
           test "$(find out/all -maxdepth 1 -type f -name 'y623_*.tgz' | wc -l)" -eq 1
           test "$(find out/all -maxdepth 1 -type f -name 'y28ga_*.tgz' | wc -l)" -eq 1
+          for model in y623 y28ga; do
+            archive=$(find out/all -maxdepth 1 -type f -name "${model}_*.tgz")
+            tar tzf "$archive" | grep -qx 'Factory/local_init.sh'
+            tar xOzf "$archive" Factory/local_init.sh | sh -n
+            tar xOzf "$archive" Factory/config.sh | grep -q 'EXPECTED_LEGACY_INIT_MD5='
+            tar xOzf "$archive" Factory/config.sh | grep -q 'MIN_BACKUP_FREE_KIB=128'
+            if tar xOzf "$archive" Factory/config.sh | grep -Eq '^[[:space:]]*cp /tmp/init\.sh /backup/init\.sh([[:space:]]|$)'; then
+              echo "Legacy telnet init installer found in $archive" >&2
+              exit 1
+            fi
+          done
           echo "Firmware bundle contents:"
           find out/all -maxdepth 1 -type f -name '*.tgz' -printf '  %f\n' | sort
 

@@ -1,0 +1,62 @@
+#!/bin/sh
+# Generated, model-guarded permanent local boot. No vendor/SD init fallback.
+PATH=/usr/bin:/usr/sbin:/bin:/sbin:/home/base/tools:/home/app/localbin:/home/base
+LD_LIBRARY_PATH=/lib:/usr/lib:/home/qigan/lib:/home/app/locallib
+export PATH LD_LIBRARY_PATH
+SUFFIX=@MODEL@
+fail_closed() {
+    echo "yi-hack: fail closed: $*" > /dev/console
+    exit 1
+}
+[ "$(cat /home/homever)" = '@FIRMWARE@' ] || fail_closed firmware
+ulimit -c 0
+ulimit -s 1024
+mount -t tmpfs -o size=32m tmpfs /tmp || fail_closed tmpfs
+mkdir -p /tmp/sd /tmp/var/run /tmp/run /tmp/ko /tmp/app /tmp/tools /dev/shm /dev/mqueue /tmp/local-only
+mount -t mqueue none /dev/mqueue || fail_closed mqueue
+sysctl -w fs.mqueue.msg_max=256
+printf '@NOOP@' > /tmp/local-only/noop || fail_closed noop
+chmod 555 /tmp/local-only/noop || fail_closed chmod
+[ "$(md5sum /tmp/local-only/noop | cut -d ' ' -f1)" = '@NOOP_MD5@' ] || fail_closed noop-hash
+cat > /tmp/local-only/cloudAPI <<'LOCAL_API'
+@CLOUD_API@
+LOCAL_API
+chmod 555 /tmp/local-only/cloudAPI || fail_closed api
+for target in /home/app/cloud /home/app/p2p_tnp /home/app/oss /home/app/oss_fast /home/app/oss_lapse /home/app/rtmp /home/app/watch_process /home/app/recbackup /home/app/lower_half_init.sh /backup/lower_half_init.sh /home/app/script/start_lua.sh /home/app/script/update.sh /home/app/script/factory_test.sh /backup/tools/upgrade.sh /backup/tools/upgrade_firmware /backup/tools/extpkg.sh; do
+    [ -e "$target" ] || continue
+    mount --bind /tmp/local-only/noop "$target" || fail_closed "$target"
+done
+mount --bind /tmp/local-only/cloudAPI /home/app/cloudAPI || fail_closed cloudAPI
+[ ! -e /backup/local-only-no-sd ] || fail_closed simulated-no-sd
+mount -t vfat /dev/mmcblk0p1 /tmp/sd || mount -t vfat /dev/mmcblk0 /tmp/sd || fail_closed no-sd
+YI=/tmp/sd/yi-hack
+for required in script/system.sh script/service.sh script/check_conf.sh script/wifidhcp.sh script/ethdhcp.sh script/prepare_rmm.sh lib/ipc_multiplex.so bin/cloudAPI bin/cloudAPI_fake bin/ipc_cmd; do
+    [ -s "$YI/$required" ] || fail_closed "missing $required"
+done
+[ "$(cat "$YI/model_suffix")" = "$SUFFIX" ] || fail_closed model
+# Reject an incomplete/corrupt startup set before dispatch is allowed to run.
+cat > /tmp/local-only/sd.md5 <<'SD_MANIFEST'
+@SD_MANIFEST@
+SD_MANIFEST
+[ "$(md5sum /home/app/rmm | cut -d ' ' -f1)" = '@RMM_MD5@' ] || fail_closed rmm-version
+(cd "$YI" && md5sum -c /tmp/local-only/sd.md5) || fail_closed sd-integrity
+# Block archived cloud and dispatch's legacy SD execution hooks before startup.
+for target in "$YI/bin/cloudAPI_real" /tmp/sd/Factory/factory_test.sh /tmp/sd/telnetd; do
+    [ -e "$target" ] || continue
+    mount --bind /tmp/local-only/noop "$target" || fail_closed "$target"
+done
+# Match the tested media memory limits without stock update/debug hooks.
+for setting in dirty_background_ratio=2 dirty_expire_centisecs=500 dirty_ratio=2 dirty_writeback_centisecs=100 vfs_cache_pressure=400 min_free_kbytes=384; do
+    sysctl -w "vm.$setting"
+done
+@HARDWARE@
+for kind in wifi eth; do
+    mount --bind "$YI/script/${kind}dhcp.sh" "/home/app/script/${kind}dhcp.sh" || fail_closed dhcp
+    mount --bind "$YI/script/${kind}dhcp.sh" "/backup/tools/${kind}dhcp.sh" || fail_closed dhcp
+ done
+export DEVICE_MEMORY=8000000 CPU_MEMORY=-1
+export PATH=/home/app:/home/app/script:$PATH
+export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/tmp
+cd /home/app || fail_closed app
+LD_PRELOAD="$YI/lib/ipc_multiplex.so" ./dispatch &
+exec /bin/sh "$YI/script/system.sh"

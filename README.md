@@ -68,6 +68,7 @@ On the tested Kami 1080p unit this reduced `rmm` from roughly **32.6 MB RSS to 2
 Version 3.8.0 includes the model-specific work developed for these two platforms:
 
 - vendor cloud/P2P execution disabled for the local-only configuration
+- `dispatch` is retained as the audited local IPC, Wi-Fi, SD-state and hardware broker; its SD-supplied telnet/factory execution hooks are blocked by the internal local-only bootstrap
 - WebUI cloud controls replaced by local-only/disabled behavior
 - human, vehicle, animal, face/NNA, and motion-tracking AI paths disabled where applicable
 - model-aware local motion service
@@ -560,6 +561,21 @@ The current custom-variant version is:
 `VERSION` is embedded in packaged firmware by `scripts/pack_fw.sh`. Non-tagged local builds append the current short Git commit hash; a release tagged exactly `3.8.0` is packaged as `3.8.0` without the development suffix.
 
 ## Safety and rollback
+
+### IPC resource optimizations
+
+The IPC mirror now uses queue 2 for normal `ipc2file` operation. Diagnostic
+`ipc_read` / `ipc_notify` users can enable the former nine queues by exporting
+`IPC_MULTIPLEX_ALL=1` before `dispatch` starts. The same preload library serves
+the audited y28ga SD-CID `popen()` command with a direct local file read,
+removing its shell/`cat` process pair without changing the polling state machine.
+
+These changes are validated after controlled clean boot on both tested targets
+(y623 and y28ga); the earlier y623 stall occurred only when the vendor broker
+was hot-restarted, which is no longer used as an activation method. The vendor
+`dispatch` binary and its routing IDs remain unchanged. See the
+[performance test results](docs/vendor-ablation/performance.md) for the exact
+clean-boot checks, JFFS2 deployment safeguards, and recovery evidence.
 
 This firmware runs from the SD-card-based yi-hack layout. The y28ga optimized `rmm` mechanism additionally preserves the stock `/home/app/rmm` binary and uses a verified bind-mounted copy at runtime. If the known stock hash is not recognized, the patch is refused rather than modifying an unknown binary.
 

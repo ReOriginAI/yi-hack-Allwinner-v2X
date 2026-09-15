@@ -63,6 +63,38 @@ pack_image()
     echo "done!"
 }
 
+render_local_bootstrap()
+{
+    local MODEL=$1
+    local ROOT_DIR=$2
+    local TOOLCHAIN_BIN=${YI_TOOLCHAIN_BIN:-/opt/yi/toolchain-sunxi-musl/toolchain/bin}
+    local AS=${TOOLCHAIN_BIN}/arm-openwrt-linux-muslgnueabi-as
+    local LD=${TOOLCHAIN_BIN}/arm-openwrt-linux-muslgnueabi-ld
+    local NOOP_OBJ=${ROOT_DIR}/.local-only-noop.o
+    local NOOP=${ROOT_DIR}/.local-only-noop
+    local EXPECTED_NOOP_MD5=b92bc72d8b7019ec751c36235e92fba5
+
+    [ -x "$AS" ] || { echo "ERROR: ARM assembler not found: $AS"; exit 1; }
+    [ -x "$LD" ] || { echo "ERROR: ARM linker not found: $LD"; exit 1; }
+
+    "$AS" -o "$NOOP_OBJ" "$BASE_DIR/scripts/vendor-ablation/noop.S" || exit 1
+    "$LD" -N -nostdlib -static -s -o "$NOOP" "$NOOP_OBJ" || exit 1
+
+    local NOOP_MD5
+    NOOP_MD5=$(md5sum "$NOOP" | awk '{print $1}')
+    if [ "$NOOP_MD5" != "$EXPECTED_NOOP_MD5" ]; then
+        echo "ERROR: local-only no-op binary hash mismatch: $NOOP_MD5"
+        rm -f "$NOOP_OBJ" "$NOOP"
+        exit 1
+    fi
+
+    mkdir -p "$ROOT_DIR/Factory" || exit 1
+    python3 "$BASE_DIR/scripts/vendor-ablation/render.py" "$MODEL" "$NOOP" "$ROOT_DIR/yi-hack" "$ROOT_DIR/Factory/local_init.sh" || exit 1
+    /bin/sh -n "$ROOT_DIR/Factory/local_init.sh" || exit 1
+    chmod 755 "$ROOT_DIR/Factory/local_init.sh" || exit 1
+    rm -f "$NOOP_OBJ" "$NOOP"
+}
+
 ###############################################################################
 
 source "$(get_script_dir)/common.sh"
@@ -90,6 +122,7 @@ SYSROOT_DIR=$BASE_DIR/sysroot/$CAMERA_NAME
 SDHACK_DIR=$BASE_DIR/sdhack
 STATIC_DIR=$BASE_DIR/static
 BUILD_DIR=$BASE_DIR/build
+BUILD_PAYLOAD_DIR=$BUILD_DIR/yi-hack
 OUT_DIR=$BASE_DIR/out/$CAMERA_NAME
 VER=$(cat VERSION)
 
@@ -112,6 +145,7 @@ printf "                      \n"
 printf " sysroot_dir      : %s\n" $SYSROOT_DIR
 printf " static_dir       : %s\n" $STATIC_DIR
 printf " build_dir        : %s\n" $BUILD_DIR
+printf " build_payload    : %s\n" $BUILD_PAYLOAD_DIR
 printf " out_dir          : %s\n" $OUT_DIR
 echo "------------------------------------------------------------------------"
 echo ""
@@ -119,6 +153,8 @@ echo ""
 echo -n ">>> Starting..."
 
 sleep 1
+
+[ -d "$BUILD_PAYLOAD_DIR" ] || { echo "ERROR: Missing compiled payload: $BUILD_PAYLOAD_DIR"; exit 1; }
 
 echo -n ">>> Creating the out directory... "
 mkdir -p $OUT_DIR
@@ -134,9 +170,10 @@ echo ">>> Copying the sysroot contents to ${TMP_DIR}... "
 rsync -a ${SYSROOT_DIR}/* ${TMP_DIR}/ || exit 1
 echo "    done!"
 
-# Copy the build files to the tmp dir
-echo -n ">>> Copying files from the build directory to ${TMP_DIR}... "
-cp -R $BUILD_DIR/* $TMP_DIR/ || exit 1
+# Copy only the compiled firmware payload. Never copy arbitrary build/ siblings:
+# local development keeps private vendor-ablation evidence under build/.
+echo -n ">>> Copying compiled yi-hack payload to ${TMP_DIR}... "
+rsync -a "${BUILD_PAYLOAD_DIR}/" "${TMP_DIR}/yi-hack/" || exit 1
 echo "done!"
 
 # adding defaults
@@ -164,6 +201,12 @@ echo ">>> Copying the sdhack contents to $TMP_DIR... "
 echo "    Copying sdhack..."
 rsync -a ${SDHACK_DIR}/${CAMERA_ID}/* $TMP_DIR || exit 1
 echo "    done!"
+
+# Generate the exact model- and payload-bound bootstrap that first install writes
+# to /backup/init.sh. This is the same fail-closed bootstrap used on test units.
+echo -n ">>> Generating local-only bootstrap... "
+render_local_bootstrap "$CAMERA_NAME" "$TMP_DIR"
+echo "done!"
 
 # create tar.gz
 rm -f $TMP_DIR/*.tgz

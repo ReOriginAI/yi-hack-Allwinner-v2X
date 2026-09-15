@@ -1,0 +1,288 @@
+[
+  {
+    "model": "y623",
+    "artifact": "backup.tar",
+    "size": 2002432,
+    "sha256": "af7e223c163d50de038ede6fe894e54e2d8f23b60fd57786a9e8ac6fed08e03b"
+  },
+  {
+    "model": "y623",
+    "artifact": "vendor.tar",
+    "size": 9574912,
+    "sha256": "05ffaac3078469751513d2ee115a158f652bc78bbfbe6abd9bd07fd23800c3f1"
+  },
+  {
+    "model": "y623",
+    "artifact": "originals.tar",
+    "size": 2522624,
+    "sha256": "e0b5c76fb5d84bdc3b60c4c30f319387fd863aa3ae649c3e39831146b91c1640"
+  },
+  {
+    "model": "y623",
+    "artifact": "sd-before.tar",
+    "size": 125952,
+    "sha256": "8b45cf54f5ff1507f90b0937a4f962becdf92d8b4b60ed2e8e61b51b18fd7b3b"
+  },
+  {
+    "model": "y623",
+    "path": "/backup/tools/wifitest.sh",
+    "size": 121,
+    "md5": "fbdf399ae6a37a470cae68c3eb62dd2a",
+    "sha256": "fc5275016b8090b69a3467a4a839f1c8774dac827d98078a7818f2609ced7a22"
+  },
+  {
+    "model": "y623",
+    "path": "/backup/tools/update_homefs.sh",
+    "size": 714,
+    "md5": "c136df310c9bfd605e1a34df9d4d416b",
+    "sha256": "6749629d778f301240e1092bf35fdafc588fef35cc1962815e8eb83a4318d6c1"
+  },
+  {
+    "model": "y623",
+    "path": "/backup/tools/rsa_pub_dec",
+    "size": 366284,
+    "md5": "8dfa7388b38d978a85c2ffee7c843c8d",
+    "sha256": "03082929486c4aeb878d83f939da9e236f4768ba9a75744df4b9d6891f93d75c"
+  },
+  {
+    "model": "y623",
+    "path": "/backup/tools/wifidhcp.sh",
+    "size": 1274,
+    "md5": "cc17d2f991b41a624ef32d46e54b5487",
+    "sha256": "a8026fe7cdc8853e22d05ba21dd1c8b796368c0b09f5edb80a4be1c1af1f6e6e"
+  },
+  {
+    "model": "y623",
+    "path": "/backup/tools/default.script",
+    "size": 4755,
+    "md5": "958ea0e841cbd7ad8ff2bacbf7584e85",
+    "sha256": "b98a3fae1bbc26211ff30fe947b65367499467b3876ce4240ce250307885288a"
+  },
+  {
+    "model": "y623",
+    "path": "/backup/tools/extpkg.sh",
+    "size": 1818,
+    "md5": "f8e34db03a56a11b5229ea40eb661bef",
+    "sha256": "47c5ff4d9ef475f2486cea7e1b2eb6f50f1dce3e6b68716a796d746fc92aee36"
+  },
+  {
+    "model": "y623",
+    "path": "/backup/tools/upgrade.sh",
+    "size": 5566,
+    "md5": "669fdf31a9e8dce912d0e0d5a2446887",
+    "sha256": "6f9cca1401614a00e0a0a5cbaf9ef6b0c88f708aa57413e2b4121397935cf548"
+  },
+  {
+    "model": "y623",
+    "path": "/backup/tools/wpa_supplicant",
+    "size": 613112,
+    "md5": "ddf38ddf2192fb8cdc84309c0efcad1a",
+    "sha256": "96c7676e43a27272281ef5fa5340a9dbaa2b98d0455756e09099f27fb2f99e84"
+  },
+  {
+    "model": "y623",
+    "path": "/backup/tools/ethdhcp.sh",
+    "size": 1272,
+    "md5": "1fcf73287efa56e35f5f2d5faf5a80e5",
+    "sha256": "20985cc8b77b614691185e4659b0aeb0989e3c6dbc325bbfa29be68935b99718"
+  },
+  {
+    "model": "y623",
+    "path": "/backup/tools/wificonnect.sh",
+    "size": 238,
+    "md5": "2a7e0c8aef54afe8bcc2d1314f752200",
+    "sha256": "50a93a5f05f874af7be2ed074bd48c5d36c9149d4e8b213d86575f6f481d734e"
+  },
+  {
+    "model": "y623",
+    "path": "/backup/tools/set_wifi.sh",
+    "size": 639,
+    "md5": "d303717b750123c452e2fc9eb538f88b",
+    "sha256": "35eac100433254cea845dce902a7bf4584bb69de9affef90eaec601d3b4a8cbd"
+  },
+  {
+    "model": "y623",
+    "path": "/backup/tools/mem_update_pack.sh",
+    "size": 103,
+    "md5": "424eba25b347418809ac310cf9d314cf",
+    "sha256": "8bea52114fff7fe0cd883024bce21a175e6d3e113bd668245c75f183fb229d3f"
+  },
+  {
+    "model": "y623",
+    "path": "/backup/back.bin",
+    "size": 2028,
+    "md5": "02a18579c0f8c3919bef3efe8eda0852",
+    "sha256": "ffdb66ec472e99526ee16d31edf9b19342427360a4ca16d35d6564b5673ed866"
+  },
+  {
+    "model": "y623",
+    "path": "/backup/init.sh",
+    "size": 5043,
+    "md5": "e9bc4d10f495f7aca0e5d8bb46e2ad35",
+    "sha256": "53f34e8cba970579cc9d39bc8f4912fb25e9f2c2c32e82cdb3b8a17f694d61e6"
+  },
+  {
+    "model": "y623",
+    "path": "/backup/app/topfile",
+    "size": 1,
+    "md5": "68b329da9893e34099c7d8ad5cb9c940",
+    "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b"
+  },
+  {
+    "model": "y623",
+    "path": "/backup/ko/8189fs.ko",
+    "size": 983852,
+    "md5": "4b036f71d98cc067d1ef6bcc7f12a57d",
+    "sha256": "a95bcdef9727114055e6937ef85f9cc00e9cb52ffcf3f288d4e41801615e130d"
+  },
+  {
+    "model": "y28ga",
+    "artifact": "backup.tar",
+    "size": 2027520,
+    "sha256": "297b057895506b2c85bbc588d4be2b0624100bc5e315ec16dd50ae0eec87016e"
+  },
+  {
+    "model": "y28ga",
+    "artifact": "vendor.tar",
+    "size": 8425984,
+    "sha256": "ddfdb94f3f97cfc9feeaab9ac1abcb03edb8df1a94d111adb0dba5bc8aa7df80"
+  },
+  {
+    "model": "y28ga",
+    "artifact": "originals.tar",
+    "size": 2352640,
+    "sha256": "bd8cc7098b2c650eac46754c50ef17b4a4ae9d33f8b08597f23c4e44da56f742"
+  },
+  {
+    "model": "y28ga",
+    "artifact": "sd-before.tar",
+    "size": 125952,
+    "sha256": "904f13d4bc82958222a3e8d5431d46b6e7739f48a997fa77ccb8f65f38e347f2"
+  },
+  {
+    "model": "y28ga",
+    "path": "/backup/tools/wifitest.sh",
+    "size": 121,
+    "md5": "fbdf399ae6a37a470cae68c3eb62dd2a",
+    "sha256": "fc5275016b8090b69a3467a4a839f1c8774dac827d98078a7818f2609ced7a22"
+  },
+  {
+    "model": "y28ga",
+    "path": "/backup/tools/update_homefs.sh",
+    "size": 657,
+    "md5": "72d4d2cf407c6755b34c559351916882",
+    "sha256": "6f5f9a33ea55b7bbc710486fd5309ac1768f781310019f3aff620b2286cd21ee"
+  },
+  {
+    "model": "y28ga",
+    "path": "/backup/tools/rsa_pub_dec",
+    "size": 366284,
+    "md5": "8dfa7388b38d978a85c2ffee7c843c8d",
+    "sha256": "03082929486c4aeb878d83f939da9e236f4768ba9a75744df4b9d6891f93d75c"
+  },
+  {
+    "model": "y28ga",
+    "path": "/backup/tools/wifidhcp.sh",
+    "size": 1274,
+    "md5": "cc17d2f991b41a624ef32d46e54b5487",
+    "sha256": "a8026fe7cdc8853e22d05ba21dd1c8b796368c0b09f5edb80a4be1c1af1f6e6e"
+  },
+  {
+    "model": "y28ga",
+    "path": "/backup/tools/default.script",
+    "size": 4755,
+    "md5": "958ea0e841cbd7ad8ff2bacbf7584e85",
+    "sha256": "b98a3fae1bbc26211ff30fe947b65367499467b3876ce4240ce250307885288a"
+  },
+  {
+    "model": "y28ga",
+    "path": "/backup/tools/extpkg.sh",
+    "size": 1818,
+    "md5": "8cc192c260b237e3d0ccfd05d77e3693",
+    "sha256": "f4fccdae223ea10dfe14095b631e3af354c44d22a56ddf839f03619916e6f618"
+  },
+  {
+    "model": "y28ga",
+    "path": "/backup/tools/upgrade.sh",
+    "size": 4390,
+    "md5": "65a65c9d63dab9540dcd8b2ea012d477",
+    "sha256": "0a89ee6b38a8182d09915bd7c030c9b553b5c3e3f549c741170fd16fbce5283e"
+  },
+  {
+    "model": "y28ga",
+    "path": "/backup/tools/wpa_supplicant",
+    "size": 613112,
+    "md5": "ddf38ddf2192fb8cdc84309c0efcad1a",
+    "sha256": "96c7676e43a27272281ef5fa5340a9dbaa2b98d0455756e09099f27fb2f99e84"
+  },
+  {
+    "model": "y28ga",
+    "path": "/backup/tools/ethdhcp.sh",
+    "size": 1272,
+    "md5": "1fcf73287efa56e35f5f2d5faf5a80e5",
+    "sha256": "20985cc8b77b614691185e4659b0aeb0989e3c6dbc325bbfa29be68935b99718"
+  },
+  {
+    "model": "y28ga",
+    "path": "/backup/tools/wificonnect.sh",
+    "size": 238,
+    "md5": "2a7e0c8aef54afe8bcc2d1314f752200",
+    "sha256": "50a93a5f05f874af7be2ed074bd48c5d36c9149d4e8b213d86575f6f481d734e"
+  },
+  {
+    "model": "y28ga",
+    "path": "/backup/tools/set_wifi.sh",
+    "size": 639,
+    "md5": "d303717b750123c452e2fc9eb538f88b",
+    "sha256": "35eac100433254cea845dce902a7bf4584bb69de9affef90eaec601d3b4a8cbd"
+  },
+  {
+    "model": "y28ga",
+    "path": "/backup/tools/upgrade_firmware",
+    "size": 9668,
+    "md5": "0aa30bcf2c6fdf39794841aa8d999f7b",
+    "sha256": "40276616814f67440971f44ae50e0f97f6e66fb8129d83bec0682ac37a15d787"
+  },
+  {
+    "model": "y28ga",
+    "path": "/backup/tools/mem_update_pack.sh",
+    "size": 103,
+    "md5": "424eba25b347418809ac310cf9d314cf",
+    "sha256": "8bea52114fff7fe0cd883024bce21a175e6d3e113bd668245c75f183fb229d3f"
+  },
+  {
+    "model": "y28ga",
+    "path": "/backup/back.bin",
+    "size": 292,
+    "md5": "cd0df1f985456c7aec307c9864ca9d18",
+    "sha256": "3453f578e4f10a1cafd84b6500620ae42aeb9b31d700b3b9c3ef5498062a25d4"
+  },
+  {
+    "model": "y28ga",
+    "path": "/backup/init.sh",
+    "size": 4145,
+    "md5": "aac66b89b51ddc460e44cf4bb1b4f77b",
+    "sha256": "a6d1a262315293b8d6080a9e17b67a63570e5ae3f61211469f820073a8f828cf"
+  },
+  {
+    "model": "y28ga",
+    "path": "/backup/lower_half_init.sh",
+    "size": 1513,
+    "md5": "a9d297fcc801efac89c1f11d6214f9e5",
+    "sha256": "42351a4cc58f16dd7761fa98e0b0bfb2886b75e84b186730ee355ac60e3c778a"
+  },
+  {
+    "model": "y28ga",
+    "path": "/backup/ko/icplus.ko",
+    "size": 5820,
+    "md5": "0a964579d7d5feca255502ce6addfef2",
+    "sha256": "1838663f54cde2ee1b99cb68a16e0fda870ac7ff468596d3efc69d576dfe99e7"
+  },
+  {
+    "model": "y28ga",
+    "path": "/backup/ko/8189fs.ko",
+    "size": 994336,
+    "md5": "a85dc1ff5a9a2bf7abaac7705dac592e",
+    "sha256": "0bd6522c93c64a60457d576640a099eaaa386e669e56b85ebd80f0d0d678c449"
+  }
+]

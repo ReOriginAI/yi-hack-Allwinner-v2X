@@ -228,7 +228,6 @@ check_motion()
         y623|y28ga) ;;
         *) return 0 ;;
     esac
-    [ "$(get_config DISABLE_CLOUD)" = "yes" ] || return 0
     [ "$(get_camera_config MOTION_DETECTION)" = "yes" ] || return 0
 
     STATUS=$("$YI_HACK_PREFIX/script/motion_service.sh" status 2>/dev/null)
@@ -281,7 +280,7 @@ check_aux_services()
         return 0
     fi
 
-    if [ "$(get_config DISABLE_CLOUD)" = "yes" ] && [ "$(get_config REC_WITHOUT_CLOUD)" = "yes" ] && [ "$(process_count mp4record)" -eq 0 ]; then
+    if [ "$(get_config REC_WITHOUT_CLOUD)" = "yes" ] && [ "$(process_count mp4record)" -eq 0 ]; then
         $START_STOP_SCRIPT mp4record start >/dev/null 2>&1
         refresh_oom_policy
         return 0
