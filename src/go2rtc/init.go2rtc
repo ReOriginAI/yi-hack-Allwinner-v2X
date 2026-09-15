@@ -2,6 +2,7 @@
 set -e
 
 VERSION=v1.9.14
+GO_TOOLCHAIN=go1.24.0
 
 SCRIPT_DIR=$(cd `dirname $0` && pwd)
 cd $SCRIPT_DIR
@@ -27,7 +28,9 @@ cp yi-main.go go2rtc-src/cmd/yi/main.go
 
 (
     cd go2rtc-src
-    CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=7 \
+    # Pin the toolchain used by this embedded build. Newer Go releases produce
+    # a materially larger ARM binary and can increase pressure on 60 MiB cameras.
+    GOTOOLCHAIN=$GO_TOOLCHAIN CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=7 \
         go build -buildvcs=false -trimpath -ldflags="-s -w" -o ../go2rtc/go2rtc ./cmd/yi
 )
 
