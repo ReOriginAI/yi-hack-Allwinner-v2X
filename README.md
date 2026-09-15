@@ -1,8 +1,8 @@
-# yi-hack-Allwinner-v2X 3.7.0
+# yi-hack-Allwinner-v2X 3.8.0
 
 Custom local-first yi-hack variant focused on **Yi Pro 2K (`y623`)** and **Kami 1080p (`y28ga`)**.
 
-This project is derived from `yi-hack-Allwinner-v2` and keeps the upstream structure and attribution, but the 3.7.x branch intentionally narrows the supported build/release targets to the two camera families that have been tested directly. The focus is low RAM usage, local RTSP/ONVIF operation, two-way audio, local text-to-speech, and local motion detection without the vendor cloud/AI stack.
+This project is derived from `yi-hack-Allwinner-v2` and keeps the upstream structure and attribution, but the 3.8.x branch intentionally narrows the supported build/release targets to the two camera families that have been tested directly. The focus is low RAM usage, local RTSP/ONVIF operation, two-way audio, local text-to-speech, and local motion detection without the vendor cloud/AI stack.
 
 Other upstream `sysroot/` and `sdhack/` directories remain in the repository as reference material, but **they are not supported or built by default** by this custom variant.
 
@@ -35,7 +35,7 @@ Both tested families use:
 
 The tested Yi Pro 2K hardware uses a `gc3003_mipi` sensor path and produces a 2304x1296 main stream plus a 640x360 low stream.
 
-Its firmware exposes encoder motion statistics under `/sys/kernel/debug/mpp/ve`. The 3.7.x build uses those statistics for the low-RAM `motiond` service, so the raw VI2 analysis path and vendor AI/YUV analysis work can be removed more aggressively.
+Its firmware exposes encoder motion statistics under `/sys/kernel/debug/mpp/ve`. The 3.8.x build uses those statistics for the low-RAM `motiond` service, so the raw VI2 analysis path and vendor AI/YUV analysis work can be removed more aggressively.
 
 The y623 `rmm` optimization is generated from the known vendor binary only after a strict MD5 check. It disables the Pilot AI frame path, reduces the unused virtual-channel allocation, removes the raw VI2 analysis setup, and makes the unused `vi_get_yuv_data` feeder return immediately. The verified copy is bind-mounted for the boot; the stock flash binary is never overwritten.
 
@@ -45,7 +45,7 @@ The no-YUV patch generates MD5 `4b7dd522614a92979b795575fd064986`. Previous live
 
 The tested Kami 1080p hardware uses a `sp2305_mipi` sensor path and produces a 1920x1080 main stream plus a 640x360 low stream.
 
-The older y28ga firmware does **not** expose the same `mpp/ve` encoder-statistics interface. Instead, 3.7.x keeps the firmware's lightweight 640x360 VI2 analysis feed and generic `ivaDetectMotion()` path while disabling the expensive human/vehicle/animal classifier, face/NNA processing, and PTZ tracking work.
+The older y28ga firmware does **not** expose the same `mpp/ve` encoder-statistics interface. Instead, 3.8.x keeps the firmware's lightweight 640x360 VI2 analysis feed and generic `ivaDetectMotion()` path while disabling the expensive human/vehicle/animal classifier, face/NNA processing, and PTZ tracking work.
 
 The y28ga `rmm` optimization is generated from the camera's own known stock binary and is hash-checked before use. The stock flash binary is not overwritten; the verified optimized copy is bind-mounted for the current boot. Unknown `rmm` builds are refused and fall back to stock.
 
@@ -53,7 +53,7 @@ On the tested Kami 1080p unit this reduced `rmm` from roughly **32.6 MB RSS to 2
 
 ## What is different in this custom variant
 
-Version 3.7.0 includes the model-specific work developed for these two platforms:
+Version 3.8.0 includes the model-specific work developed for these two platforms:
 
 - vendor cloud/P2P execution disabled for the local-only configuration
 - WebUI cloud controls replaced by local-only/disabled behavior
@@ -362,9 +362,9 @@ The Yi Pro firmware exposes motion-related encoder statistics. `motiond` reads t
 
 ### `y28ga` Kami 1080p
 
-The older y28ga firmware needs the VI2 640x360 raw analysis path for generic `ivaDetectMotion()`. Version 3.7.0 therefore keeps that lightweight path but removes/stubs the expensive classifier and tracking work.
+The older y28ga firmware needs the VI2 640x360 raw analysis path for generic `ivaDetectMotion()`. Version 3.8.0 therefore keeps that lightweight path but removes/stubs the expensive classifier and tracking work.
 
-The old firmware names its publication gate "AI Motion Detection" internally. Testing showed that this same gate must be enabled for **generic IVA motion publication** even after the AI classifiers have been removed. The 3.7.x `motion_service.sh` owns that gate; it is enabled only while local motion is enabled and all human/vehicle/animal/face/tracking controls remain forced off.
+The old firmware names its publication gate "AI Motion Detection" internally. Testing showed that this same gate must be enabled for **generic IVA motion publication** even after the AI classifiers have been removed. The 3.8.x `motion_service.sh` owns that gate; it is enabled only while local motion is enabled and all human/vehicle/animal/face/tracking controls remain forced off.
 
 ## Audio serialization
 
@@ -542,10 +542,10 @@ The workflow can be started manually and also runs for `3.*` version tags.
 The current custom-variant version is:
 
 ```text
-3.7.0
+3.8.0
 ```
 
-`VERSION` is embedded in packaged firmware by `scripts/pack_fw.sh`. Non-tagged local builds append the current short Git commit hash; a release tagged exactly `3.7.0` is packaged as `3.7.0` without the development suffix.
+`VERSION` is embedded in packaged firmware by `scripts/pack_fw.sh`. Non-tagged local builds append the current short Git commit hash; a release tagged exactly `3.8.0` is packaged as `3.8.0` without the development suffix.
 
 ## Safety and rollback
 
