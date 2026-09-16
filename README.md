@@ -91,10 +91,14 @@ Installation remains SD-card based. Make a backup of the original camera firmwar
 2. The bundle contains one `.tgz` for **Yi Pro 2K (`y623`)** and one `.tgz` for **Kami 1080p (`y28ga`)**.
 3. Select the archive for the **exact** camera target.
 4. Extract that target archive to a FAT32 microSD card as required by the yi-hack SD-card layout.
-5. Configure Wi-Fi in `Factory/configure_wifi.cfg` if necessary.
+5. If provisioning or recovering Wi-Fi, copy/rename `Factory/configure_wifi.cfg.ori` to `Factory/configure_wifi.cfg`, then edit `wifi_ssid=` and `wifi_psk=`. Save it as UTF-8/plain text. Unix LF, Windows CRLF, classic CR, and an optional UTF-8 BOM are accepted. UTF-16/NUL-encoded files and common invisible Unicode formatting characters are rejected before flash is modified.
 6. Insert the card and reboot the camera.
 7. Open `http://IP-CAM/` after the camera returns online.
 8. Keep the microSD card installed; this hack uses it as part of the runtime filesystem.
+
+On an already-hardened camera, `Factory/configure_wifi.cfg` is also a deliberate recovery input. The persistent bootstrap treats that file only as data and invokes the manifest-verified `yi-hack/script/configure_wifi.sh`; it never executes a replacement script from `Factory/`. After a successful parse/write/readback cycle, the request is renamed to `configure_wifi.cfg.applied`. The Wi-Fi writer backs up MTD7 before the first write and fails closed on malformed or ambiguous input.
+
+Formatting the SD card does **not** restore the camera to stock: the matching local-only `/backup/init.sh` bootstrap and Wi-Fi credentials in MTD persist internally. Do not use a freshly formatted card as a cross-version upgrade mechanism. For version changes, use the WebUI atomic upgrade path so the SD payload and persistent bootstrap are switched together; use `Factory/configure_wifi.cfg` to reprovision Wi-Fi on a matching current payload.
 
 This project is derived from the upstream installation model documented by `roleoroleo/yi-hack-Allwinner-v2`.
 

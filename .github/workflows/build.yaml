@@ -28,6 +28,9 @@ jobs:
             yui-compressor closure-compiler optipng jpegoptim libtidy5deb1 node-less \
             sassc sass-spec libhtml-tidy-perl libxml2-utils rsync qemu-user-static p7zip-full
 
+      - name: Test WiFi configuration parser
+        run: sh scripts/test_configure_wifi.sh
+
       - name: Download toolchain
         run: |
           git clone --depth 1 https://github.com/lindenis-org/lindenis-v536-prebuilt
@@ -51,7 +54,11 @@ jobs:
           for model in y623 y28ga; do
             archive=$(find out/all -maxdepth 1 -type f -name "${model}_*.tgz")
             tar tzf "$archive" | grep -qx 'Factory/local_init.sh'
+            tar tzf "$archive" | grep -qx 'yi-hack/script/configure_wifi.sh'
             tar xOzf "$archive" Factory/local_init.sh | sh -n
+            tar xOzf "$archive" Factory/local_init.sh | grep -q 'script/configure_wifi.sh'
+            tar xOzf "$archive" Factory/local_init.sh | grep -q '/tmp/sd/Factory/configure_wifi.cfg'
+            tar xOzf "$archive" yi-hack/script/configure_wifi.sh | sh -n
             tar xOzf "$archive" Factory/config.sh | grep -q 'EXPECTED_LEGACY_INIT_MD5='
             tar xOzf "$archive" Factory/config.sh | grep -q 'MIN_BACKUP_FREE_KIB=128'
             if tar xOzf "$archive" Factory/config.sh | grep -Eq '^[[:space:]]*cp /tmp/init\.sh /backup/init\.sh([[:space:]]|$)'; then

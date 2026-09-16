@@ -30,7 +30,7 @@ mount --bind /tmp/local-only/cloudAPI /home/app/cloudAPI || fail_closed cloudAPI
 [ ! -e /backup/local-only-no-sd ] || fail_closed simulated-no-sd
 mount -t vfat /dev/mmcblk0p1 /tmp/sd || mount -t vfat /dev/mmcblk0 /tmp/sd || fail_closed no-sd
 YI=/tmp/sd/yi-hack
-for required in script/system.sh script/service.sh script/check_conf.sh script/wifidhcp.sh script/ethdhcp.sh script/prepare_rmm.sh lib/ipc_multiplex.so bin/cloudAPI bin/cloudAPI_fake bin/ipc_cmd; do
+for required in script/system.sh script/service.sh script/check_conf.sh script/configure_wifi.sh script/wifidhcp.sh script/ethdhcp.sh script/prepare_rmm.sh lib/ipc_multiplex.so bin/cloudAPI bin/cloudAPI_fake bin/ipc_cmd; do
     [ -s "$YI/$required" ] || fail_closed "missing $required"
 done
 [ "$(cat "$YI/model_suffix")" = "$SUFFIX" ] || fail_closed model
@@ -40,6 +40,24 @@ cat > /tmp/local-only/sd.md5 <<'SD_MANIFEST'
 SD_MANIFEST
 [ "$(md5sum /home/app/rmm | cut -d ' ' -f1)" = '@RMM_MD5@' ] || fail_closed rmm-version
 (cd "$YI" && md5sum -c /tmp/local-only/sd.md5) || fail_closed sd-integrity
+
+# A deliberate Factory/configure_wifi.cfg remains a supported recovery input even
+# after the permanent hardened bootstrap has been installed. Treat Factory only
+# as data here: execute the manifest-verified yi-hack writer, never an SD-supplied
+# Factory shell script. This preserves the local-only execution boundary.
+if [ -f /tmp/sd/Factory/configure_wifi.cfg ]; then
+    CFG_FILE=/tmp/sd/Factory/configure_wifi.cfg
+    export CFG_FILE
+    /bin/sh "$YI/script/configure_wifi.sh" || fail_closed wifi-config
+    unset CFG_FILE
+    # Consume a successfully parsed/applied request so a later accidental edit
+    # cannot make every boot depend on the recovery file. Failure to rename is
+    # non-fatal; reapplying identical verified credentials is safe.
+    rm -f /tmp/sd/Factory/configure_wifi.cfg.applied
+    mv /tmp/sd/Factory/configure_wifi.cfg /tmp/sd/Factory/configure_wifi.cfg.applied 2>/dev/null || true
+    sync
+fi
+
 # Block archived cloud and dispatch's legacy SD execution hooks before startup.
 for target in "$YI/bin/cloudAPI_real" /tmp/sd/Factory/factory_test.sh /tmp/sd/telnetd; do
     [ -e "$target" ] || continue

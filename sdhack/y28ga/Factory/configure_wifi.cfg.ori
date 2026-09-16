@@ -1,5 +1,8 @@
+# Rename this file to configure_wifi.cfg before booting.
+# Save as UTF-8/plain text. LF, CRLF, and CR line endings are accepted.
+# A UTF-8 BOM is accepted; UTF-16/NUL and invisible formatting characters are rejected.
 # Don't use backslash char \
 # Don't use double quote " around ssid and psk
-# Space chars are allowed
+# Space chars are allowed and preserved exactly
 wifi_ssid=My AP 2.4GHz
 wifi_psk=password$
