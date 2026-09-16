@@ -204,6 +204,16 @@ init_installed=1
 [ "$(md5sum "$BACKUP_ROOT/init.sh" | awk '{print $1}')" = "$NEW_INIT_MD5" ] || die "active bootstrap hash mismatch"
 /bin/sh -n "$BACKUP_ROOT/init.sh" || die "active bootstrap has invalid syntax"
 
+# A WebUI upgrade has already activated the matching yi-hack tree and bootstrap.
+# Any Factory trigger that predates this upgrade is therefore stale; leaving it
+# active would make the new bootstrap execute an installer from the old release
+# before networking starts. Preserve it under a non-triggering name instead.
+if [ -e "$SD_ROOT/Factory" ]; then
+    RETIRED_FACTORY="$SD_ROOT/Factory.retired-web-$ARCHIVE_VERSION"
+    rm -rf "$RETIRED_FACTORY" || die "unable to clear previous retired Factory tree"
+    mv "$SD_ROOT/Factory" "$RETIRED_FACTORY" || die "unable to retire stale Factory trigger"
+fi
+
 rm -f "$LOCAL_FW"
 rm -rf "$STAGE"
 sync
