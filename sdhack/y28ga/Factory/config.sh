@@ -1,21 +1,21 @@
 #!/bin/sh
-# First-install bootstrap for the exact audited y28ga firmware. Unknown internal
-# files are never modified; failures leave Factory in place so the next boot
-# returns here instead of falling through to vendor services.
+# SD Factory installer for y28ga. A release extracted to SD is treated as a
+# complete install: validate the package, preserve recovery copies, provision
+# Wi-Fi if requested, install the matching /backup/init.sh, retire Factory, reboot.
 
 MODEL=y28ga
 EXPECTED_HOMEVER='9.0.20.06_202007061841'
-EXPECTED_LEGACY_INIT_MD5='aac66b89b51ddc460e44cf4bb1b4f77b'
 LOCAL_INIT=/tmp/sd/Factory/local_init.sh
 RESULT=/tmp/sd/hack_result.txt
 BACKUP_DIR=/tmp/sd/backup
-REMOVED_DIR=$BACKUP_DIR/local-only-removed
+RECLAIM_DIR=$BACKUP_DIR/reclaimed
 MIN_BACKUP_FREE_KIB=128
+RECLAIM_PATHS='/backup/lower_half_init.sh /backup/tools/upgrade.sh /backup/tools/upgrade_firmware /backup/tools/extpkg.sh /backup/tools/rsa_pub_dec'
 
-fail_closed()
+install_fail()
 {
-    echo "Local-only install failed: $*" > "$RESULT"
-    echo "yi-hack: local-only install failed: $*" > /dev/console
+    echo "Install failed: $*" > "$RESULT"
+    echo "yi-hack: install failed: $*" > /dev/console
     sync
     exit 1
 }
@@ -25,77 +25,27 @@ md5_file()
     md5sum "$1" 2>/dev/null | awk '{print $1}'
 }
 
-# The audit archive contains the previous yi-hack init, after its installer
-# removed the stock lower-half call and appended telnet/lower-half dispatch.
-# Normalize a pristine init in /tmp through that exact historical transform;
-# matching the audited result proves the input is the supported predecessor
-# without modifying flash or guessing an unaudited stock hash.
-legacy_normalized_md5()
+preserve_once()
 {
-    audit=/tmp/yi-hack-legacy-init.$$
-    cp /backup/init.sh "$audit" || return 1
-    sed -n '1{$!N;$!N;$!N;$!N};$!N;s@\nif \[ \-f \/home\/app\/lower_half_init.sh \];then\n    source \/home\/app\/lower_half_init.sh\nelse\n    source \/backup\/lower_half_init.sh\nfi@@;P;D' -i "$audit" || { rm -f "$audit"; return 1; }
-    sed -n '1{$!N;$!N;$!N;$!N};$!N;s@\nif \[ \-f \/home\/app\/lower_half_init.sh \];then\n\tsource \/home\/app\/lower_half_init.sh\nelse\n\tsource \/backup\/lower_half_init.sh\nfi@@;P;D' -i "$audit" || { rm -f "$audit"; return 1; }
-    sed -e 's/^source \/home\/app\/lower_half_init.sh//g' -i "$audit" || { rm -f "$audit"; return 1; }
-    {
-        echo "# Running telnetd"
-        echo "/usr/sbin/telnetd &"
-        echo ""
-        echo "if [ -f /tmp/sd/lower_half_init.sh ];then"
-        echo "    source /tmp/sd/lower_half_init.sh"
-        echo "elif [ -f /home/app/lower_half_init.sh ];then"
-        echo "    source /home/app/lower_half_init.sh"
-        echo "else"
-        echo "    source /backup/lower_half_init.sh"
-        echo "fi"
-    } >> "$audit" || { rm -f "$audit"; return 1; }
-    digest=$(md5_file "$audit")
-    rm -f "$audit"
-    echo "$digest"
-}
-
-verify_or_absent()
-{
-    path=$1
-    expected=$2
-    [ -e "$path" ] || return 0
-    got=$(md5_file "$path")
-    [ "$got" = "$expected" ] || fail_closed "unexpected $path ($got)"
-}
-
-preserve_file()
-{
-    path=$1
-    expected=$2
-    label=$3
-    [ -e "$path" ] || return 0
-    verify_or_absent "$path" "$expected"
-    mkdir -p "$REMOVED_DIR" || fail_closed "cannot create recovery directory"
-    cp "$path" "$REMOVED_DIR/$label" || fail_closed "cannot preserve $path"
-    [ "$(md5_file "$REMOVED_DIR/$label")" = "$expected" ] || fail_closed "recovery copy mismatch: $path"
-}
-
-remove_verified()
-{
-    path=$1
-    expected=$2
-    [ -e "$path" ] || return 0
-    verify_or_absent "$path" "$expected"
-    rm -f "$path" || fail_closed "cannot remove disabled $path"
+    src=$1
+    dst=$2
+    [ -e "$src" ] || return 0
+    [ -e "$dst" ] && return 0
+    cp "$src" "$dst" || install_fail "cannot preserve $src"
 }
 
 configure_wifi_if_requested()
 {
     if [ -e /tmp/sd/Factory/configure_wifi.cfg ]; then
-        /tmp/sd/Factory/configure_wifi.sh || fail_closed "Wi-Fi configuration failed"
+        /tmp/sd/Factory/configure_wifi.sh || install_fail "Wi-Fi configuration failed"
     fi
 }
 
 finish_install()
 {
-    echo "Local-only install completed successfully" > "$RESULT"
+    echo "Install completed successfully" > "$RESULT"
     rm -rf /tmp/sd/Factory.done
-    mv /tmp/sd/Factory /tmp/sd/Factory.done || fail_closed "cannot retire Factory trigger"
+    mv /tmp/sd/Factory /tmp/sd/Factory.done || install_fail "cannot retire Factory trigger"
     sync
     sync
     sync
@@ -103,75 +53,70 @@ finish_install()
     exit 0
 }
 
-[ "$(cat /home/homever 2>/dev/null)" = "$EXPECTED_HOMEVER" ] || fail_closed "unsupported firmware"
-[ "$(cat /tmp/sd/yi-hack/model_suffix 2>/dev/null)" = "$MODEL" ] || fail_closed "wrong model payload"
-[ -s "$LOCAL_INIT" ] || fail_closed "missing generated bootstrap"
-/bin/sh -n "$LOCAL_INIT" || fail_closed "invalid generated bootstrap"
+[ "$(cat /home/homever 2>/dev/null)" = "$EXPECTED_HOMEVER" ] || install_fail "unsupported firmware"
+[ "$(cat /tmp/sd/yi-hack/model_suffix 2>/dev/null)" = "$MODEL" ] || install_fail "wrong model payload"
+[ -s "$LOCAL_INIT" ] || install_fail "missing generated bootstrap"
+/bin/sh -n "$LOCAL_INIT" || install_fail "invalid generated bootstrap"
 LOCAL_INIT_MD5=$(md5_file "$LOCAL_INIT")
-[ -n "$LOCAL_INIT_MD5" ] || fail_closed "cannot hash generated bootstrap"
+[ -n "$LOCAL_INIT_MD5" ] || install_fail "cannot hash generated bootstrap"
+
+MANIFEST=/tmp/yi-hack-install-manifest.$$
+grep -E '^[0-9a-f]{32}  [^ /][^ ]*$' "$LOCAL_INIT" > "$MANIFEST" || install_fail "missing payload manifest"
+MANIFEST_LINES=$(awk 'END {print NR}' "$MANIFEST")
+case "$MANIFEST_LINES" in ''|*[!0-9]*) rm -f "$MANIFEST"; install_fail "invalid payload manifest" ;; esac
+[ "$MANIFEST_LINES" -ge 10 ] || { rm -f "$MANIFEST"; install_fail "incomplete payload manifest"; }
+(cd /tmp/sd/yi-hack && md5sum -c "$MANIFEST" >/dev/null 2>&1) || { rm -f "$MANIFEST"; install_fail "SD payload does not match bootstrap"; }
+rm -f "$MANIFEST"
 
 CURRENT_INIT_MD5=$(md5_file /backup/init.sh)
 if [ "$CURRENT_INIT_MD5" = "$LOCAL_INIT_MD5" ]; then
     configure_wifi_if_requested
     finish_install
 fi
-if [ "$CURRENT_INIT_MD5" != "$EXPECTED_LEGACY_INIT_MD5" ]; then
-    NORMALIZED_INIT_MD5=$(legacy_normalized_md5) || fail_closed "cannot audit /backup/init.sh"
-    [ "$NORMALIZED_INIT_MD5" = "$EXPECTED_LEGACY_INIT_MD5" ] || fail_closed "unknown /backup/init.sh ($CURRENT_INIT_MD5)"
-fi
 
-# Validate every file that may be reclaimed before writing recovery data.
-verify_or_absent /backup/lower_half_init.sh a9d297fcc801efac89c1f11d6214f9e5
-verify_or_absent /backup/tools/upgrade.sh 65a65c9d63dab9540dcd8b2ea012d477
-verify_or_absent /backup/tools/upgrade_firmware 0aa30bcf2c6fdf39794841aa8d999f7b
-verify_or_absent /backup/tools/extpkg.sh 8cc192c260b237e3d0ccfd05d77e3693
-verify_or_absent /backup/tools/rsa_pub_dec 8dfa7388b38d978a85c2ffee7c843c8d
-
-# Preserve the complete current flash and predecessor init before any requested
-# Wi-Fi change or JFFS2 deletion.
-mkdir -p "$BACKUP_DIR/mtd" "$REMOVED_DIR" || fail_closed "cannot create SD recovery directory"
-cat /proc/mtd > "$BACKUP_DIR/mtd.txt" || fail_closed "cannot save MTD map"
+mkdir -p "$BACKUP_DIR/mtd" "$RECLAIM_DIR" || install_fail "cannot create recovery directory"
+cat /proc/mtd > "$BACKUP_DIR/mtd.txt" || install_fail "cannot save MTD map"
 for n in 0 1 2 3 4 5 6 7; do
     [ -e "/dev/mtdblock$n" ] || continue
-    dd if="/dev/mtdblock$n" of="$BACKUP_DIR/mtd/mtdblock$n.bin" bs=65536 2>/dev/null || fail_closed "MTD backup failed: $n"
+    if [ ! -s "$BACKUP_DIR/mtd/mtdblock$n.bin" ]; then
+        dd if="/dev/mtdblock$n" of="$BACKUP_DIR/mtd/mtdblock$n.bin" bs=65536 2>/dev/null || install_fail "MTD backup failed: $n"
+    fi
 done
-cp /home/homever "$BACKUP_DIR/homever.txt" || fail_closed "cannot preserve homever"
-cp /backup/init.sh "$BACKUP_DIR/init.pre-local-only.sh" || fail_closed "cannot preserve predecessor init"
-[ "$(md5_file "$BACKUP_DIR/init.pre-local-only.sh")" = "$CURRENT_INIT_MD5" ] || fail_closed "predecessor init recovery copy mismatch"
-preserve_file /backup/lower_half_init.sh a9d297fcc801efac89c1f11d6214f9e5 backup_lower_half_init.sh
-preserve_file /backup/tools/upgrade.sh 65a65c9d63dab9540dcd8b2ea012d477 backup_tools_upgrade.sh
-preserve_file /backup/tools/upgrade_firmware 0aa30bcf2c6fdf39794841aa8d999f7b backup_tools_upgrade_firmware
-preserve_file /backup/tools/extpkg.sh 8cc192c260b237e3d0ccfd05d77e3693 backup_tools_extpkg.sh
-preserve_file /backup/tools/rsa_pub_dec 8dfa7388b38d978a85c2ffee7c843c8d backup_tools_rsa_pub_dec
+cp /home/homever "$BACKUP_DIR/homever.txt" || install_fail "cannot preserve homever"
+if [ -s /backup/init.sh ]; then
+    [ -n "$CURRENT_INIT_MD5" ] || install_fail "cannot hash current init"
+    preserve_once /backup/init.sh "$BACKUP_DIR/init.$CURRENT_INIT_MD5.sh"
+fi
 
-# Apply user-requested Wi-Fi changes before deleting updater components or
-# activating the new init, so a configuration failure remains safely retryable.
+# Stock /backup is almost full. Preserve these unused vendor updater components
+# to SD, then reclaim their JFFS2 space so the replacement init can be staged.
+for path in $RECLAIM_PATHS; do
+    [ -e "$path" ] || continue
+    label=$(echo "$path" | sed 's#^/##; s#/#_#g')
+    preserve_once "$path" "$RECLAIM_DIR/$label"
+done
+
 configure_wifi_if_requested
 
-# These are vendor firmware-update components already masked by the hardened
-# bootstrap. All present copies were preserved and verified above before the
-# first deletion. Reclaiming them creates the JFFS2 GC headroom needed to stage
-# the larger fail-closed init safely.
-remove_verified /backup/lower_half_init.sh a9d297fcc801efac89c1f11d6214f9e5
-remove_verified /backup/tools/upgrade.sh 65a65c9d63dab9540dcd8b2ea012d477
-remove_verified /backup/tools/upgrade_firmware 0aa30bcf2c6fdf39794841aa8d999f7b
-remove_verified /backup/tools/extpkg.sh 8cc192c260b237e3d0ccfd05d77e3693
-remove_verified /backup/tools/rsa_pub_dec 8dfa7388b38d978a85c2ffee7c843c8d
+for path in $RECLAIM_PATHS; do
+    [ -e "$path" ] || continue
+    rm -f "$path" || install_fail "cannot reclaim $path"
+done
 sync
 
 FREE_KIB=$(df -k /backup 2>/dev/null | awk 'NR==2 {print $4}')
-case "$FREE_KIB" in ''|*[!0-9]*) fail_closed "cannot determine /backup free space" ;; esac
-[ "$FREE_KIB" -ge "$MIN_BACKUP_FREE_KIB" ] || fail_closed "/backup has only $FREE_KIB KiB free"
+case "$FREE_KIB" in ''|*[!0-9]*) install_fail "cannot determine /backup free space" ;; esac
+[ "$FREE_KIB" -ge "$MIN_BACKUP_FREE_KIB" ] || install_fail "/backup has only $FREE_KIB KiB free"
 
 rm -f /backup/init.sh.local-new
-cp "$LOCAL_INIT" /backup/init.sh.local-new || fail_closed "cannot stage hardened init"
-[ "$(md5_file /backup/init.sh.local-new)" = "$LOCAL_INIT_MD5" ] || fail_closed "staged init hash mismatch"
-/bin/sh -n /backup/init.sh.local-new || fail_closed "staged init syntax failure"
-chmod 755 /backup/init.sh.local-new || fail_closed "cannot chmod staged init"
+cp "$LOCAL_INIT" /backup/init.sh.local-new || install_fail "cannot stage new init"
+[ "$(md5_file /backup/init.sh.local-new)" = "$LOCAL_INIT_MD5" ] || install_fail "staged init hash mismatch"
+/bin/sh -n /backup/init.sh.local-new || install_fail "staged init syntax failure"
+chmod 755 /backup/init.sh.local-new || install_fail "cannot chmod staged init"
 sync
-mv /backup/init.sh.local-new /backup/init.sh || fail_closed "cannot activate hardened init"
+mv /backup/init.sh.local-new /backup/init.sh || install_fail "cannot activate new init"
 sync
-[ "$(md5_file /backup/init.sh)" = "$LOCAL_INIT_MD5" ] || fail_closed "installed init hash mismatch"
-/bin/sh -n /backup/init.sh || fail_closed "installed init syntax failure"
+[ "$(md5_file /backup/init.sh)" = "$LOCAL_INIT_MD5" ] || install_fail "installed init hash mismatch"
+/bin/sh -n /backup/init.sh || install_fail "installed init syntax failure"
 
 finish_install

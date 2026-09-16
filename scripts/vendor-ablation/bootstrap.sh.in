@@ -1,54 +1,65 @@
 #!/bin/sh
-# Generated, model-guarded permanent local boot. No vendor/SD init fallback.
+# Generated local boot. Vendor cloud/P2P components are ablated, while SD Factory install/recovery remains available.
 PATH=/usr/bin:/usr/sbin:/bin:/sbin:/home/base/tools:/home/app/localbin:/home/base
 LD_LIBRARY_PATH=/lib:/usr/lib:/home/qigan/lib:/home/app/locallib
 export PATH LD_LIBRARY_PATH
 SUFFIX=@MODEL@
-fail_closed() {
+boot_fail() {
     echo "yi-hack: fail closed: $*" > /dev/console
     exit 1
 }
-[ "$(cat /home/homever)" = '@FIRMWARE@' ] || fail_closed firmware
+[ "$(cat /home/homever)" = '@FIRMWARE@' ] || boot_fail firmware
 ulimit -c 0
 ulimit -s 1024
-mount -t tmpfs -o size=32m tmpfs /tmp || fail_closed tmpfs
+mount -t tmpfs -o size=32m tmpfs /tmp || boot_fail tmpfs
 mkdir -p /tmp/sd /tmp/var/run /tmp/run /tmp/ko /tmp/app /tmp/tools /dev/shm /dev/mqueue /tmp/local-only
-mount -t mqueue none /dev/mqueue || fail_closed mqueue
+mount -t mqueue none /dev/mqueue || boot_fail mqueue
 sysctl -w fs.mqueue.msg_max=256
-printf '@NOOP@' > /tmp/local-only/noop || fail_closed noop
-chmod 555 /tmp/local-only/noop || fail_closed chmod
-[ "$(md5sum /tmp/local-only/noop | cut -d ' ' -f1)" = '@NOOP_MD5@' ] || fail_closed noop-hash
+printf '@NOOP@' > /tmp/local-only/noop || boot_fail noop
+chmod 555 /tmp/local-only/noop || boot_fail chmod
+[ "$(md5sum /tmp/local-only/noop | cut -d ' ' -f1)" = '@NOOP_MD5@' ] || boot_fail noop-hash
 cat > /tmp/local-only/cloudAPI <<'LOCAL_API'
 @CLOUD_API@
 LOCAL_API
-chmod 555 /tmp/local-only/cloudAPI || fail_closed api
-for target in /home/app/cloud /home/app/p2p_tnp /home/app/oss /home/app/oss_fast /home/app/oss_lapse /home/app/rtmp /home/app/watch_process /home/app/recbackup /home/app/lower_half_init.sh /backup/lower_half_init.sh /home/app/script/start_lua.sh /home/app/script/update.sh /home/app/script/factory_test.sh /backup/tools/upgrade.sh /backup/tools/upgrade_firmware /backup/tools/extpkg.sh; do
+chmod 555 /tmp/local-only/cloudAPI || boot_fail api
+# Ablate only vendor cloud/network services. Keep vendor install/recovery helpers
+# intact; this project is local-only by behavior, not a locked-down appliance.
+for target in /home/app/cloud /home/app/p2p_tnp /home/app/oss /home/app/oss_fast /home/app/oss_lapse /home/app/rtmp /home/app/watch_process /home/app/recbackup /home/app/script/start_lua.sh; do
     [ -e "$target" ] || continue
-    mount --bind /tmp/local-only/noop "$target" || fail_closed "$target"
+    mount --bind /tmp/local-only/noop "$target" || boot_fail "$target"
 done
-mount --bind /tmp/local-only/cloudAPI /home/app/cloudAPI || fail_closed cloudAPI
-[ ! -e /backup/local-only-no-sd ] || fail_closed simulated-no-sd
-mount -t vfat /dev/mmcblk0p1 /tmp/sd || mount -t vfat /dev/mmcblk0 /tmp/sd || fail_closed no-sd
+mount --bind /tmp/local-only/cloudAPI /home/app/cloudAPI || boot_fail cloudAPI
+mount -t vfat /dev/mmcblk0p1 /tmp/sd || mount -t vfat /dev/mmcblk0 /tmp/sd || boot_fail no-sd
+
+# A release extracted to SD is a complete install request. Run its Factory
+# installer before checking the currently-installed bootstrap's payload manifest.
+# This lets a fresh SD upgrade /backup/init.sh and the SD payload as one unit.
+if [ -e /tmp/sd/Factory/factory_test.sh ]; then
+    [ -s /tmp/sd/Factory/config.sh ] || boot_fail factory-config
+    /bin/sh /tmp/sd/Factory/config.sh
+    exit $?
+fi
+
 YI=/tmp/sd/yi-hack
 for required in script/system.sh script/service.sh script/check_conf.sh script/configure_wifi.sh script/wifidhcp.sh script/ethdhcp.sh script/prepare_rmm.sh lib/ipc_multiplex.so bin/cloudAPI bin/cloudAPI_fake bin/ipc_cmd; do
-    [ -s "$YI/$required" ] || fail_closed "missing $required"
+    [ -s "$YI/$required" ] || boot_fail "missing $required"
 done
-[ "$(cat "$YI/model_suffix")" = "$SUFFIX" ] || fail_closed model
+[ "$(cat "$YI/model_suffix")" = "$SUFFIX" ] || boot_fail model
 # Reject an incomplete/corrupt startup set before dispatch is allowed to run.
 cat > /tmp/local-only/sd.md5 <<'SD_MANIFEST'
 @SD_MANIFEST@
 SD_MANIFEST
-[ "$(md5sum /home/app/rmm | cut -d ' ' -f1)" = '@RMM_MD5@' ] || fail_closed rmm-version
-(cd "$YI" && md5sum -c /tmp/local-only/sd.md5) || fail_closed sd-integrity
+[ "$(md5sum /home/app/rmm | cut -d ' ' -f1)" = '@RMM_MD5@' ] || boot_fail rmm-version
+(cd "$YI" && md5sum -c /tmp/local-only/sd.md5) || boot_fail sd-integrity
 
 # A deliberate Factory/configure_wifi.cfg remains a supported recovery input even
-# after the permanent hardened bootstrap has been installed. Treat Factory only
+# after the permanent local bootstrap has been installed. Treat Factory only
 # as data here: execute the manifest-verified yi-hack writer, never an SD-supplied
 # Factory shell script. This preserves the local-only execution boundary.
 if [ -f /tmp/sd/Factory/configure_wifi.cfg ]; then
     CFG_FILE=/tmp/sd/Factory/configure_wifi.cfg
     export CFG_FILE
-    /bin/sh "$YI/script/configure_wifi.sh" || fail_closed wifi-config
+    /bin/sh "$YI/script/configure_wifi.sh" || boot_fail wifi-config
     unset CFG_FILE
     # Consume a successfully parsed/applied request so a later accidental edit
     # cannot make every boot depend on the recovery file. Failure to rename is
@@ -58,23 +69,34 @@ if [ -f /tmp/sd/Factory/configure_wifi.cfg ]; then
     sync
 fi
 
-# Block archived cloud and dispatch's legacy SD execution hooks before startup.
-for target in "$YI/bin/cloudAPI_real" /tmp/sd/Factory/factory_test.sh /tmp/sd/telnetd; do
-    [ -e "$target" ] || continue
-    mount --bind /tmp/local-only/noop "$target" || fail_closed "$target"
-done
+# Keep the archived Yi cloud helper inert. Factory/recovery hooks remain usable.
+if [ -e "$YI/bin/cloudAPI_real" ]; then
+    mount --bind /tmp/local-only/noop "$YI/bin/cloudAPI_real" || boot_fail cloudAPI_real
+fi
 # Match the tested media memory limits without stock update/debug hooks.
 for setting in dirty_background_ratio=2 dirty_expire_centisecs=500 dirty_ratio=2 dirty_writeback_centisecs=100 vfs_cache_pressure=400 min_free_kbytes=384; do
     sysctl -w "vm.$setting"
 done
 @HARDWARE@
 for kind in wifi eth; do
-    mount --bind "$YI/script/${kind}dhcp.sh" "/home/app/script/${kind}dhcp.sh" || fail_closed dhcp
-    mount --bind "$YI/script/${kind}dhcp.sh" "/backup/tools/${kind}dhcp.sh" || fail_closed dhcp
+    mount --bind "$YI/script/${kind}dhcp.sh" "/home/app/script/${kind}dhcp.sh" || boot_fail dhcp
+    mount --bind "$YI/script/${kind}dhcp.sh" "/backup/tools/${kind}dhcp.sh" || boot_fail dhcp
  done
 export DEVICE_MEMORY=8000000 CPU_MEMORY=-1
 export PATH=/home/app:/home/app/script:$PATH
 export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/tmp
-cd /home/app || fail_closed app
+cd /home/app || boot_fail app
 LD_PRELOAD="$YI/lib/ipc_multiplex.so" ./dispatch &
+
+# dispatch normally creates /tmp/wpa_supplicant.conf and launches Wi-Fi. If it
+# creates the config but misses the launcher, recover once without cycling wlan0.
+(
+    sleep 5
+    if ! ps 2>/dev/null | grep '[w]pa_supplicant' >/dev/null 2>&1 &&
+       [ -s /tmp/wpa_supplicant.conf ] &&
+       [ -x /home/app/script/wificonnect.sh ]; then
+        /home/app/script/wificonnect.sh >/dev/null 2>&1
+    fi
+) &
+
 exec /bin/sh "$YI/script/system.sh"

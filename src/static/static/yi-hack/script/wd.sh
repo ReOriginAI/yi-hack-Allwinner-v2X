@@ -335,6 +335,24 @@ check_aux_services()
     fi
 }
 
+soft_wifi_reconnect()
+{
+    # Do not bounce wlan0; y623 can wedge its SDIO Wi-Fi path after down/up cycling.
+    if ! ps 2>/dev/null | grep '[w]pa_supplicant' >/dev/null 2>&1; then
+        if [ -s /tmp/wpa_supplicant.conf ] && [ -x /home/app/script/wificonnect.sh ]; then
+            /home/app/script/wificonnect.sh >/dev/null 2>&1
+            sleep 2
+        fi
+    elif [ -x /home/base/tools/wpa_cli ]; then
+        (sleep 2 && killall -9 wpa_cli 2>/dev/null) &
+        KILLER_PID=$!
+        /home/base/tools/wpa_cli -i wlan0 reconfigure >/dev/null 2>&1
+        kill $KILLER_PID 2>/dev/null
+        wait $KILLER_PID 2>/dev/null
+    fi
+    "$YI_HACK_PREFIX/script/wifidhcp.sh" >/dev/null 2>&1
+}
+
 check_wifi()
 {
     MAINT_STATE=$(cat /tmp/wifi_maintenance_active 2>/dev/null)
@@ -489,23 +507,9 @@ check_wifi()
                 return 0
             fi
 
-            # During the grace period, preserve the existing reconnect behavior
-            # but never reboot. This gives the primary network time to recover.
-            sleep 2
-            ifconfig wlan0 down
-            sleep 1
-            ifconfig wlan0 up
-            sleep 1
-
-            if [ -x /home/base/tools/wpa_cli ]; then
-                (sleep 2 && killall -9 wpa_cli 2>/dev/null) &
-                KILLER_PID=$!
-                /home/base/tools/wpa_cli -i wlan0 reconfigure 2>/dev/null
-                kill $KILLER_PID 2>/dev/null
-                wait $KILLER_PID 2>/dev/null
-            fi
-
-            $YI_HACK_PREFIX/script/wifidhcp.sh
+            # During the grace period, retry association/DHCP without cycling wlan0.
+            # The y623 SDIO Wi-Fi path can wedge after repeated down/up cycles.
+            soft_wifi_reconnect
             return 0
         fi
 
@@ -518,21 +522,7 @@ check_wifi()
         else
             echo -e "$(date): Attempting WiFi reconnect..." >> "$LOGWIFI_FILE"
 
-            sleep 2
-            ifconfig wlan0 down
-            sleep 1
-            ifconfig wlan0 up
-            sleep 1
-
-            if [ -x /home/base/tools/wpa_cli ]; then
-                (sleep 2 && killall -9 wpa_cli 2>/dev/null) &
-                KILLER_PID=$!
-                /home/base/tools/wpa_cli -i wlan0 reconfigure 2>/dev/null
-                kill $KILLER_PID 2>/dev/null
-                wait $KILLER_PID 2>/dev/null
-            fi
-
-            $YI_HACK_PREFIX/script/wifidhcp.sh
+            soft_wifi_reconnect
         fi
     else
         if [ $WIFI_FAILSAFE_COUNTER -gt 0 ]; then

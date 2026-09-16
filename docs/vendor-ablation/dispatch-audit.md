@@ -55,7 +55,7 @@ These steady-state traces are strong evidence that the retained broker is not it
 
 `dispatch` does execute commands through `system()`, `popen()`, and, on y623, an `execl("/bin/sh", "sh", "-c", command, NULL)` helper. Most resolved fixed commands are local maintenance operations such as interface reset, Wi-Fi module reload, reboot, cache dropping, RTC handling, and local helper scripts.
 
-Two legacy SD execution hooks are unsafe for the local-only trust boundary:
+Two legacy SD execution hooks are relevant to recovery and installation:
 
 ### y623 root-telnet hook
 
@@ -65,7 +65,7 @@ The y623 startup path calls `access("/tmp/sd/telnetd", 0)`. If the file exists i
 /tmp/sd/telnetd -l sh &
 ```
 
-This is a proven arbitrary SD-supplied executable path and can expose a root shell listener. It does not belong in the retained local camera substrate.
+This can expose a root shell listener, so it should only be placed on an SD card deliberately. ReOriginAI no longer bind-masks this hook; the project goal is cloud ablation and practical local recovery rather than preventing an owner-controlled SD from starting recovery tools.
 
 ### Factory-script hook on both models
 
@@ -75,11 +75,7 @@ Both audited binaries contain reachable `system()` calls for:
 /tmp/sd/Factory/factory_test.sh &
 ```
 
-The internal `/home/app/script/factory_test.sh` path was already masked by the local bootstrap, but the SD copy was not.
-
-The local-only bootstrap now bind-masks `/tmp/sd/telnetd` and `/tmp/sd/Factory/factory_test.sh` with the internal no-op executable after mounting the SD and before `dispatch` starts. The same loop also masks an archived `cloudAPI_real` if present. This is preferable to a vendor-binary patch because it is explicit, reversible, hash-guarded at the bootstrap level, and fails closed if a required mask fails.
-
-This behavior is active after clean reboot on both tested cameras. Neither live SD currently contained the legacy telnet or Factory script, so the mask is preventive rather than evidence that either hook had been exercised in normal operation.
+ReOriginAI now handles a complete `Factory/` release earlier in `/backup/init.sh`: the matching Factory installer validates the package, updates the persistent bootstrap, retires the trigger to `Factory.done/`, and reboots before normal `dispatch` startup. The bootstrap still masks the archived Yi `cloudAPI_real` helper, while Factory and SD recovery hooks remain available.
 
 `/home/app/script/start_lua.sh` is another fixed `system()` target in both families; it was already masked by the internal bootstrap.
 
@@ -159,7 +155,7 @@ The previous y623 service stall occurred only during a **hot restart of `dispatc
 
 Both test cameras had very little `/backup` free space before deployment. A first y28ga fixed-offset update at 4 KiB free returned ENOSPC after changing one byte of the boot file. Reboot was withheld, the exact previous bootstrap was restored byte-for-byte after reclaiming space from already-disabled firmware-upgrade payloads, and its original MD5 plus `sh -n` were revalidated before retrying.
 
-`scripts/vendor-ablation/install-performance.py` now refuses to touch JFFS2 below 128 KiB reported free space. Exact updater/recovery bytes removed from the test units remain in the captured ignored evidence and original `backup.tar` archives. See `performance.md` for the full recovery/deployment record.
+The earlier live deployment used a now-retired fixed-offset in-place patch tool because `/backup` had almost no JFFS2 headroom. Current releases do not use that patch path: the complete SD Factory installer preserves the previous init and any reclaimed updater files to SD, verifies at least 128 KiB of `/backup` headroom, stages the new bootstrap, and atomically renames it into place. Exact incident/recovery bytes remain only in ignored evidence and the original backup archives.
 
 ## Current conclusion
 
@@ -167,7 +163,7 @@ For these exact firmware builds, `dispatch` should remain the local broker. Stat
 
 `scripts/vendor-ablation/dispatch-audit.sh` reproduces the hash guard and read-only ELF/string/import inventory. It refuses unknown model or binary hashes, so it cannot silently bless a different firmware family.
 
-The appropriate reductions are around the vendor broker rather than inside its routing switch: cloud/P2P/upload executables stay masked, the newly identified SD telnet/factory execution routes are masked before startup, yi-hack event mirroring is reduced to the one active consumer, and the exact local CID shell poll is short-circuited without altering vendor message semantics.
+The appropriate reductions are around the vendor broker rather than inside its routing switch: cloud/P2P/upload executables stay masked, Factory is handled explicitly as the supported install/recovery path before normal startup, yi-hack event mirroring is reduced to the one active consumer, and the exact local CID shell poll is short-circuited without altering vendor message semantics.
 
 ## `do_mq_process` routing switch map
 

@@ -25,17 +25,17 @@ echo 0 > /sys/class/gpio/gpio198/value
 sleep 1
 echo 1 > /sys/class/gpio/gpio198/value
 '''
-    hw += '''insmod /backup/ko/8189fs.ko || fail_closed wifi-module
+    hw += '''insmod /backup/ko/8189fs.ko || boot_fail wifi-module
 for module in videobuf2-core videobuf2-memops videobuf2-dma-contig videobuf2-v4l2 vin_io cam_sensor vin_v4l2; do
-    insmod "/home/base/ko/$module.ko" || fail_closed "$module"
+    insmod "/home/base/ko/$module.ko" || boot_fail "$module"
 done
 '''
     if model == 'y28ga':
-        hw += 'insmod /backup/ko/icplus.ko || fail_closed ethernet-module\n'
-    hw += '''insmod /home/base/ko/sunxi_gpadc.ko || fail_closed adc
+        hw += 'insmod /backup/ko/icplus.ko || boot_fail ethernet-module\n'
+    hw += '''insmod /home/base/ko/sunxi_gpadc.ko || boot_fail adc
 sleep 1
 ifconfig lo up
-ifconfig wlan0 up || fail_closed wlan0
+ifconfig wlan0 up || boot_fail wlan0
 ethmac=d2:$(ifconfig wlan0 | awk '/HWaddr/ {print $5}' | cut -d: -f2-)
 ifconfig eth0 hw ether "$ethmac"
 ifconfig eth0 up

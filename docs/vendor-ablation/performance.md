@@ -107,34 +107,9 @@ restored and the complete original bootstrap MD5
 `1ff18ac542d93bc890a3e313cb901703` and `sh -n` both matched again before a
 second installation was attempted.
 
-Space was reclaimed only from firmware-update machinery that the local-only
-bootstrap already disables. Exact originals were preserved in the captured
-`backup.tar` archives, and direct recovery copies for the test incident live
-under ignored `build/vendor-ablation/deploy-20260915/` evidence. On y28ga the
-removed disabled paths included the upgrade/extpkg entry points and
-`rsa_pub_dec`; on y623 the disabled `upgrade.sh`, `extpkg.sh`, and their sole
-`rsa_pub_dec` helper were likewise preserved and removed. `rsa_pub_dec` MD5 is
-`8dfa7388b38d978a85c2ffee7c843c8d` on both audited backup images. Wi-Fi data,
-calibration/configuration data, and retained camera payloads were not removed.
+Space reclamation during the live optimization work was a deployment workaround for nearly-full JFFS2, not part of the cloud-ablation policy. The exact removed bytes were preserved in captured `backup.tar` archives and ignored recovery evidence. Wi-Fi data, calibration/configuration data, and retained camera payloads were not removed.
 
-After cleanup, `/backup` had roughly 224 KiB free on y28ga and 228 KiB on y623,
-and both verified in-place updates completed. `install-performance.py` now
-checks JFFS2 space **before any remote write** and refuses installation below
-128 KiB free. It also:
-
-* requires the exact known old multiplex-library hash;
-* validates the audited local-only bootstrap shape;
-* stores exact before/after bootstrap and library bytes on the host;
-* verifies BusyBox fixed-offset `dd` behavior in `/tmp`, not flash;
-* stages and hashes the new SD library;
-* writes structural bootstrap ranges before changing the library;
-* switches the SD library, then commits its 32-byte manifest hash last;
-* verifies full bootstrap/library hashes and `sh -n`; and
-* never reboots automatically.
-
-The active test cameras use a same-size in-place bootstrap update because that
-minimizes JFFS2 churn. `scripts/vendor-ablation/bootstrap.sh.in` contains the
-same behavior in readable form for newly rendered boots.
+The one-off fixed-offset in-place bootstrap patcher used during that incident is retired and deleted. Current releases do not patch `/backup/init.sh` byte ranges in place. The Factory installer preserves the current init and any configured vendor updater files to SD before reclaiming only the JFFS2 space needed to stage the replacement, then requires at least 128 KiB free, syntax/hash-checks the staged bootstrap, and renames it into place.
 
 ## Fresh-package integration
 
@@ -147,29 +122,11 @@ The packer copies only `build/yi-hack`; ignored `build/vendor-ablation`
 recovery/evidence data is neither deleted by a normal compile nor eligible to
 enter a firmware archive.
 
-For y623 and y28ga, the packaged `Factory/config.sh` is now an exact-firmware,
-fail-closed migration installer rather than the historical telnet installer.
-The audited predecessor `/backup/init.sh` hashes are explicitly treated as
-**legacy yi-hack** hashes, not pristine vendor hashes. A pristine predecessor is
-accepted only if applying the historical installer transform to a temporary RAM
-copy reproduces the exact audited legacy hash. Unknown init or updater hashes
-are rejected before internal boot files are changed.
+For y623 and y28ga, the packaged `Factory/config.sh` is an exact-model/exact-firmware complete installer. It validates the generated `Factory/local_init.sh`, extracts and verifies its MD5-bound startup manifest against the SD payload, preserves MTD plus the current `/backup/init.sh`, optionally applies verified Wi-Fi configuration, preserves any updater files that must be reclaimed for JFFS2 headroom, stages and verifies the new init, then atomically renames it into place. The Factory trigger is retired to `Factory.done/` only after final verification and the camera reboots.
 
-Before the first JFFS2 deletion, the installer writes the MTD recovery dump,
-home version, predecessor init, and every updater file that may be reclaimed to
-SD and verifies the individual recovery copies. Optional Wi-Fi configuration is
-also handled before deletion; if credentials change, the existing helper may
-perform its intentional preliminary reboot while the original boot files remain
-intact. Only on the resumed/same boot are exact audited updater files removed,
-then the installer requires at least 128 KiB free on `/backup`, stages and
-syntax/hash-checks the generated init under a new name, and renames it into
-place. The Factory trigger is retired only after final verification.
+There is no predecessor-init hash whitelist in the current installer. A complete matching release on SD is deliberately allowed to upgrade an existing ReOriginAI install as one coherent unit. Older ReOriginAI bootstraps that predate Factory-first handling are bridged by the shipped `yi-hack/startup.sh`, which hands off once to the new Factory installer after the older bootstrap has validated its compatible payload.
 
-These package-path changes are designed from the same hashes and JFFS2 failure
-evidence used in the live migration, but the **new fresh/legacy Factory install
-path has not yet been physically exercised as a first install**. Archive,
-syntax, hash, and host tests are not a substitute for that regression. The
-physical SD-removed cold-boot test also remains outstanding.
+These package-path changes are based on the same hashes and JFFS2 failure evidence used in the live migration. Archive, syntax, manifest, and host tests cover the package structure, but a fresh physical Factory-first install remains a separate regression to perform after a complete firmware build.
 
 ## Additional cloud review
 

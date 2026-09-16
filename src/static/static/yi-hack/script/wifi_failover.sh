@@ -122,10 +122,10 @@ log "switching once to maintenance-only WiFi profile"
 killall udhcpc 2>/dev/null
 killall wpa_supplicant 2>/dev/null
 sleep 1
-ifconfig wlan0 down 2>/dev/null
-sleep 1
+# Keep the SDIO interface up while replacing the supplicant profile. Repeated
+# down/up cycling can wedge Wi-Fi on y623.
 ifconfig wlan0 up 2>/dev/null
-sleep 1
+mkdir -p /var/run/wpa_supplicant
 
 "$WPA_BIN" -c"$WPA_CONF" -g/var/run/wpa_supplicant-global -Dnl80211 -iwlan0 -B
 if [ $? -ne 0 ]; then

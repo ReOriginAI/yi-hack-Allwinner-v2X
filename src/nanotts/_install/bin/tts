@@ -1,15 +1,25 @@
 #!/bin/sh
 
 YI_HACK_PREFIX="/tmp/sd/yi-hack"
+BUSYBOX="/bin/busybox"
 NANOTTS="$YI_HACK_PREFIX/bin/nanotts"
 SPEAKER="$YI_HACK_PREFIX/bin/speaker"
 LANG_DIR="$YI_HACK_PREFIX/usr/share/pico/lang"
 LOCK_DIR="/tmp/tts.lock"
+PCM_TMP="/tmp/tts.$$.pcm"
+NANO_ERR="/tmp/tts.$$.nano.err"
+SPK_ERR="/tmp/tts.$$.speaker.err"
+TRACE="/tmp/tts-last"
 
 VOICE="en-US"
 SPEED="1.0"
 PITCH="1.0"
 VOLUME="1.0"
+
+# PCM16LE / 16 kHz / mono is 32,000 bytes/sec. The common speaker helper
+# needs both a short lead-in and a generous tail so the camera audio buffer drains.
+LEAD_SILENCE_BYTES=8000   # 250 ms
+TAIL_SILENCE_BYTES=32000  # 1000 ms
 
 usage()
 {
@@ -24,9 +34,6 @@ Options:
       --pitch VALUE    0.5-2.0 (default 1.0)
       --volume VALUE   0.0-5.0 (default 1.0)
   -h, --help           Show this help
-
-Example:
-  tts -v en-US --speed 0.9 "Motion detected at the front door"
 EOF
 }
 
@@ -34,40 +41,24 @@ while [ $# -gt 0 ]; do
     case "$1" in
         -v|--voice)
             [ $# -ge 2 ] || { echo "Missing voice" >&2; exit 2; }
-            VOICE="$2"
-            shift 2
-            ;;
+            VOICE="$2"; shift 2 ;;
         --speed)
             [ $# -ge 2 ] || { echo "Missing speed" >&2; exit 2; }
-            SPEED="$2"
-            shift 2
-            ;;
+            SPEED="$2"; shift 2 ;;
         --pitch)
             [ $# -ge 2 ] || { echo "Missing pitch" >&2; exit 2; }
-            PITCH="$2"
-            shift 2
-            ;;
+            PITCH="$2"; shift 2 ;;
         --volume)
             [ $# -ge 2 ] || { echo "Missing volume" >&2; exit 2; }
-            VOLUME="$2"
-            shift 2
-            ;;
+            VOLUME="$2"; shift 2 ;;
         -h|--help)
-            usage
-            exit 0
-            ;;
+            usage; exit 0 ;;
         --)
-            shift
-            break
-            ;;
+            shift; break ;;
         -*)
-            echo "Unknown option: $1" >&2
-            usage >&2
-            exit 2
-            ;;
+            echo "Unknown option: $1" >&2; usage >&2; exit 2 ;;
         *)
-            break
-            ;;
+            break ;;
     esac
 done
 
@@ -81,12 +72,10 @@ case "$VOICE" in
     es-ES) TA="es-ES_ta.bin"; SG="es-ES_zl0_sg.bin" ;;
     fr-FR) TA="fr-FR_ta.bin"; SG="fr-FR_nk0_sg.bin" ;;
     it-IT) TA="it-IT_ta.bin"; SG="it-IT_cm0_sg.bin" ;;
-    *)
-        echo "Unsupported voice: $VOICE" >&2
-        exit 2
-        ;;
+    *) echo "Unsupported voice: $VOICE" >&2; exit 2 ;;
 esac
 
+[ -x "$BUSYBOX" ] || { echo "BusyBox is not installed" >&2; exit 1; }
 [ -x "$NANOTTS" ] || { echo "NanoTTS is not installed" >&2; exit 1; }
 [ -x "$SPEAKER" ] || { echo "speaker helper is not installed" >&2; exit 1; }
 [ -r "$LANG_DIR/$TA" ] && [ -r "$LANG_DIR/$SG" ] || {
@@ -94,14 +83,84 @@ esac
     exit 1
 }
 
-# Serialize TTS requests. The speaker helper has its own POSIX semaphore and
-# will also refuse playback if a live intercom/backchannel stream owns it.
-if ! mkdir "$LOCK_DIR" 2>/dev/null; then
+acquire_lock()
+{
+    if "$BUSYBOX" mkdir "$LOCK_DIR" 2>/dev/null; then
+        printf '%s\n' "$$" >"$LOCK_DIR/pid"
+        return 0
+    fi
+
+    # Recover locks left by an interrupted CGI request. A live owner PID keeps
+    # the lock; a missing/dead owner means the directory is stale.
+    OWNER=""
+    if [ -r "$LOCK_DIR/pid" ]; then
+        OWNER="$("$BUSYBOX" cat "$LOCK_DIR/pid" 2>/dev/null)"
+    fi
+    case "$OWNER" in
+        ''|*[!0-9]*) ;;
+        *)
+            if kill -0 "$OWNER" 2>/dev/null; then
+                return 1
+            fi
+            ;;
+    esac
+
+    "$BUSYBOX" rm -rf "$LOCK_DIR"
+    if "$BUSYBOX" mkdir "$LOCK_DIR" 2>/dev/null; then
+        printf '%s\n' "$$" >"$LOCK_DIR/pid"
+        return 0
+    fi
+    return 1
+}
+
+if ! acquire_lock; then
     echo "TTS is already speaking" >&2
     exit 1
 fi
-trap 'rmdir "$LOCK_DIR" 2>/dev/null' 0 HUP INT TERM
 
-"$NANOTTS" -l "$LANG_DIR" -v "$VOICE" -i "$TEXT" \
-    --speed "$SPEED" --pitch "$PITCH" --volume "$VOLUME" -c |
-    "$SPEAKER" stream pcm
+cleanup()
+{
+    "$BUSYBOX" rm -f "$PCM_TMP" "$NANO_ERR" "$SPK_ERR"
+    "$BUSYBOX" rm -rf "$LOCK_DIR"
+}
+trap cleanup 0 HUP INT TERM
+
+printf 'voice=%s speed=%s pitch=%s volume=%s text_len=%s\n' \
+    "$VOICE" "$SPEED" "$PITCH" "$VOLUME" "${#TEXT}" >"$TRACE"
+
+# NanoTTS treats non-terminal stdin as an input source. Feed the requested text
+# through stdin so interactive and CGI execution use exactly one input source.
+printf '%s\n' "$TEXT" | "$NANOTTS" -l "$LANG_DIR" -v "$VOICE" \
+    --speed "$SPEED" --pitch "$PITCH" --volume "$VOLUME" -c \
+    >"$PCM_TMP" 2>"$NANO_ERR"
+NANO_RC=$?
+printf 'nano_rc=%s\n' "$NANO_RC" >>"$TRACE"
+"$BUSYBOX" ls -l "$PCM_TMP" >>"$TRACE" 2>&1
+
+if [ "$NANO_RC" -ne 0 ]; then
+    "$BUSYBOX" cat "$NANO_ERR" >>"$TRACE" 2>/dev/null
+    echo "NanoTTS synthesis failed" >&2
+    exit "$NANO_RC"
+fi
+if [ ! -s "$PCM_TMP" ]; then
+    "$BUSYBOX" cat "$NANO_ERR" >>"$TRACE" 2>/dev/null
+    echo "NanoTTS produced no audio" >&2
+    exit 1
+fi
+
+{
+    "$BUSYBOX" dd if=/dev/zero bs="$LEAD_SILENCE_BYTES" count=1 2>/dev/null
+    "$BUSYBOX" cat "$PCM_TMP"
+    "$BUSYBOX" dd if=/dev/zero bs="$TAIL_SILENCE_BYTES" count=1 2>/dev/null
+} | "$SPEAKER" stream pcm 2>"$SPK_ERR"
+SPK_RC=$?
+printf 'speaker_rc=%s\n' "$SPK_RC" >>"$TRACE"
+
+if [ "$SPK_RC" -ne 0 ]; then
+    "$BUSYBOX" cat "$SPK_ERR" >>"$TRACE" 2>/dev/null
+    echo "Speaker playback failed" >&2
+    exit "$SPK_RC"
+fi
+
+printf 'result=0\n' >>"$TRACE"
+exit 0

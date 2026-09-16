@@ -96,9 +96,13 @@ Installation remains SD-card based. Make a backup of the original camera firmwar
 7. Open `http://IP-CAM/` after the camera returns online.
 8. Keep the microSD card installed; this hack uses it as part of the runtime filesystem.
 
-On an already-hardened camera, `Factory/configure_wifi.cfg` is also a deliberate recovery input. The persistent bootstrap treats that file only as data and invokes the manifest-verified `yi-hack/script/configure_wifi.sh`; it never executes a replacement script from `Factory/`. After a successful parse/write/readback cycle, the request is renamed to `configure_wifi.cfg.applied`. The Wi-Fi writer backs up MTD7 before the first write and fails closed on malformed or ambiguous input.
+A complete release extracted to SD is a **complete install or upgrade request**. The persistent bootstrap gives `Factory/` priority before checking the currently installed payload manifest. The installer validates the exact model and firmware, validates the generated `Factory/local_init.sh` and its MD5-bound startup payload, preserves MTD plus the previous `/backup/init.sh` on the SD card, optionally applies `Factory/configure_wifi.cfg`, installs the matching new `/backup/init.sh`, renames `Factory/` to `Factory.done/`, syncs, and reboots. This same path works for a first install and for reinstalling/upgrading an existing ReOriginAI camera from a freshly prepared SD card.
 
-Formatting the SD card does **not** restore the camera to stock: the matching local-only `/backup/init.sh` bootstrap and Wi-Fi credentials in MTD persist internally. Do not use a freshly formatted card as a cross-version upgrade mechanism. For version changes, use the WebUI atomic upgrade path so the SD payload and persistent bootstrap are switched together; use `Factory/configure_wifi.cfg` to reprovision Wi-Fi on a matching current payload.
+For ReOriginAI bootstrap versions released before Factory-first installation, the shipped `yi-hack/startup.sh` provides a one-generation compatibility handoff: the older bootstrap can validate the compatible payload, then the startup hook runs the new Factory installer and reboots into the matching bootstrap.
+
+`Factory/configure_wifi.cfg` remains a deliberate recovery/provisioning input. The verified `yi-hack/script/configure_wifi.sh` parser backs up MTD7 before the first write and rejects malformed or ambiguous input; a successfully applied request is renamed to `configure_wifi.cfg.applied`.
+
+Formatting the SD card alone does **not** restore the camera to stock because `/backup/init.sh` and Wi-Fi credentials in MTD persist internally. Conversely, extracting a complete matching release including `Factory/` deliberately updates the persistent bootstrap as part of that release. The WebUI remains the easiest path for routine upgrades.
 
 This project is derived from the upstream installation model documented by `roleoroleo/yi-hack-Allwinner-v2`.
 
