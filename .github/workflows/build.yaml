@@ -67,7 +67,8 @@ jobs:
             tar xOzf "$archive" Factory/config.sh | grep -q 'init.\$CURRENT_INIT_MD5.sh'
             tar xOzf "$archive" Factory/config.sh | grep -q 'MIN_BACKUP_FREE_KIB=128'
             tar xOzf "$archive" Factory/config.sh | grep -q 'RECLAIM_PATHS='
-            grep -q 'Factory.retired-web-' src/www/httpd/cgi-bin/fw_upgrade.sh
+            tar xOzf "$archive" yi-hack/www/cgi-bin/fw_upgrade.sh | grep -q 'Factory.retired-web-'
+            tar xOzf "$archive" yi-hack/www/cgi-bin/fw_online.sh | grep -q 'api.github.com/repos/ReOriginAI/yi-hack-Allwinner-v2X/releases/latest'
             ! tar xOzf "$archive" Factory/config.sh | grep -q 'EXPECTED_LEGACY_INIT_MD5='
             ! tar xOzf "$archive" yi-hack/script/wd.sh | grep -q 'ifconfig wlan0 down'
             ! tar xOzf "$archive" yi-hack/script/wifi_failover.sh | grep -q 'ifconfig wlan0 down'
