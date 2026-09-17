@@ -7,6 +7,7 @@ YI_HACK_PREFIX=${YI_HACK_PREFIX:-/tmp/sd/yi-hack}
 SD_ROOT=${YI_HACK_SD_ROOT:-/tmp/sd}
 MAX_UPLOAD=67108864
 MIN_FREE_AFTER_KB=100000
+EXPECTED_Y623_PATCHED_BOOT_MD5=26a2e9a432fbe36efe97f0e7cee84dc9
 LOCKDIR="$SD_ROOT/.fw_upload.lock.d"
 UPLOAD_TMP="$SD_ROOT/.fw_upload.$$.tgz"
 LIST_TMP="$SD_ROOT/.fw_upload.$$.list"
@@ -121,6 +122,12 @@ case "$ARCHIVE_VERSION" in ''|*[!A-Za-z0-9._-]*) json_error "Firmware version me
 
 if [ "$ARCHIVE_MODEL" != "$CURRENT_MODEL" ]; then
     json_error "Firmware is for $ARCHIVE_MODEL, but this camera is $CURRENT_MODEL"
+fi
+
+if [ "$ARCHIVE_MODEL" = "y623" ]; then
+    grep -qx 'Factory/boot-vmalloc.bin' "$LIST_TMP" || json_error "y623 firmware is missing the patched boot image"
+    PATCHED_BOOT_MD5=$(tar xOzf "$UPLOAD_TMP" Factory/boot-vmalloc.bin 2>/dev/null | md5sum | awk '{print $1}')
+    [ "$PATCHED_BOOT_MD5" = "$EXPECTED_Y623_PATCHED_BOOT_MD5" ] || json_error "y623 patched boot image hash mismatch"
 fi
 
 LOCAL_FW="$SD_ROOT/${CURRENT_MODEL}_x.x.x.tgz"

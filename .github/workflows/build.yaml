@@ -26,10 +26,13 @@ jobs:
             bison bisonc++ libbison-dev autoconf autotools-dev \
             automake libssl-dev zlib1g-dev libzzip-dev flex libfl-dev \
             yui-compressor closure-compiler optipng jpegoptim libtidy5deb1 node-less \
-            sassc sass-spec libhtml-tidy-perl libxml2-utils rsync qemu-user-static p7zip-full
+            sassc sass-spec libhtml-tidy-perl libxml2-utils rsync qemu-user-static p7zip-full xz-utils
 
       - name: Test WiFi configuration parser
         run: sh scripts/test_configure_wifi.sh
+
+      - name: Test y623 VE kernel release path
+        run: sh scripts/test_y623_ve_kernel.sh
 
       - name: Download toolchain
         run: |
@@ -56,6 +59,14 @@ jobs:
             tar tzf "$archive" | grep -qx 'Factory/local_init.sh'
             tar tzf "$archive" | grep -qx 'yi-hack/script/configure_wifi.sh'
             tar tzf "$archive" | grep -qx 'yi-hack/startup.sh'
+            tar tzf "$archive" | grep -qx 'yi-hack/script/ensure_y623_ve_kernel.sh'
+            if [ "$model" = y623 ]; then
+              tar tzf "$archive" | grep -qx 'Factory/boot-vmalloc.bin'
+              test "$(tar xOzf "$archive" Factory/boot-vmalloc.bin | md5sum | awk '{print $1}')" = 26a2e9a432fbe36efe97f0e7cee84dc9
+            elif tar tzf "$archive" | grep -qx 'Factory/boot-vmalloc.bin'; then
+              echo "Unexpected y623 boot image in $model archive" >&2
+              exit 1
+            fi
             tar xOzf "$archive" Factory/local_init.sh | sh -n
             tar xOzf "$archive" Factory/local_init.sh | grep -q 'script/configure_wifi.sh'
             tar xOzf "$archive" Factory/local_init.sh | grep -q '/tmp/sd/Factory/configure_wifi.cfg'

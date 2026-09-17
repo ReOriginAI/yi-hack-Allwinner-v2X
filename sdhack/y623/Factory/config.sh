@@ -11,6 +11,8 @@ BACKUP_DIR=/tmp/sd/backup
 RECLAIM_DIR=$BACKUP_DIR/reclaimed
 MIN_BACKUP_FREE_KIB=128
 RECLAIM_PATHS='/backup/tools/upgrade.sh /backup/tools/extpkg.sh /backup/tools/rsa_pub_dec'
+KERNEL_HELPER=/tmp/sd/yi-hack/script/ensure_y623_ve_kernel.sh
+PATCHED_BOOT=/tmp/sd/Factory/boot-vmalloc.bin
 
 install_fail()
 {
@@ -41,6 +43,23 @@ configure_wifi_if_requested()
     fi
 }
 
+check_kernel()
+{
+    [ -x "$KERNEL_HELPER" ] || install_fail "missing y623 kernel installer"
+    [ -s "$PATCHED_BOOT" ] || install_fail "missing y623 patched boot image"
+    MODEL_SUFFIX="$MODEL" YI_HACK_PATCHED_BOOT_IMAGE="$PATCHED_BOOT" "$KERNEL_HELPER" --check "$PATCHED_BOOT" || install_fail "unsupported y623 boot image"
+}
+
+ensure_kernel()
+{
+    # Make the y623 VE-debugfs kernel optimization part of the release contract.
+    # The helper is hash-gated and idempotent: known stock is backed up and patched,
+    # already-patched boot is accepted, and unknown boot images are never written.
+    [ -x "$KERNEL_HELPER" ] || install_fail "missing y623 kernel installer"
+    [ -s "$PATCHED_BOOT" ] || install_fail "missing y623 patched boot image"
+    MODEL_SUFFIX="$MODEL" YI_HACK_PATCHED_BOOT_IMAGE="$PATCHED_BOOT" "$KERNEL_HELPER" "$PATCHED_BOOT" || install_fail "y623 VE kernel patch failed"
+}
+
 finish_install()
 {
     echo "Install completed successfully" > "$RESULT"
@@ -68,9 +87,12 @@ case "$MANIFEST_LINES" in ''|*[!0-9]*) rm -f "$MANIFEST"; install_fail "invalid 
 (cd /tmp/sd/yi-hack && md5sum -c "$MANIFEST" >/dev/null 2>&1) || { rm -f "$MANIFEST"; install_fail "SD payload does not match bootstrap"; }
 rm -f "$MANIFEST"
 
+check_kernel
+
 CURRENT_INIT_MD5=$(md5_file /backup/init.sh)
 if [ "$CURRENT_INIT_MD5" = "$LOCAL_INIT_MD5" ]; then
     configure_wifi_if_requested
+    ensure_kernel
     finish_install
 fi
 
@@ -119,4 +141,5 @@ sync
 [ "$(md5_file /backup/init.sh)" = "$LOCAL_INIT_MD5" ] || install_fail "installed init hash mismatch"
 /bin/sh -n /backup/init.sh || install_fail "installed init syntax failure"
 
+ensure_kernel
 finish_install

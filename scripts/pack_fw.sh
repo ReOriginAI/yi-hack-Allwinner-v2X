@@ -202,6 +202,22 @@ echo "    Copying sdhack..."
 rsync -a ${SDHACK_DIR}/${CAMERA_ID}/* $TMP_DIR || exit 1
 echo "    done!"
 
+# y623 releases carry a deterministic VE-debugfs kernel image. Generate it
+# from the exact audited stock boot partition so packaging fails if either the
+# vendor image or patch signatures ever drift.
+if [ "$CAMERA_NAME" = "y623" ]; then
+    STOCK_BOOT="$BASE_DIR/scripts/vendor-images/y623-boot-stock.bin"
+    PATCHED_BOOT="$TMP_DIR/Factory/boot-vmalloc.bin"
+    EXPECTED_STOCK_BOOT_MD5=2c8abc0f8376bdb55d8464abc6bf14a8
+    EXPECTED_PATCHED_BOOT_MD5=26a2e9a432fbe36efe97f0e7cee84dc9
+
+    [ -s "$STOCK_BOOT" ] || { echo "ERROR: Missing audited y623 stock boot image"; exit 1; }
+    [ "$(md5sum "$STOCK_BOOT" | awk '{print $1}')" = "$EXPECTED_STOCK_BOOT_MD5" ] || { echo "ERROR: y623 stock boot hash mismatch"; exit 1; }
+    command -v xz >/dev/null 2>&1 || { echo "ERROR: xz is required to generate the y623 patched boot image"; exit 1; }
+    python3 "$BASE_DIR/scripts/patch_y623_ve_debugfs.py" "$STOCK_BOOT" "$PATCHED_BOOT" || exit 1
+    [ "$(md5sum "$PATCHED_BOOT" | awk '{print $1}')" = "$EXPECTED_PATCHED_BOOT_MD5" ] || { echo "ERROR: generated y623 patched boot hash mismatch"; exit 1; }
+fi
+
 # Generate the exact model- and payload-bound bootstrap that first install writes
 # to /backup/init.sh. This is the same fail-closed bootstrap used on test units.
 echo -n ">>> Generating local-only bootstrap... "

@@ -8,6 +8,7 @@ SD_ROOT=${YI_HACK_SD_ROOT:-/tmp/sd}
 BACKUP_ROOT=${YI_HACK_BACKUP_ROOT:-/backup}
 REBOOT_CMD=${YI_HACK_REBOOT_CMD:-reboot}
 MIN_BACKUP_FREE_KIB=128
+EXPECTED_Y623_PATCHED_BOOT_MD5=26a2e9a432fbe36efe97f0e7cee84dc9
 
 . "$YI_HACK_PREFIX/www/cgi-bin/validate.sh"
 
@@ -154,12 +155,19 @@ ARCHIVE_VERSION=$(tar xOzf "$LOCAL_FW" yi-hack/version 2>/dev/null | tr -d '\r\n
 case "$ARCHIVE_VERSION" in ''|*[!A-Za-z0-9._-]*) die "firmware version metadata is invalid" ;; esac
 [ "$ARCHIVE_MODEL" = "$MODEL_SUFFIX" ] || die "firmware model does not match this camera"
 
+if [ "$ARCHIVE_MODEL" = "y623" ]; then
+    grep -qx 'Factory/boot-vmalloc.bin' "$LIST_TMP" || die "y623 firmware is missing the patched boot image"
+    ARCHIVE_BOOT_MD5=$(tar xOzf "$LOCAL_FW" Factory/boot-vmalloc.bin 2>/dev/null | md5sum | awk '{print $1}')
+    [ "$ARCHIVE_BOOT_MD5" = "$EXPECTED_Y623_PATCHED_BOOT_MD5" ] || die "y623 patched boot image hash mismatch"
+fi
+
 rm -rf "$STAGE" "$FAILED_TREE"
 mkdir -p "$STAGE" || die "unable to create upgrade staging directory"
 tar xzf "$LOCAL_FW" -C "$STAGE" >/dev/null 2>&1 || die "firmware extraction failed"
 
 NEW_YI="$STAGE/yi-hack"
 NEW_INIT="$STAGE/Factory/local_init.sh"
+NEW_BOOT="$STAGE/Factory/boot-vmalloc.bin"
 [ -s "$NEW_YI/model_suffix" ] || die "staged payload is incomplete"
 [ -s "$NEW_INIT" ] || die "staged bootstrap is missing"
 /bin/sh -n "$NEW_INIT" || die "staged bootstrap has invalid syntax"
@@ -171,6 +179,13 @@ MANIFEST_LINES=$(awk 'END {print NR}' "$MANIFEST")
 case "$MANIFEST_LINES" in ''|*[!0-9]*) die "bootstrap manifest is invalid" ;; esac
 [ "$MANIFEST_LINES" -ge 10 ] || die "bootstrap manifest is incomplete"
 (cd "$NEW_YI" && md5sum -c "$MANIFEST" >/dev/null 2>&1) || die "staged payload does not match bootstrap manifest"
+
+if [ "$MODEL_SUFFIX" = "y623" ]; then
+    PRECHECK_KERNEL_HELPER="$NEW_YI/script/ensure_y623_ve_kernel.sh"
+    [ -x "$PRECHECK_KERNEL_HELPER" ] || die "staged firmware is missing the y623 kernel installer"
+    [ -s "$NEW_BOOT" ] || die "staged y623 patched boot image is missing"
+    YI_HACK_PREFIX="$NEW_YI" YI_HACK_SD_ROOT="$SD_ROOT" MODEL_SUFFIX="$MODEL_SUFFIX" YI_HACK_PATCHED_BOOT_IMAGE="$NEW_BOOT" "$PRECHECK_KERNEL_HELPER" --check "$NEW_BOOT" >/dev/null || die "current y623 boot image is not supported"
+fi
 
 mkdir -p "$NEW_YI/etc" || die "unable to prepare staged configuration"
 if [ -d "$YI_HACK_PREFIX/etc" ]; then
@@ -212,6 +227,17 @@ if [ -e "$SD_ROOT/Factory" ]; then
     RETIRED_FACTORY="$SD_ROOT/Factory.retired-web-$ARCHIVE_VERSION"
     rm -rf "$RETIRED_FACTORY" || die "unable to clear previous retired Factory tree"
     mv "$SD_ROOT/Factory" "$RETIRED_FACTORY" || die "unable to retire stale Factory trigger"
+fi
+
+# y623 releases have a deterministic kernel contract as well as a userspace
+# contract. Apply it only after the new tree/bootstrap are fully active so a
+# failure can still roll back userspace; the helper restores stock on write or
+# verification failure and refuses any unknown boot image.
+if [ "$MODEL_SUFFIX" = "y623" ]; then
+    KERNEL_HELPER="$YI_HACK_PREFIX/script/ensure_y623_ve_kernel.sh"
+    [ -x "$KERNEL_HELPER" ] || die "new firmware is missing the y623 kernel installer"
+    [ -s "$NEW_BOOT" ] || die "staged y623 patched boot image is missing"
+    YI_HACK_PREFIX="$YI_HACK_PREFIX" YI_HACK_SD_ROOT="$SD_ROOT" MODEL_SUFFIX="$MODEL_SUFFIX" YI_HACK_PATCHED_BOOT_IMAGE="$NEW_BOOT" "$KERNEL_HELPER" "$NEW_BOOT" || die "y623 VE kernel patch failed"
 fi
 
 rm -f "$LOCAL_FW"
