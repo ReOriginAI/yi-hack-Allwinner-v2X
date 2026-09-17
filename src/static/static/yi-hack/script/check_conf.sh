@@ -223,3 +223,22 @@ case "$RMM_MODEL" in
         fi
         ;;
 esac
+# y28ga vendor mp4record normally muxes main, sub, fast, and AAC tracks. The
+# audited main-only patch changes only the muxer video-track count (3 -> 1), so
+# VENC1 may remain paused during high-only RTSP while VI2/IVA motion stays live.
+# Unknown recorder builds fail closed: stock mp4record remains in place and
+# rtsp_stream_venc.sh will keep VENC1 enabled whenever recording is needed.
+if [ "$RMM_MODEL" = "y28ga" ]; then
+    MP4_PATCH_LOG=/tmp/mp4record_patch.log
+    rm -f "$MP4_PATCH_LOG"
+    MP4_PATCHED=$(MODEL_SUFFIX="$RMM_MODEL" sh /tmp/sd/yi-hack/script/prepare_mp4record.sh 2>"$MP4_PATCH_LOG")
+    if [ $? -eq 0 ] && [ -n "$MP4_PATCHED" ] && [ -x "$MP4_PATCHED" ]; then
+        if ! grep -q ' /home/app/mp4record ' /proc/mounts 2>/dev/null; then
+            if ! mount --bind "$MP4_PATCHED" /home/app/mp4record; then
+                echo "check_conf: failed to bind patched y28ga mp4record" >> "$MP4_PATCH_LOG"
+            fi
+        fi
+    else
+        echo "check_conf: using stock y28ga mp4record" >> "$MP4_PATCH_LOG"
+    fi
+fi

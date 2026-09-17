@@ -336,25 +336,36 @@ start_motion()
         set_y28ga_generic_motion_gate off >/dev/null 2>&1 || true
         rm -f "$IPC_EVENT_DIR/motion_alarm"
         stop_owned_mp4record
+        "$YI_HACK_PREFIX/script/rtsp_stream_venc.sh" "$(get_system_config RTSP_STREAM)" >/dev/null 2>&1 || true
         echo "motion detection disabled" > "$LOGFILE"
         return 0
     fi
+
+    # Apply the recorder-aware VENC policy before mp4record can start. Patched
+    # y28ga records main+AAC with VENC1 paused; stock/unknown recorders fail safe
+    # by keeping VENC1 active. Re-evaluate after backend ownership changes.
+    "$YI_HACK_PREFIX/script/rtsp_stream_venc.sh" "$(get_system_config RTSP_STREAM)" >/dev/null 2>&1 || true
 
     BACKEND=$(motion_backend)
     case "$BACKEND" in
         encoder-stats)
             start_encoder_backend
+            RC=$?
             ;;
         ipc-events)
             start_ipc_backend
+            RC=$?
             ;;
         *)
             stop_owned_mp4record
             echo 0 > "$STATEFILE"
             echo "motion detection unsupported on ${MODEL_SUFFIX:-unknown}" > "$LOGFILE"
-            return 1
+            RC=1
             ;;
     esac
+
+    "$YI_HACK_PREFIX/script/rtsp_stream_venc.sh" "$(get_system_config RTSP_STREAM)" >/dev/null 2>&1 || true
+    return "$RC"
 }
 
 stop_motion()
@@ -365,6 +376,7 @@ stop_motion()
     set_y28ga_generic_motion_gate off >/dev/null 2>&1 || true
     rm -f "$IPC_EVENT_DIR/motion_alarm"
     echo 0 > "$STATEFILE"
+    "$YI_HACK_PREFIX/script/rtsp_stream_venc.sh" "$(get_system_config RTSP_STREAM)" >/dev/null 2>&1 || true
 }
 
 status_motion()

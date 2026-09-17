@@ -65,6 +65,7 @@ jobs:
             tar tzf "$archive" | grep -qx 'yi-hack/script/configure_wifi.sh'
             tar tzf "$archive" | grep -qx 'yi-hack/startup.sh'
             tar tzf "$archive" | grep -qx 'yi-hack/script/ensure_y623_ve_kernel.sh'
+            tar tzf "$archive" | grep -qx "yi-hack/script/prepare_mp4record.sh"
             tar tzf "$archive" | grep -qx "yi-hack/script/rtsp_stream_venc.sh"
             if [ "$model" = y623 ]; then
               tar tzf "$archive" | grep -qx 'Factory/boot-vmalloc.bin'
@@ -78,6 +79,7 @@ jobs:
             tar xOzf "$archive" Factory/local_init.sh | grep -q '/tmp/sd/Factory/configure_wifi.cfg'
             tar xOzf "$archive" Factory/local_init.sh | grep -q '/tmp/sd/Factory/config.sh'
             tar xOzf "$archive" yi-hack/script/configure_wifi.sh | sh -n
+            tar xOzf "$archive" yi-hack/script/prepare_mp4record.sh | sh -n
             tar xOzf "$archive" yi-hack/startup.sh | sh -n
             tar xOzf "$archive" yi-hack/startup.sh | grep -q '/tmp/sd/Factory/config.sh'
             tar xOzf "$archive" Factory/config.sh | grep -q 'SD payload does not match bootstrap'

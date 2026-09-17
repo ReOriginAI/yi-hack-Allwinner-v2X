@@ -530,6 +530,10 @@ if [ "$ACTION" == "start" ] ; then
         # mp4record is not internally singleton-safe. Never start a duplicate.
         MP4_COUNT=$(mp4record_count)
         if [ "$MP4_COUNT" -eq 0 ]; then
+            # Apply the recorder-aware VENC policy before the recorder snapshots
+            # its input tracks. Patched y28ga may keep VENC1 paused; stock builds
+            # are forced to the recording-safe encoder state.
+            $YI_HACK_PREFIX/script/rtsp_stream_venc.sh "$(get_config RTSP_STREAM)" >/dev/null 2>&1 || true
             cd /home/app
             if [[ $(get_config TIME_OSD) == "yes" ]] ; then
                 TZP=`TZ=$TZ_TMP date +%z`
