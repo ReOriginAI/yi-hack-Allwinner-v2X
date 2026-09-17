@@ -36,8 +36,8 @@ The patch is generated from the known stock executable at boot and is refused fo
 
 Known hashes:
 
-- y623 stock `rmm`: `f8164a1c221ba8c1d4888322a3cf0706`
-- y623 patched `rmm`: `b8782526e55d4b7ac95060ebcbe7ed18`
+- y623:  `eb9d532e71d0d8697d22d0775b744b40`
+- y28ga: `14aa4ee21e04fb40a3c321fdcd12eef4`
 
 The patched executable is bind-mounted over `/home/app/rmm` before `rmm` is launched.
 
