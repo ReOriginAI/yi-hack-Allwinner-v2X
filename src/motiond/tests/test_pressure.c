@@ -12,7 +12,9 @@
 #include <string.h>
 
 static const char *buddy;
-static const char *ve = "Channel[1]\nScene:0, Move:0, MovingLevel:0, BinImgRatio:0.0%, MovingTh:1\nEnd Channel[1]\n";
+static const char *ve =
+    "Channel[0]\nScene:7, Move:1, MovingLevel:2, BinImgRatio:3.25%, MovingTh:20\nEnd Channel[0]\n"
+    "Channel[1]\nScene:0, Move:0, MovingLevel:0, BinImgRatio:0.0%, MovingTh:1\nEnd Channel[1]\n";
 static int opens, buddy_reads, open_error, read_error;
 static long long now_ms;
 static FILE *fake_fopen(const char *path, const char *mode) {
@@ -89,6 +91,7 @@ int main(void) {
         assert((read_stats(&s) == 0) == cases[i].ok);
         assert(opens == cases[i].ok);
         if (!cases[i].ok) { assert(errno == EAGAIN); assert(s.scene == 1234); }
+        else { assert(s.scene == 7); assert(s.move == 1); assert(s.moving_level == 2); assert(s.bin_ratio == 3.25); assert(s.moving_th == 20); }
     }
     char long_line[1024];
     memset(long_line, ' ', sizeof(long_line));

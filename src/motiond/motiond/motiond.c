@@ -168,12 +168,14 @@ static int read_stats(struct motion_stats *s) {
     ve_retry_after_ms = mono_ms() + VE_OPEN_RETRY_MS;
     buf[n] = '\0';
 
-    char *p = strstr(buf, "Channal[1]");
-    if (!p) p = strstr(buf, "Channel[1]");
+    /* Channel 1 (low/sub stream) may be paused when RTSP_STREAM=high. */
+    /* Channel 0 stays active and is the authoritative y623 motion-stat source. */
+    char *p = strstr(buf, "Channal[0]");
+    if (!p) p = strstr(buf, "Channel[0]");
     if (!p) return -2;
 
-    char *end = strstr(p, "End Channal[1]");
-    if (!end) end = strstr(p, "End Channel[1]");
+    char *end = strstr(p, "End Channal[0]");
+    if (!end) end = strstr(p, "End Channel[0]");
     if (!end) end = buf + n;
 
     char *line = strstr(p, "Scene:");

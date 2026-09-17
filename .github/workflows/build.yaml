@@ -34,6 +34,11 @@ jobs:
       - name: Test y623 VE kernel release path
         run: sh scripts/test_y623_ve_kernel.sh
 
+      - name: Test y623 motiond VE channel parser
+        run: |
+          gcc -Wall -Wextra -Werror -O2 src/motiond/tests/test_pressure.c -lrt -o /tmp/test-motiond-pressure
+          /tmp/test-motiond-pressure
+
       - name: Download toolchain
         run: |
           git clone --depth 1 https://github.com/lindenis-org/lindenis-v536-prebuilt
