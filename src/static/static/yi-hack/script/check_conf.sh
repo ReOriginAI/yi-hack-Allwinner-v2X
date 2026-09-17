@@ -18,6 +18,7 @@ RTSP=yes
 RTSP_ALT=standard
 RTSP_STREAM=high
 RTSP_AUDIO=aac
+RTSP_BACKCHANNEL=NONE
 RTSP_STI=yes
 SPEAKER_AUDIO=yes
 SNAPSHOT=yes
@@ -118,6 +119,17 @@ MQTT_RETAIN_SOUND_DETECTION=0"
 if [ ! -f $SYSTEM_CONF_FILE ]; then
     touch $SYSTEM_CONF_FILE
 fi
+
+# Migrate the old ONVIF-owned backchannel setting once. Backchannel is an RTSP
+# transport capability and must remain usable even when the ONVIF service is off.
+if ! grep -q '^RTSP_BACKCHANNEL=' "$SYSTEM_CONF_FILE" 2>/dev/null; then
+    LEGACY_BACKCHANNEL=$(grep '^ONVIF_AUDIO_BC=' "$SYSTEM_CONF_FILE" 2>/dev/null | cut -d= -f2-)
+    case "$LEGACY_BACKCHANNEL" in
+        G711|g711) echo 'RTSP_BACKCHANNEL=G711' >> "$SYSTEM_CONF_FILE" ;;
+        *)         echo 'RTSP_BACKCHANNEL=NONE' >> "$SYSTEM_CONF_FILE" ;;
+    esac
+fi
+
 for i in $PARMS1
 do
     if [ ! -z "$i" ]; then
@@ -128,6 +140,26 @@ do
         fi
     fi
 done
+
+# RTSP_BACKCHANNEL is the public/source-of-truth setting. Keep the historical
+# ONVIF_AUDIO_BC key only as a compatibility mirror for service.sh and ONVIF
+# capability advertisement; ONVIF itself may be disabled without disabling the
+# RTSP/go2rtc speaker backchannel.
+RTSP_BACKCHANNEL=$(grep '^RTSP_BACKCHANNEL=' "$SYSTEM_CONF_FILE" 2>/dev/null | cut -d= -f2-)
+case "$RTSP_BACKCHANNEL" in
+    G711|g711) RTSP_BACKCHANNEL=G711 ;;
+    *)         RTSP_BACKCHANNEL=NONE ;;
+esac
+if grep -q '^RTSP_BACKCHANNEL=' "$SYSTEM_CONF_FILE" 2>/dev/null; then
+    sed -i "s/^RTSP_BACKCHANNEL=.*/RTSP_BACKCHANNEL=$RTSP_BACKCHANNEL/" "$SYSTEM_CONF_FILE"
+else
+    echo "RTSP_BACKCHANNEL=$RTSP_BACKCHANNEL" >> "$SYSTEM_CONF_FILE"
+fi
+if grep -q '^ONVIF_AUDIO_BC=' "$SYSTEM_CONF_FILE" 2>/dev/null; then
+    sed -i "s/^ONVIF_AUDIO_BC=.*/ONVIF_AUDIO_BC=$RTSP_BACKCHANNEL/" "$SYSTEM_CONF_FILE"
+else
+    echo "ONVIF_AUDIO_BC=$RTSP_BACKCHANNEL" >> "$SYSTEM_CONF_FILE"
+fi
 
 # Local-only build: Yi vendor cloud is intentionally and permanently disabled.
 if grep -q '^DISABLE_CLOUD=' "$SYSTEM_CONF_FILE" 2>/dev/null; then

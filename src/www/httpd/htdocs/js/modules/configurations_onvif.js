@@ -25,7 +25,7 @@ APP.configurations_onvif = (function($) {
                 loadingStatusElem.fadeOut(500);
 
                 $.each(response, function(key, state) {
-                    if (key == "ONVIF_PROFILE" || key == "ONVIF_NETIF" || key == "ONVIF_AUDIO_BC")
+                    if (key == "ONVIF_PROFILE" || key == "ONVIF_NETIF" || key == "RTSP_BACKCHANNEL")
                         $('select[data-key="' + key + '"]').prop('value', state);
                     else
                         $('input[type="checkbox"][data-key="' + key + '"]').prop('checked', state === 'yes');
@@ -51,7 +51,7 @@ APP.configurations_onvif = (function($) {
 
         configs["ONVIF_PROFILE"] = $('select[data-key="ONVIF_PROFILE"]').prop('value');
         configs["ONVIF_NETIF"] = $('select[data-key="ONVIF_NETIF"]').prop('value');
-        configs["ONVIF_AUDIO_BC"] = $('select[data-key="ONVIF_AUDIO_BC"]').prop('value');
+        configs["RTSP_BACKCHANNEL"] = $('select[data-key="RTSP_BACKCHANNEL"]').prop('value');
 
         var configData = JSON.stringify(configs);
         var escapedConfigData = configData.replace(/\\/g, "\\")

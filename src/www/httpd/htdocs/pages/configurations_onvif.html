@@ -9,7 +9,7 @@
         <hr class="tiny-margin"/>
         <div class="row">
             <p>
-                In this page you can configure ONVIF settings.
+                In this page you can configure ONVIF settings and the RTSP speaker backchannel advertised to ONVIF clients.
             </p>
         </div>
         <h4 class="no-margin">General</h4>
@@ -68,17 +68,16 @@
                         </td>
                     </tr>
                     <tr class="row">
-                        <td>ONVIF audio decoder (backchannel)</td>
+                        <td>RTSP speaker backchannel</td>
                         <td>
                             <div class="standard-select">
-                                <select data-key="ONVIF_AUDIO_BC" id="ONVIF_AUDIO_BC">
-                                    <option value="NONE">NONE</option>
-                                    <option value="G711">G711</option>
-                                    <option value="AAC">AAC</option>
+                                <select data-key="RTSP_BACKCHANNEL" id="RTSP_BACKCHANNEL">
+                                    <option value="NONE">Disabled</option>
+                                    <option value="G711">G711 / PCMU 8 kHz</option>
                                 </select>
                             </div>
                             <span class="switch-description">
-                                Select the codec for audio back channel.
+                                Enable the camera-speaker RTSP backchannel. This is independent of the ONVIF server and remains available when ONVIF is disabled. ONVIF, when enabled, advertises the same capability.
                             </span>
                         </td>
                     </tr>

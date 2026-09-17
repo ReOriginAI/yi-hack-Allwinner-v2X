@@ -181,6 +181,10 @@ start_rtsp()
         RTSP_AUDIO_OPTION="-a "$2
     fi
 
+    # Match hardware encoder activity to the configured exported streams on
+    # models with audited runtime VENC control (y623 and y28ga).
+    $YI_HACK_PREFIX/script/rtsp_stream_venc.sh "$RTSP_RES" >/dev/null 2>&1 || true
+
     if [ "$RTSP_ALT" == "go2rtc" ]; then
         # Starting RTSP must be idempotent. A second go2rtc daemon can remain
         # resident after losing the listen-port race, wasting scarce RAM.

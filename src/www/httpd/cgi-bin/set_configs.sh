@@ -1,6 +1,6 @@
 #!/bin/sh
 
-YI_HACK_PREFIX="/tmp/sd/yi-hack"
+YI_HACK_PREFIX=${YI_HACK_PREFIX:-/tmp/sd/yi-hack}
 
 sedencode(){
 #  echo -e "$(sed 's/\\/\\\\\\/g;s/\&/\\\&/g;s/\//\\\//g;')"
@@ -63,6 +63,11 @@ if [ "$CONF_TYPE" == "mqtt" ] ; then
     CONF_FILE="$YI_HACK_PREFIX/etc/mqttv4.conf"
 else
     CONF_FILE="$YI_HACK_PREFIX/etc/$CONF_TYPE.conf"
+fi
+
+OLD_RTSP_STREAM=""
+if [ "$CONF_TYPE" == "system" ]; then
+    OLD_RTSP_STREAM=$(grep '^RTSP_STREAM=' "$CONF_FILE" 2>/dev/null | cut -d= -f2-)
 fi
 
 read -r POST_DATA
@@ -133,6 +138,22 @@ for ROW in $ROWS; do
     fi
 
 done
+
+# RTSP_STREAM is safe to apply live. Stop readers first, apply the model-specific
+# hardware encoder state, then rebuild/restart RTSP with the new stream set.
+if [ "$CONF_TYPE" == "system" ]; then
+    NEW_RTSP_STREAM=$(grep '^RTSP_STREAM=' "$CONF_FILE" 2>/dev/null | cut -d= -f2-)
+    if [ -n "$NEW_RTSP_STREAM" ] && [ "$NEW_RTSP_STREAM" != "$OLD_RTSP_STREAM" ]; then
+        RTSP_ENABLED=$(grep '^RTSP=' "$CONF_FILE" 2>/dev/null | cut -d= -f2-)
+        if [ "$RTSP_ENABLED" == "yes" ]; then
+            "$YI_HACK_PREFIX/script/service.sh" rtsp stop >/dev/null 2>&1
+            # start_rtsp applies the model-specific VENC state before spawning readers.
+            "$YI_HACK_PREFIX/script/service.sh" rtsp start >/dev/null 2>&1
+        else
+            "$YI_HACK_PREFIX/script/rtsp_stream_venc.sh" "$NEW_RTSP_STREAM" >/dev/null 2>&1 || true
+        fi
+    fi
+fi
 
 # Yeah, it's pretty ugly.
 

@@ -14,12 +14,12 @@ case "$MODEL_SUFFIX" in
     y623)
         PATCHED_RMM=${RMM_PATCHED_PATH:-$YI_HACK_PREFIX/bin/rmm-y623-motionlite}
         EXPECTED_STOCK_MD5=f8164a1c221ba8c1d4888322a3cf0706
-        EXPECTED_PATCHED_MD5=b8782526e55d4b7ac95060ebcbe7ed18
+        EXPECTED_PATCHED_MD5=eb9d532e71d0d8697d22d0775b744b40
         ;;
     y28ga)
         PATCHED_RMM=${RMM_PATCHED_PATH:-$YI_HACK_PREFIX/bin/rmm-y28ga-motionlite}
         EXPECTED_STOCK_MD5=46261d809c58dea5b39f3351e322d710
-        EXPECTED_PATCHED_MD5=c83016101b3bc9b669139b6b56cbb4d0
+        EXPECTED_PATCHED_MD5=14aa4ee21e04fb40a3c321fdcd12eef4
         ;;
     *)
         printf '%s\n' "$STOCK_RMM"
@@ -64,6 +64,13 @@ case "$MODEL_SUFFIX" in
         printf '\002\000\240\343\000\020\240\343\314\177\000\353\052\000\000\352' | dd of="$TMP_RMM" bs=1 seek=124076 conv=notrunc 2>/dev/null
         # Disable the static vendor logo/watermark region. Timestamp OSD remains active.
         printf '\000\000\240\343\036\377\057\341' | dd of="$TMP_RMM" bs=1 seek=94216 conv=notrunc 2>/dev/null
+        # Preserve Yi's native 0x1036 time-lapse and 0x1037 IDR handlers. Route
+        # otherwise-unknown media commands through unused code after the
+        # vi_algo_process early return and add:
+        #   0x1038 -> AW_MPI_VENC_StopRecvPic(1)
+        #   0x1039 -> AW_MPI_VENC_StartRecvPic(1)
+        printf '\012\035\000\352' | dd of="$TMP_RMM" bs=1 seek=75408 conv=notrunc 2>/dev/null
+        printf '\070\040\001\343\002\000\123\341\003\000\000\012\071\040\001\343\002\000\123\341\003\000\000\012\233\350\377\352\001\000\240\343\130\333\000\353\230\350\377\352\001\000\240\343\123\333\000\353\225\350\377\352' | dd of="$TMP_RMM" bs=1 seek=105152 conv=notrunc 2>/dev/null
         ;;
     y28ga)
         # Kami 1080p old-firmware motion-lite patch:
@@ -76,6 +83,11 @@ case "$MODEL_SUFFIX" in
         printf '\000\000\240\343\036\377\057\341' | dd of="$TMP_RMM" bs=1 seek=79964 conv=notrunc 2>/dev/null
         # Disable the static vendor logo/watermark region. Timestamp OSD remains active.
         printf '\000\000\240\343\036\377\057\341' | dd of="$TMP_RMM" bs=1 seek=58912 conv=notrunc 2>/dev/null
+        # Same private low-VENC operations, using unreachable code after the
+        # face/NNA processor's early return. VI2/generic IVA remains untouched
+        # and Yi's native 0x1036/0x1037 handlers remain available.
+        printf '\320\300\377\352' | dd of="$TMP_RMM" bs=1 seek=139372 conv=notrunc 2>/dev/null
+        printf '\070\040\001\343\002\000\123\341\003\000\000\012\071\040\001\343\002\000\123\341\003\000\000\012\334\101\000\352\001\000\240\343\117\025\001\353\331\101\000\352\001\000\240\343\112\025\001\353\326\101\000\352' | dd of="$TMP_RMM" bs=1 seek=74676 conv=notrunc 2>/dev/null
         ;;
 esac
 

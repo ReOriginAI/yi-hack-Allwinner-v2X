@@ -80,7 +80,7 @@ void ipc_stop()
 
 void print_usage(char *progname)
 {
-    fprintf(stderr, "\nUsage: %s [t ON/OFF] [-s SENS] [-l LED] [-v WHEN] [-i IR] [-r ROTATE] [-1] [-a AIHUMANDETECTION] [-E AIVEHICLEDETECTION] [-N AIANIMALDETECTION] [-O AIMOTIONDETECTION] [-c FACEDETECTION] [-o MOTIONTRACKING] [-I MIC] [-b SOUNDDETECTION] [-B BABYCRYING] [-n SOUNDSENSITIVITY] [-m MOVE] [-g] [-u] [-j ABS_POSITION] [-J REL_POSITION] [-p NUM] [-P NAME] [-R NUM] [-C MODE] [-f FILE] [-S TIME] [-T] [-d]\n\n", progname);
+    fprintf(stderr, "\nUsage: %s [t ON/OFF] [-s SENS] [-l LED] [-v WHEN] [-i IR] [-r ROTATE] [-V LOWVENC] [-1] [-a AIHUMANDETECTION] [-E AIVEHICLEDETECTION] [-N AIANIMALDETECTION] [-O AIMOTIONDETECTION] [-c FACEDETECTION] [-o MOTIONTRACKING] [-I MIC] [-b SOUNDDETECTION] [-B BABYCRYING] [-n SOUNDSENSITIVITY] [-m MOVE] [-g] [-u] [-j ABS_POSITION] [-J REL_POSITION] [-p NUM] [-P NAME] [-R NUM] [-C MODE] [-f FILE] [-S TIME] [-T] [-d]\n\n", progname);
     fprintf(stderr, "\t-t ON/OFF, --switch ON/OFF\n");
     fprintf(stderr, "\t\tswitch ON or OFF the cam\n");
     fprintf(stderr, "\t-s SENS, --sensitivity SENS\n");
@@ -93,6 +93,8 @@ void print_usage(char *progname)
     fprintf(stderr, "\t\tset ir led: ON or OFF\n");
     fprintf(stderr, "\t-r ROTATE, --rotate ROTATE\n");
     fprintf(stderr, "\t\tset rotate: ON or OFF\n");
+    fprintf(stderr, "\t-V LOWVENC, --low-venc LOWVENC\n");
+    fprintf(stderr, "\t\tset low H264 encoder: ON or OFF (audited patched models only)\n");
     fprintf(stderr, "\t-1, --setalertallowstate_human\n");
     fprintf(stderr, "\t\tset alert allow state to human\n");
     fprintf(stderr, "\t-a AIHUMANDETECTION, --aihumandetection AIHUMANDETECTION\n");
@@ -161,6 +163,7 @@ int main(int argc, char ** argv)
     int save = NONE;
     int ir = NONE;
     int rotate = NONE;
+    int low_venc = NONE;
     int setalertallowstate_human = NONE;
     int aihumandetection = NONE;
     int aivehicledetection = NONE;
@@ -207,6 +210,7 @@ int main(int argc, char ** argv)
             {"save",  required_argument, 0, 'v'},
             {"ir",  required_argument, 0, 'i'},
             {"rotate",  required_argument, 0, 'r'},
+            {"low-venc", required_argument, 0, 'V'},
             {"setalertallowstate_human",  no_argument, 0, '1'},
             {"aihumandetection",  required_argument, 0, 'a'},
             {"aivehicledetection",  required_argument, 0, 'E'},
@@ -241,7 +245,7 @@ int main(int argc, char ** argv)
         /* getopt_long stores the option index here. */
         int option_index = 0;
 
-        c = getopt_long (argc, argv, "t:s:l:v:i:r:a:E:N:O:c:o:I:b:B:n:m:M:guj:J:p:P:HR:C:f:S:Twxdh",
+        c = getopt_long (argc, argv, "t:s:l:v:i:r:V:a:E:N:O:c:o:I:b:B:n:m:M:guj:J:p:P:HR:C:f:S:Twxdh",
                          long_options, &option_index);
 
         /* Detect the end of the options. */
@@ -311,6 +315,17 @@ int main(int argc, char ** argv)
                 rotate = ROTATE_OFF;
             } else if ((strcasecmp("on", optarg) == 0) || (strcasecmp("yes", optarg) == 0)) {
                 rotate = ROTATE_ON;
+            } else {
+                print_usage(argv[0]);
+                exit(EXIT_FAILURE);
+            }
+            break;
+
+        case 'V':
+            if ((strcasecmp("off", optarg) == 0) || (strcasecmp("no", optarg) == 0)) {
+                low_venc = LOW_VENC_OFF;
+            } else if ((strcasecmp("on", optarg) == 0) || (strcasecmp("yes", optarg) == 0)) {
+                low_venc = LOW_VENC_ON;
             } else {
                 print_usage(argv[0]);
                 exit(EXIT_FAILURE);
@@ -686,6 +701,12 @@ int main(int argc, char ** argv)
         mq_send(ipc_mq, IPC_ROTATE_OFF, sizeof(IPC_ROTATE_OFF) - 1, 0);
     } else if (rotate == ROTATE_ON) {
         mq_send(ipc_mq, IPC_ROTATE_ON, sizeof(IPC_ROTATE_ON) - 1, 0);
+    }
+
+    if (low_venc == LOW_VENC_OFF) {
+        mq_send(ipc_mq, IPC_LOW_VENC_OFF, sizeof(IPC_LOW_VENC_OFF) - 1, 0);
+    } else if (low_venc == LOW_VENC_ON) {
+        mq_send(ipc_mq, IPC_LOW_VENC_ON, sizeof(IPC_LOW_VENC_ON) - 1, 0);
     }
 
     if (setalertallowstate_human == 1) {

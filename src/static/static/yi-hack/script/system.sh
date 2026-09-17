@@ -173,6 +173,9 @@ log "Starting local media processes" 1
         sleep 2
         LD_LIBRARY_PATH="/tmp/sd/yi-hack/lib:/lib:/usr/lib:/home/lib:/home/qigan/lib:/home/app/locallib:/tmp/sd:/tmp/sd/gdb" ./rmm &
         sleep 6
+        # Match the low hardware encoder to RTSP_STREAM after rmm initializes,
+        # even when the RTSP server itself is disabled.
+        $YI_HACK_PREFIX/script/rtsp_stream_venc.sh "$(get_config RTSP_STREAM)" >/dev/null 2>&1 || true
         dd if=/tmp/audio_fifo of=/dev/null bs=1 count=8192
         # Trick to start circular buffer filling
         start_buffer
