@@ -50,6 +50,8 @@ rm ./_install/www/js/tmp.js
 echo "Compressing HTML files..."
 
 compress_html ./httpd/htdocs/index.html ./_install/www/index.html
+WEB_ASSET_VERSION=$(md5sum ./_install/www/js/all.js | cut -c1-12)
+sed -i "s/__WEB_ASSET_VERSION__/$WEB_ASSET_VERSION/g" ./_install/www/index.html
 
 # Compress pages
 for PAGE in ./httpd/htdocs/pages/*.html ; do

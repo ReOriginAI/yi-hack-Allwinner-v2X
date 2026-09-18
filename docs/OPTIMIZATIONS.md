@@ -4,7 +4,7 @@ This document records the performance, memory, reliability, and local-only optim
 
 It exists to keep release engineering and future debugging grounded in what the repository actually implements rather than in one-off live-camera experiments.
 
-Current reference state: `95b9b4d` and later.
+Current reference state: `2260485` and later.
 
 ## Design goals
 
@@ -57,7 +57,7 @@ Unlike y623, VI2 is intentionally retained because the y28ga generic IVA motion 
 Known hashes:
 
 - y28ga stock `rmm`: `46261d809c58dea5b39f3351e322d710`
-- y28ga patched `rmm`: `c83016101b3bc9b669139b6b56cbb4d0`
+- y28ga patched `rmm`: `14aa4ee21e04fb40a3c321fdcd12eef4`
 
 ### 3. y623 VE debugfs kernel allocation patch
 
@@ -102,6 +102,8 @@ Sources:
 The original heavy vendor motion/AI path was replaced for y623 with a small local detector based on H.264/VE encoder statistics rather than raw YUV frames and AI models.
 
 This is one of the changes that made y623 usable with local streaming on its limited RAM budget.
+
+Since `f769f68`, the detector parses the main/high-stream encoder statistics (`Channal[0]` / `Channel[0]`) rather than the low/sub-stream channel. That makes motion detection independent of VENC1, so a high-only RTSP configuration can pause the low encoder without silently disabling y623 motion detection.
 
 The detector also carries pressure-aware failure handling added during the low-memory stabilization work:
 
@@ -334,6 +336,59 @@ Current behavior includes:
 
 The goal is that two cameras reporting the same release no longer differ because one happened to receive a manual kernel or runtime patch in an earlier SSH session.
 
+### 17. Stream-aware low-VENC gating and y28ga main-only recording
+
+Key sources:
+
+- `src/static/static/yi-hack/script/rtsp_stream_venc.sh`
+- `src/static/static/yi-hack/script/prepare_mp4record.sh`
+- `src/static/static/yi-hack/script/service.sh`
+- `src/static/static/yi-hack/script/motion_service.sh`
+
+The fork now treats the low/sub-stream encoder as optional work when the configured workload does not need it.
+
+For the audited y623 and y28ga `rmm` builds, `rtsp_stream_venc.sh` can issue the verified runtime VENC control used by `ipc_cmd -V`:
+
+- `RTSP_STREAM=high` keeps VENC1 off when no active recording path requires the low stream;
+- `RTSP_STREAM=low` or `both` keeps VENC1 on;
+- unknown `rmm` hashes are refused rather than poked;
+- recorder state is checked before disabling VENC1, so stock/unknown recording layouts fail safe.
+
+The y623 side became practical once `motiond` moved to channel-0/main-stream statistics in `f769f68`; local motion no longer depends on the low encoder remaining active.
+
+The y28ga recorder required an additional guarded binary patch because the stock `mp4record` declares main, sub, and fast video tracks even when only the main stream is desired. Pausing VENC1 with the stock layout can produce invalid MP4 metadata with contradictory empty lower-resolution track tables. The audited patch changes the muxer from three video tracks to one while retaining AAC audio, allowing high-only recording to coexist with VENC1 paused.
+
+Known y28ga `mp4record` hashes:
+
+- stock: `d3aff9fb80bc1d61ec78de281e6e9784`
+- main-only patched: `c541480baa510ad34944e9e763c6b505`
+
+If the recorder hash is unknown, the patch is refused and the VENC policy automatically keeps the low encoder enabled whenever recording may need it.
+
+The policy is re-evaluated during RTSP startup, recorder startup, and motion lifecycle changes so the camera does not leave an unnecessary encoder running after the workload changes.
+
+### 18. On-demand RTSP/ONVIF speaker backchannel lifecycle
+
+Key sources:
+
+- `src/static/static/yi-hack/script/service.sh`
+- `src/www/httpd/cgi-bin/set_configs.sh`
+- `src/www/httpd/htdocs/js/modules/configurations_onvif.js`
+- `src/www/httpd/htdocs/pages/configurations_onvif.html`
+
+The public source of truth for two-way audio is now `RTSP_BACKCHANNEL`. The historical `ONVIF_AUDIO_BC` key is maintained only as a compatibility mirror for existing service/ONVIF paths.
+
+With `RTSP_BACKCHANNEL=G711` and `SPEAKER_AUDIO=yes`, camera-side go2rtc advertises a `PCMU/8000` reverse-audio producer but does not keep a speaker process resident. The speaker helper is created only for an active talkback session and exits when that session ends.
+
+Commit `868653f` also fixes the configuration lifecycle so changing the WebUI value:
+
+- normalizes and mirrors `RTSP_BACKCHANNEL` to `ONVIF_AUDIO_BC`;
+- rebuilds/restarts RTSP immediately when the backchannel mode changes;
+- refreshes ONVIF advertisement immediately when ONVIF is enabled;
+- makes `service.sh` read `RTSP_BACKCHANNEL` first, with the legacy key only as fallback.
+
+This prevents a stale configuration where the WebUI says G711 while the generated go2rtc/ONVIF configuration still has the backchannel disabled.
+
 ## Model-specific summary
 
 | Optimization | y623 | y28ga |
@@ -355,6 +410,9 @@ The goal is that two cameras reporting the same release no longer differ because
 | kernel-led OOM policy | yes | yes |
 | local-only cloud-ablation boot | yes | yes |
 | reduced dispatch mirror queues | yes | yes |
+| high-only low-VENC gating | yes | yes |
+| guarded main-only `mp4record` patch | n/a | yes |
+| on-demand G711/PCMU speaker backchannel | yes | yes |
 
 ## Measured findings / not yet implemented
 
@@ -420,6 +478,7 @@ A few things were tested or discussed but should not be credited with gains that
 - `debug.SetMemoryLimit(12 MiB)` is a Go runtime soft limit, not a guaranteed 12 MiB process RSS cap.
 - The explicit 4096-byte `h264grabber` stdout buffer is a syscall/latency trade-off; it replaced an accidental pointer-sized buffer and should not be described as a memory reduction.
 - The `motiond` buddyinfo/order-3 gate remains in userspace, but on release-correct y623 kernels the VE debugfs allocator is now `vmalloc`; the gate is conservative legacy protection rather than proof that current polling still needs an order-3 block.
+- G711/PCMU remains the intended talkback transport. go2rtc already creates the speaker helper on demand, so adding a second transport-level "auto" mode would not remove another resident process.
 
 ## Source/history landmarks
 
@@ -436,6 +495,11 @@ Useful commits in the optimization history include:
 - `3932d0c` - soft Wi-Fi reconnect that avoids y623 SDIO down/up wedging
 - `899180d` - consolidated/tested Wi-Fi configuration loading
 - `95b9b4d` - deterministic y623 VE kernel release integration
+- `f769f68` - move y623 motion detection to main/high-stream encoder statistics so VENC1 can be paused
+- `59c2ed4` - y28ga main-only recorder patch, recorder-aware VENC gating, and motion-path fixes
+- `b9c44fe` - introduced experimental demand-driven AEC; later reverted
+- `868653f` - make RTSP backchannel configuration authoritative, mirrored, and live-applied
+- `2260485` - revert automatic AEC toggling while retaining the backchannel fixes
 
 For deeper reverse-engineering evidence and benchmarks, see:
 
