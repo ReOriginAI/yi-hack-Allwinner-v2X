@@ -21,7 +21,6 @@ RTSP_AUDIO=aac
 RTSP_BACKCHANNEL=NONE
 RTSP_STI=yes
 SPEAKER_AUDIO=yes
-AUDIO_AEC=auto
 SNAPSHOT=yes
 SNAPSHOT_VIDEO=no
 SNAPSHOT_LOW=no
@@ -141,15 +140,6 @@ do
         fi
     fi
 done
-
-# AEC is optimized for local cameras by default: off while idle, on only for
-# an active speaker/backchannel session. Preserve explicit always-on/off modes.
-AUDIO_AEC=$(grep '^AUDIO_AEC=' "$SYSTEM_CONF_FILE" 2>/dev/null | cut -d= -f2-)
-case "$AUDIO_AEC" in
-    yes|no|auto) ;;
-    *) AUDIO_AEC=auto ;;
-esac
-sed -i "s/^AUDIO_AEC=.*/AUDIO_AEC=$AUDIO_AEC/" "$SYSTEM_CONF_FILE"
 
 # RTSP_BACKCHANNEL is the public/source-of-truth setting. Keep the historical
 # ONVIF_AUDIO_BC key only as a compatibility mirror for service.sh and ONVIF

@@ -9,7 +9,7 @@ FIRMWARE = {'y623': '12.0.51.01_202303091901', 'y28ga': '9.0.20.06_202007061841'
 RMM = {'y623': 'f8164a1c221ba8c1d4888322a3cf0706', 'y28ga': '46261d809c58dea5b39f3351e322d710'}
 REQUIRED = ('script/system.sh', 'script/service.sh', 'script/check_conf.sh',
             'script/configure_wifi.sh', 'script/wifidhcp.sh', 'script/ethdhcp.sh',
-            'script/prepare_rmm.sh', 'script/prepare_mp4record.sh', 'script/rtsp_stream_venc.sh', 'script/audio_aec.sh', 'script/ensure_y623_ve_kernel.sh',
+            'script/prepare_rmm.sh', 'script/prepare_mp4record.sh', 'script/rtsp_stream_venc.sh', 'script/ensure_y623_ve_kernel.sh',
             'lib/ipc_multiplex.so', 'bin/cloudAPI',
             'bin/cloudAPI_fake', 'bin/ipc_cmd')
 

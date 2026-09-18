@@ -66,11 +66,9 @@ else
 fi
 
 OLD_RTSP_STREAM=""
-OLD_AUDIO_AEC=""
 OLD_RTSP_BACKCHANNEL=""
 if [ "$CONF_TYPE" == "system" ]; then
     OLD_RTSP_STREAM=$(grep '^RTSP_STREAM=' "$CONF_FILE" 2>/dev/null | cut -d= -f2-)
-    OLD_AUDIO_AEC=$(grep '^AUDIO_AEC=' "$CONF_FILE" 2>/dev/null | cut -d= -f2-)
     OLD_RTSP_BACKCHANNEL=$(grep '^RTSP_BACKCHANNEL=' "$CONF_FILE" 2>/dev/null | cut -d= -f2-)
 fi
 
@@ -148,16 +146,7 @@ done
 # only as the compatibility mirror consumed by service.sh and ONVIF advertising.
 if [ "$CONF_TYPE" == "system" ]; then
     NEW_RTSP_STREAM=$(grep '^RTSP_STREAM=' "$CONF_FILE" 2>/dev/null | cut -d= -f2-)
-    NEW_AUDIO_AEC=$(grep '^AUDIO_AEC=' "$CONF_FILE" 2>/dev/null | cut -d= -f2-)
     NEW_RTSP_BACKCHANNEL=$(grep '^RTSP_BACKCHANNEL=' "$CONF_FILE" 2>/dev/null | cut -d= -f2-)
-
-    case "$NEW_AUDIO_AEC" in
-        yes|no|auto) ;;
-        *) NEW_AUDIO_AEC=auto; sed -i 's/^AUDIO_AEC=.*/AUDIO_AEC=auto/' "$CONF_FILE" ;;
-    esac
-    if [ "$NEW_AUDIO_AEC" != "$OLD_AUDIO_AEC" ]; then
-        "$YI_HACK_PREFIX/script/audio_aec.sh" apply >/dev/null 2>&1 || true
-    fi
 
     case "$NEW_RTSP_BACKCHANNEL" in
         G711|g711) NEW_RTSP_BACKCHANNEL=G711 ;;

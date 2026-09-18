@@ -41,7 +41,7 @@ if [ -e /tmp/sd/Factory/factory_test.sh ]; then
 fi
 
 YI=/tmp/sd/yi-hack
-for required in script/system.sh script/service.sh script/check_conf.sh script/configure_wifi.sh script/wifidhcp.sh script/ethdhcp.sh script/prepare_rmm.sh script/prepare_mp4record.sh script/rtsp_stream_venc.sh script/audio_aec.sh lib/ipc_multiplex.so bin/cloudAPI bin/cloudAPI_fake bin/ipc_cmd; do
+for required in script/system.sh script/service.sh script/check_conf.sh script/configure_wifi.sh script/wifidhcp.sh script/ethdhcp.sh script/prepare_rmm.sh script/prepare_mp4record.sh script/rtsp_stream_venc.sh lib/ipc_multiplex.so bin/cloudAPI bin/cloudAPI_fake bin/ipc_cmd; do
     [ -s "$YI/$required" ] || boot_fail "missing $required"
 done
 [ "$(cat "$YI/model_suffix")" = "$SUFFIX" ] || boot_fail model
