@@ -102,7 +102,12 @@ init_config()
     else
         ONVIF_NETIF="eth0"
     fi
-    ONVIF_AUDIO_BC=$(get_config ONVIF_AUDIO_BC)
+    # RTSP_BACKCHANNEL is the source of truth. Fall back to the historical
+    # ONVIF_AUDIO_BC key only for configurations created by older builds.
+    ONVIF_AUDIO_BC=$(get_config RTSP_BACKCHANNEL)
+    if [ -z "$ONVIF_AUDIO_BC" ]; then
+        ONVIF_AUDIO_BC=$(get_config ONVIF_AUDIO_BC)
+    fi
     if [ ! -z $ONVIF_AUDIO_BC ]; then
         ONVIF_AUDIO_DECODER="audio_decoder=$ONVIF_AUDIO_BC"
         if [ "$ONVIF_AUDIO_BC" != "NONE" ] && [ "$ONVIF_AUDIO_BC" != "none" ]; then

@@ -67,9 +67,11 @@ fi
 
 OLD_RTSP_STREAM=""
 OLD_AUDIO_AEC=""
+OLD_RTSP_BACKCHANNEL=""
 if [ "$CONF_TYPE" == "system" ]; then
     OLD_RTSP_STREAM=$(grep '^RTSP_STREAM=' "$CONF_FILE" 2>/dev/null | cut -d= -f2-)
     OLD_AUDIO_AEC=$(grep '^AUDIO_AEC=' "$CONF_FILE" 2>/dev/null | cut -d= -f2-)
+    OLD_RTSP_BACKCHANNEL=$(grep '^RTSP_BACKCHANNEL=' "$CONF_FILE" 2>/dev/null | cut -d= -f2-)
 fi
 
 read -r POST_DATA
@@ -141,11 +143,14 @@ for ROW in $ROWS; do
 
 done
 
-# RTSP_STREAM is safe to apply live. Stop readers first, apply the model-specific
-# hardware encoder state, then rebuild/restart RTSP with the new stream set.
+# System settings that can safely be applied immediately are normalized here.
+# RTSP_BACKCHANNEL is the public/source-of-truth setting; ONVIF_AUDIO_BC is kept
+# only as the compatibility mirror consumed by service.sh and ONVIF advertising.
 if [ "$CONF_TYPE" == "system" ]; then
     NEW_RTSP_STREAM=$(grep '^RTSP_STREAM=' "$CONF_FILE" 2>/dev/null | cut -d= -f2-)
     NEW_AUDIO_AEC=$(grep '^AUDIO_AEC=' "$CONF_FILE" 2>/dev/null | cut -d= -f2-)
+    NEW_RTSP_BACKCHANNEL=$(grep '^RTSP_BACKCHANNEL=' "$CONF_FILE" 2>/dev/null | cut -d= -f2-)
+
     case "$NEW_AUDIO_AEC" in
         yes|no|auto) ;;
         *) NEW_AUDIO_AEC=auto; sed -i 's/^AUDIO_AEC=.*/AUDIO_AEC=auto/' "$CONF_FILE" ;;
@@ -153,14 +158,51 @@ if [ "$CONF_TYPE" == "system" ]; then
     if [ "$NEW_AUDIO_AEC" != "$OLD_AUDIO_AEC" ]; then
         "$YI_HACK_PREFIX/script/audio_aec.sh" apply >/dev/null 2>&1 || true
     fi
+
+    case "$NEW_RTSP_BACKCHANNEL" in
+        G711|g711) NEW_RTSP_BACKCHANNEL=G711 ;;
+        *)         NEW_RTSP_BACKCHANNEL=NONE ;;
+    esac
+    if grep -q '^RTSP_BACKCHANNEL=' "$CONF_FILE" 2>/dev/null; then
+        sed -i "s/^RTSP_BACKCHANNEL=.*/RTSP_BACKCHANNEL=$NEW_RTSP_BACKCHANNEL/" "$CONF_FILE"
+    else
+        echo "RTSP_BACKCHANNEL=$NEW_RTSP_BACKCHANNEL" >> "$CONF_FILE"
+    fi
+    if grep -q '^ONVIF_AUDIO_BC=' "$CONF_FILE" 2>/dev/null; then
+        sed -i "s/^ONVIF_AUDIO_BC=.*/ONVIF_AUDIO_BC=$NEW_RTSP_BACKCHANNEL/" "$CONF_FILE"
+    else
+        echo "ONVIF_AUDIO_BC=$NEW_RTSP_BACKCHANNEL" >> "$CONF_FILE"
+    fi
+
+    RTSP_STREAM_CHANGED=no
+    RTSP_BACKCHANNEL_CHANGED=no
     if [ -n "$NEW_RTSP_STREAM" ] && [ "$NEW_RTSP_STREAM" != "$OLD_RTSP_STREAM" ]; then
+        RTSP_STREAM_CHANGED=yes
+    fi
+    if [ "$NEW_RTSP_BACKCHANNEL" != "$OLD_RTSP_BACKCHANNEL" ]; then
+        RTSP_BACKCHANNEL_CHANGED=yes
+    fi
+
+    # RTSP stream selection and speaker backchannel both affect the generated
+    # server configuration, so rebuild RTSP once if either changed.
+    if [ "$RTSP_STREAM_CHANGED" == "yes" ] || [ "$RTSP_BACKCHANNEL_CHANGED" == "yes" ]; then
         RTSP_ENABLED=$(grep '^RTSP=' "$CONF_FILE" 2>/dev/null | cut -d= -f2-)
         if [ "$RTSP_ENABLED" == "yes" ]; then
             "$YI_HACK_PREFIX/script/service.sh" rtsp stop >/dev/null 2>&1
-            # start_rtsp applies the model-specific VENC state before spawning readers.
             "$YI_HACK_PREFIX/script/service.sh" rtsp start >/dev/null 2>&1
-        else
+        elif [ "$RTSP_STREAM_CHANGED" == "yes" ]; then
+            # With RTSP disabled, only the encoder state itself needs updating.
             "$YI_HACK_PREFIX/script/rtsp_stream_venc.sh" "$NEW_RTSP_STREAM" >/dev/null 2>&1 || true
+        fi
+    fi
+
+    # ONVIF advertises the same backchannel capability, so refresh its generated
+    # profile immediately when the backchannel mode changes.
+    if [ "$RTSP_BACKCHANNEL_CHANGED" == "yes" ]; then
+        ONVIF_ENABLED=$(grep '^ONVIF=' "$CONF_FILE" 2>/dev/null | cut -d= -f2-)
+        if [ "$ONVIF_ENABLED" == "yes" ]; then
+            "$YI_HACK_PREFIX/script/service.sh" onvif stop >/dev/null 2>&1
+            "$YI_HACK_PREFIX/script/service.sh" onvif start >/dev/null 2>&1
         fi
     fi
 fi
