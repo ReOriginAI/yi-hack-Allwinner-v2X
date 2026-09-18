@@ -173,6 +173,9 @@ log "Starting local media processes" 1
         sleep 2
         LD_LIBRARY_PATH="/tmp/sd/yi-hack/lib:/lib:/usr/lib:/home/lib:/home/qigan/lib:/home/app/locallib:/tmp/sd:/tmp/sd/gdb" ./rmm &
         sleep 6
+        # Apply the configured AEC policy after rmm has initialized its audio
+        # path. In auto mode this leaves AEC off until speaker playback starts.
+        $YI_HACK_PREFIX/script/audio_aec.sh apply >/dev/null 2>&1 || true
         # Match the low hardware encoder to RTSP_STREAM after rmm initializes,
         # even when the RTSP server itself is disabled.
         $YI_HACK_PREFIX/script/rtsp_stream_venc.sh "$(get_config RTSP_STREAM)" >/dev/null 2>&1 || true

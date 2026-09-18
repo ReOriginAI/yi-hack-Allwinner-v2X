@@ -23,11 +23,24 @@
 #include "Speaker.hh"
 
 #include <cstdio>
+#include <cstdlib>
 
 #include "unistd.h"
 #include "sys/ioctl.h"
 
 extern int debug;
+
+#define AEC_HELPER "/tmp/sd/yi-hack/script/audio_aec.sh"
+
+static void updateAec(const char *action)
+{
+    char command[192];
+
+    if (access(AEC_HELPER, X_OK) != 0) return;
+    if (snprintf(command, sizeof(command), "%s %s >/dev/null 2>&1", AEC_HELPER, action) >= (int)sizeof(command)) return;
+    int rc = system(command);
+    (void)rc;
+}
 
 static void *speaker(void *ptr)
 {
@@ -153,6 +166,7 @@ int Speaker::switchSpeaker(int on)
             fprintf(stderr, "Speaker is busy\n");
             return -1;
         }
+        updateAec("speaker-start");
         fIsActive = True;
         setCounter(SPEAKER_MAX_VALUE);
         if (debug) fprintf(stderr, "Speaker on\n");
@@ -160,6 +174,7 @@ int Speaker::switchSpeaker(int on)
         if (on == SPEAKER_OFF) {
             setCounter(-1);
             fIsActive = False;
+            updateAec("speaker-stop");
             sem_post(fSemSpeaker);
             if (debug) fprintf(stderr, "Speaker off\n");
         } else {

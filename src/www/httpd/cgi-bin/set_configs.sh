@@ -66,8 +66,10 @@ else
 fi
 
 OLD_RTSP_STREAM=""
+OLD_AUDIO_AEC=""
 if [ "$CONF_TYPE" == "system" ]; then
     OLD_RTSP_STREAM=$(grep '^RTSP_STREAM=' "$CONF_FILE" 2>/dev/null | cut -d= -f2-)
+    OLD_AUDIO_AEC=$(grep '^AUDIO_AEC=' "$CONF_FILE" 2>/dev/null | cut -d= -f2-)
 fi
 
 read -r POST_DATA
@@ -143,6 +145,14 @@ done
 # hardware encoder state, then rebuild/restart RTSP with the new stream set.
 if [ "$CONF_TYPE" == "system" ]; then
     NEW_RTSP_STREAM=$(grep '^RTSP_STREAM=' "$CONF_FILE" 2>/dev/null | cut -d= -f2-)
+    NEW_AUDIO_AEC=$(grep '^AUDIO_AEC=' "$CONF_FILE" 2>/dev/null | cut -d= -f2-)
+    case "$NEW_AUDIO_AEC" in
+        yes|no|auto) ;;
+        *) NEW_AUDIO_AEC=auto; sed -i 's/^AUDIO_AEC=.*/AUDIO_AEC=auto/' "$CONF_FILE" ;;
+    esac
+    if [ "$NEW_AUDIO_AEC" != "$OLD_AUDIO_AEC" ]; then
+        "$YI_HACK_PREFIX/script/audio_aec.sh" apply >/dev/null 2>&1 || true
+    fi
     if [ -n "$NEW_RTSP_STREAM" ] && [ "$NEW_RTSP_STREAM" != "$OLD_RTSP_STREAM" ]; then
         RTSP_ENABLED=$(grep '^RTSP=' "$CONF_FILE" 2>/dev/null | cut -d= -f2-)
         if [ "$RTSP_ENABLED" == "yes" ]; then

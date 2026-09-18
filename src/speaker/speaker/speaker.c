@@ -13,6 +13,7 @@
 #define CPLD_DEV "/dev/cpld_periph"
 #define AUDIO_FIFO "/tmp/audio_in_fifo"
 #define SEM_FILE "audio_in_fifo.lock"
+#define AEC_HELPER "/tmp/sd/yi-hack/script/audio_aec.sh"
 
 static volatile sig_atomic_t stop_requested = 0;
 
@@ -40,6 +41,15 @@ static int open_cpld(void) {
 
 static void run_io(int fd, int n) {
     ioctl(fd, _IOC(0, DEVICE_NUM, n, 0x00), 0);
+}
+
+static void update_aec(const char *action) {
+    char command[192];
+
+    if (access(AEC_HELPER, X_OK) != 0) return;
+    if (snprintf(command, sizeof(command), "%s %s >/dev/null 2>&1", AEC_HELPER, action) >= (int)sizeof(command)) return;
+    int rc = system(command);
+    (void)rc;
 }
 
 static int switch_speaker(int on) {
@@ -93,6 +103,7 @@ static int stream_pcm(const char *format) {
     sem_t *sem = SEM_FAILED;
     int fifo = -1;
     int speaker_on = 0;
+    int aec_session = 0;
     int rc = 1;
 
     if (strcmp(format, "ulaw") != 0 && strcmp(format, "pcm") != 0) {
@@ -122,6 +133,8 @@ static int stream_pcm(const char *format) {
         goto unlock;
     }
 
+    update_aec("speaker-start");
+    aec_session = 1;
     if (switch_speaker(1) < 0) goto unlock;
     speaker_on = 1;
 
@@ -156,6 +169,7 @@ static int stream_pcm(const char *format) {
 unlock:
     if (speaker_on) switch_speaker(0);
     if (fifo >= 0) close(fifo);
+    if (aec_session) update_aec("speaker-stop");
     sem_post(sem);
 cleanup:
     if (sem != SEM_FAILED) sem_close(sem);

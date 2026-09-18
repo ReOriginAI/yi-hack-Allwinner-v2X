@@ -73,11 +73,11 @@
                             <div class="standard-select">
                                 <select data-key="RTSP_BACKCHANNEL" id="RTSP_BACKCHANNEL">
                                     <option value="NONE">Disabled</option>
-                                    <option value="G711">G711 / PCMU 8 kHz</option>
+                                    <option value="G711">G711 / PCMU 8 kHz (on demand)</option>
                                 </select>
                             </div>
                             <span class="switch-description">
-                                Enable the camera-speaker RTSP backchannel. This is independent of the ONVIF server and remains available when ONVIF is disabled. ONVIF, when enabled, advertises the same capability.
+                                Enable the camera-speaker RTSP backchannel. With go2rtc the speaker helper is started only while a client has an active talkback session, so there is no resident backchannel process while idle. This is independent of the ONVIF server and remains available when ONVIF is disabled. ONVIF, when enabled, advertises the same capability.
                             </span>
                         </td>
                     </tr>
