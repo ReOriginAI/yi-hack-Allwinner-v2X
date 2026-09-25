@@ -49,7 +49,18 @@
                                 <span class="slider round"></span>
                                 <span class="switch-text"></span>
                             </label>
-                            <span class="switch-description">Enable the local model-aware motion service. On y28ga this uses the lightweight generic firmware IVA detector and local IPC events. The old firmware motion-publication gate is used internally; human/vehicle/animal classifiers, face detection, and PTZ tracking remain disabled.</span>
+                            <span class="switch-description">Enable the local model-aware motion service. On y28ga this uses the firmware IVA detector and local IPC events. Vehicle/animal classifiers, face detection, and PTZ tracking remain disabled; optional human confirmation can be enabled below.</span>
+                        </td>
+                    </tr>
+                    <tr class="row y28ga-human-only" style="display:none">
+                        <td>Human-confirmed motion only</td>
+                        <td>
+                            <label class="switch small">
+                                <input type="checkbox" id="MOTION_HUMAN_ONLY" data-key="MOTION_HUMAN_ONLY"/>
+                                <span class="slider round"></span>
+                                <span class="switch-text"></span>
+                            </label>
+                            <span class="switch-description">Y28GA only. Require the firmware human classifier to confirm motion before the hack publishes its local motion event. This filters local motion status plus MQTT/ONVIF motion consumers while generic motion still gates the IVA pipeline.</span>
                         </td>
                     </tr>
                     <tr class="row">
