@@ -10,7 +10,6 @@ PIDFILE="/tmp/motiond.pid"
 LOGFILE="/tmp/motiond.log"
 OWNERFILE="/tmp/motiond.mp4record.owner"
 STATEFILE="/tmp/motion.state"
-HUMAN_ONLY_FILE="/tmp/motion_human_only"
 SERVICE="$YI_HACK_PREFIX/script/service.sh"
 IPC_CMD="$YI_HACK_PREFIX/bin/ipc_cmd"
 MODEL_SUFFIX=$(cat "$YI_HACK_PREFIX/model_suffix" 2>/dev/null)
@@ -58,9 +57,9 @@ ensure_motion_stats()
 
 motion_backend()
 {
-    # y28ga old firmware has no mpp/ve encoder-statistics node. Its firmware
-    # IVA path publishes local IPC motion; face/PTZ are patched out while the
-    # retained human classifier can optionally confirm motion.
+    # y28ga old firmware has no mpp/ve encoder-statistics node. Its lightweight
+    # generic IVA detector publishes plain motion through the local IPC queue;
+    # face/NNA and PTZ tracking are disabled separately by the guarded rmm patch.
     case "$MODEL_SUFFIX" in
         y28ga)
             echo ipc-events
@@ -73,12 +72,6 @@ motion_backend()
     else
         echo unsupported
     fi
-}
-
-y28ga_human_only()
-{
-    [ "$MODEL_SUFFIX" = "y28ga" ] || return 1
-    [ "$(get_camera_config MOTION_HUMAN_ONLY)" = "yes" ]
 }
 
 motion_sensitivity()
@@ -105,15 +98,13 @@ disable_y28ga_classifiers()
     [ "$MODEL_SUFFIX" = "y28ga" ] || return 0
     [ -x "$IPC_CMD" ] || return 1
 
-    # Reset optional vendor AI controls before applying the selected local
-    # motion mode. Human detection is selectively re-enabled below when
-    # MOTION_HUMAN_ONLY=yes; vehicle/animal, face, and PTZ stay disabled.
+    # Keep all heavy vendor classifiers and PTZ tracking disabled. The guarded
+    # y28ga rmm patch also stubs their per-frame code paths.
     "$IPC_CMD" -a off >/dev/null 2>&1
     "$IPC_CMD" -E off >/dev/null 2>&1
     "$IPC_CMD" -N off >/dev/null 2>&1
     "$IPC_CMD" -c off >/dev/null 2>&1
     "$IPC_CMD" -o off >/dev/null 2>&1
-    rm -f "$HUMAN_ONLY_FILE" "$IPC_EVENT_DIR/human_detection"
 }
 
 set_y28ga_generic_motion_gate()
@@ -122,7 +113,7 @@ set_y28ga_generic_motion_gate()
     [ -x "$IPC_CMD" ] || return 1
 
     # Old y28ga firmware labels this bit AI Motion Detection, but live testing
-    # shows it gates publication of the firmware IVA result.
+    # shows it gates publication of the lightweight generic IVA result.
     "$IPC_CMD" -O "$1" >/dev/null 2>&1
 }
 
@@ -133,24 +124,7 @@ configure_y28ga_generic_motion()
     disable_y28ga_classifiers || return 1
     LEVEL=$(firmware_motion_sensitivity)
     "$IPC_CMD" -s "$LEVEL" >/dev/null 2>&1 || return 1
-
-    if y28ga_human_only; then
-        touch "$HUMAN_ONLY_FILE" || return 1
-        if ! "$IPC_CMD" -a on >/dev/null 2>&1; then
-            rm -f "$HUMAN_ONLY_FILE"
-            return 1
-        fi
-        # The IVA gate is still off here. Drop any stale marker or control-path
-        # event before motion frames can begin producing real detections.
-        sleep 0.1
-        rm -f "$IPC_EVENT_DIR/motion_alarm" "$IPC_EVENT_DIR/human_detection"
-    fi
-
-    if ! set_y28ga_generic_motion_gate on; then
-        "$IPC_CMD" -a off >/dev/null 2>&1 || true
-        rm -f "$HUMAN_ONLY_FILE"
-        return 1
-    fi
+    set_y28ga_generic_motion_gate on || return 1
 
     if [ "$(get_camera_config SAVE_VIDEO_ON_MOTION)" = "yes" ]; then
         "$IPC_CMD" -v detect >/dev/null 2>&1 || return 1
@@ -328,7 +302,7 @@ start_encoder_backend()
 start_ipc_backend()
 {
     if ! configure_y28ga_generic_motion; then
-        echo "unable to configure y28ga motion" > "$LOGFILE"
+        echo "unable to configure generic y28ga motion" > "$LOGFILE"
         return 1
     fi
 
@@ -346,12 +320,7 @@ start_ipc_backend()
         stop_owned_mp4record
     fi
 
-    if y28ga_human_only; then
-        MODE="human-confirmed IVA"
-    else
-        MODE="generic IVA"
-    fi
-    printf '%s\n' "ipc-events backend active on ${MODEL_SUFFIX:-unknown}; $MODE" > "$LOGFILE"
+    printf '%s\n' "ipc-events backend active on ${MODEL_SUFFIX:-unknown}; generic IVA only" > "$LOGFILE"
     return 0
 }
 
@@ -359,13 +328,13 @@ start_motion()
 {
     stop_motiond || return 1
 
-    # Freeze Y28GA IVA while its classifier/event mode is reconfigured so no
-    # stale generic or human event can leak across a runtime settings change.
-    set_y28ga_generic_motion_gate off >/dev/null 2>&1 || true
+    # Never leave y28ga classifiers/tracking enabled from a stale session.
     disable_y28ga_classifiers >/dev/null 2>&1 || true
 
+
     if [ "$(get_camera_config MOTION_DETECTION)" != "yes" ]; then
-        rm -f "$IPC_EVENT_DIR/motion_alarm" "$IPC_EVENT_DIR/human_detection"
+        set_y28ga_generic_motion_gate off >/dev/null 2>&1 || true
+        rm -f "$IPC_EVENT_DIR/motion_alarm"
         stop_owned_mp4record
         "$YI_HACK_PREFIX/script/rtsp_stream_venc.sh" "$(get_system_config RTSP_STREAM)" >/dev/null 2>&1 || true
         echo "motion detection disabled" > "$LOGFILE"
@@ -403,9 +372,9 @@ stop_motion()
 {
     stop_motiond || return 1
     stop_owned_mp4record
-    set_y28ga_generic_motion_gate off >/dev/null 2>&1 || true
     disable_y28ga_classifiers >/dev/null 2>&1 || true
-    rm -f "$IPC_EVENT_DIR/motion_alarm" "$IPC_EVENT_DIR/human_detection"
+    set_y28ga_generic_motion_gate off >/dev/null 2>&1 || true
+    rm -f "$IPC_EVENT_DIR/motion_alarm"
     echo 0 > "$STATEFILE"
     "$YI_HACK_PREFIX/script/rtsp_stream_venc.sh" "$(get_system_config RTSP_STREAM)" >/dev/null 2>&1 || true
 }

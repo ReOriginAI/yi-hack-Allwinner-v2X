@@ -117,7 +117,6 @@ APP.camera_settings = (function($) {
                     'switch_on=' + configs["SWITCH_ON"],
                     'save_video_on_motion=' + configs["SAVE_VIDEO_ON_MOTION"],
                     'motion_detection=' + configs["MOTION_DETECTION"],
-                    'motion_human_only=' + configs["MOTION_HUMAN_ONLY"],
                     'motion_sensitivity=' + configs["MOTION_SENSITIVITY"],
                     'sound_detection=' + configs["SOUND_DETECTION"],
                     'sound_sensitivity=' + configs["SOUND_SENSITIVITY"],
@@ -160,11 +159,6 @@ APP.camera_settings = (function($) {
                 var lst = document.querySelectorAll(".ptz");
                 for (var i = 0; i < lst.length; ++i) {
                     lst[i].style.display = ptz_enabled.includes(this_model) ? 'table-row' : 'none';
-                }
-
-                var humanOnlyRows = document.querySelectorAll(".y28ga-human-only");
-                for (var j = 0; j < humanOnlyRows.length; ++j) {
-                    humanOnlyRows[j].style.display = this_model === 'y28ga' ? 'table-row' : 'none';
                 }
             },
             error: function(response) {

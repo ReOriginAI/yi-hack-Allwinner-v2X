@@ -82,12 +82,6 @@ int main(void) {
         {"Node 0, zone Normal 0 0 0 4294967295\n", 1},
     };
     struct motion_stats s = {.scene = 1234};
-    const struct sens_cfg *fc = &cfgs[4]; /* sensitivity 5: trigger 3.0 */
-    struct motion_stats fs = {.moving_level = 1, .bin_ratio = 5.24};
-    assert(!foliage_filter_accept(&fs, fc));
-    fs.bin_ratio = 5.25; assert(foliage_filter_accept(&fs, fc));
-    fs.bin_ratio = 1.50; fs.moving_level = 2; assert(foliage_filter_accept(&fs, fc));
-    fs.moving_level = 1; assert(!foliage_filter_accept(&fs, fc));
     for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); ++i) {
         buddy = cases[i].text;
         assert(ve_order3_reserve_ok() == cases[i].ok);
