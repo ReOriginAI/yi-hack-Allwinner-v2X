@@ -54,6 +54,16 @@ do
                 no|yes) MOTION_CHANGED=1 ;;
             esac
             ;;
+        motion_human_only)
+            case "$VAL" in
+                no|yes) MOTION_CHANGED=1 ;;
+            esac
+            ;;
+        motion_foliage_filter)
+            case "$VAL" in
+                no|yes) MOTION_CHANGED=1 ;;
+            esac
+            ;;
         motion_sensitivity)
             case "$VAL" in
                 1|2|3|4|5|6|7|8|9|10) MOTION_CHANGED=1 ;;

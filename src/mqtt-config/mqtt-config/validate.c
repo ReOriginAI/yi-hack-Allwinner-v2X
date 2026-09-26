@@ -64,6 +64,8 @@ char *config_params[PARAM_NUM][PARAM_OPTIONS] = {
     { "camera", "SWITCH_ON", "bool", "", "", "" , "", "", "ipc_cmd -t %s" },
     { "camera", "SAVE_VIDEO_ON_MOTION", "bool", "", "", "" , "", "", "" },
     { "camera", "MOTION_DETECTION", "bool", "", "", "" , "", "", "" },
+    { "camera", "MOTION_HUMAN_ONLY", "bool", "", "", "" , "", "", "" },
+    { "camera", "MOTION_FOLIAGE_FILTER", "bool", "", "", "" , "", "", "" },
     { "camera", "MOTION_SENSITIVITY", "int", "1", "10", "" , "", "", "" },
     { "camera", "BABY_CRYING_DETECT", "bool", "", "", "" , "", "", "ipc_cmd -B %s" },
     { "camera", "LED", "bool", "", "", "" , "", "", "ipc_cmd -l %s" },

@@ -35,6 +35,7 @@
 #define DEFAULT_PID_FILE "/var/run/ipc2file.pid"
 
 #define DEFAULT_QUEUE_NUMBER 2
+#define HUMAN_ONLY_MOTION_FLAG "/tmp/motion_human_only"
 
 #define BD_NO_CHDIR          01
 #define BD_NO_CLOSE_FILES    02
@@ -52,6 +53,7 @@ int debug;
 static int open_queue();
 static int clear_queue();
 static void call_callback(IPC_MESSAGE_TYPE type);
+static int human_only_motion_enabled(void);
 
 typedef void(*func_ptr_t)(void* arg);
 func_ptr_t *ipc_callbacks;
@@ -118,6 +120,11 @@ static int clear_queue()
     }
 
     return 0;
+}
+
+static int human_only_motion_enabled(void)
+{
+    return access(HUMAN_ONLY_MOTION_FLAG, F_OK) == 0;
 }
 
 static void handle_ipc_unrecognized()
@@ -332,6 +339,10 @@ void process_event(int *alarm)
 
     switch (*alarm) {
         case IPC_MSG_MOTION_START:
+            if (human_only_motion_enabled()) {
+                remove(FILE_MOTION_START);
+                break;
+            }
             fp = fopen(FILE_MOTION_START, "w");
             if (fp == NULL) {
                 fprintf(stderr, "Couldn't open file\n");
@@ -346,6 +357,14 @@ void process_event(int *alarm)
                 return;
             }
             fclose(fp);
+            if (human_only_motion_enabled()) {
+                fp = fopen(FILE_MOTION_START, "w");
+                if (fp == NULL) {
+                    fprintf(stderr, "Could not open human-confirmed motion file\n");
+                    return;
+                }
+                fclose(fp);
+            }
             break;
         case IPC_MSG_AI_VEHICLE_DETECTION:
             fp = fopen(FILE_AI_VEHICLE_DETECTION, "w");
@@ -384,6 +403,11 @@ void process_event(int *alarm)
             pthread_detach(sound_stop_pthread);
             break;
         case IPC_MSG_MOTION_STOP:
+            if (human_only_motion_enabled()) {
+                remove(FILE_MOTION_START);
+                remove(FILE_AI_HUMAN_DETECTION);
+                break;
+            }
             switch (last_alarm) {
                 case IPC_MSG_MOTION_START:
                     remove(FILE_MOTION_START);
