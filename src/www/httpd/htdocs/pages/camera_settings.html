@@ -63,6 +63,17 @@
                             <span class="switch-description">Y28GA only. Require the firmware human classifier to confirm motion before the hack publishes its local motion event. This filters local motion status plus MQTT/ONVIF motion consumers while generic motion still gates the IVA pipeline.</span>
                         </td>
                     </tr>
+                    <tr class="row y623-foliage-filter" style="display:none">
+                        <td>Foliage false-positive filter</td>
+                        <td>
+                            <label class="switch small">
+                                <input type="checkbox" id="MOTION_FOLIAGE_FILTER" data-key="MOTION_FOLIAGE_FILTER"/>
+                                <span class="slider round"></span>
+                                <span class="switch-text"></span>
+                            </label>
+                            <span class="switch-description">Y623 only. Require a stronger encoder-motion signature before publishing a local motion event. This is intended to reject low-level foliage/rustling-leaf motion without restoring the RAM-heavy PilotAI path.</span>
+                        </td>
+                    </tr>
                     <tr class="row">
                         <td>Backend</td>
                         <td>

@@ -18,6 +18,8 @@
 #define VE_MIN_ORDER3_UNITS 4
 #define VE_PRESSURE_RETRY_MS 500
 #define VE_OPEN_RETRY_MS 1000
+#define FOLIAGE_TRIGGER_MULT 1.75
+#define FOLIAGE_TRIGGER_PAD 1.50
 
 static const unsigned char IPC_MOTION_START[16] = {
     0x01,0x00,0x00,0x00, 0x02,0x00,0x00,0x00,
@@ -58,6 +60,20 @@ static const struct sens_cfg cfgs[10] = {
     { 0.50, 0.15, 2, 2000},
     { 0.25, 0.15, 2, 2000},
 };
+
+/*
+ * Optional Y623 foliage filter. Encoder statistics have no object identity, so
+ * this is deliberately conservative: ordinary threshold crossings still gate
+ * candidates, but a start also needs either encoder MovingLevel >= 2 or a
+ * materially larger changed-pixel ratio. This keeps RAM O(1) and adds only a
+ * few scalar operations per sample.
+ */
+static int foliage_filter_accept(const struct motion_stats *s, const struct sens_cfg *c) {
+    double ratio_gate = c->trigger * FOLIAGE_TRIGGER_MULT;
+    double padded_gate = c->trigger + FOLIAGE_TRIGGER_PAD;
+    if (ratio_gate < padded_gate) ratio_gate = padded_gate;
+    return s->moving_level >= 2 || s->bin_ratio >= ratio_gate;
+}
 
 static void on_signal(int sig) {
     (void)sig;
@@ -210,11 +226,12 @@ static int send_motion_ipc(mqd_t mq, int active) {
 
 static void usage(const char *p) {
     fprintf(stderr,
-        "usage: %s [-s sensitivity_1_10] [-i interval_ms] [-a] [-r]\n"
+        "usage: %s [-s sensitivity_1_10] [-i interval_ms] [-a] [-r] [-f]\n"
         "  -s N   sensitivity 1..10 (default 5)\n"
         "  -i MS  poll interval 100..2000 ms (default 100)\n"
         "  -a     log every sample\n"
         "  -r     send local motion START/STOP IPC for recorder/event consumers\n"
+        "  -f     enable conservative foliage false-positive filter\n"
         "Default is detector-only: writes " STATE_PATH " and sends no IPC.\n", p);
 }
 
@@ -223,14 +240,16 @@ int main(int argc, char **argv) {
     int interval_ms = 100;
     int log_all = 0;
     int record_events = 0;
+    int foliage_filter = 0;
     int opt;
 
-    while ((opt = getopt(argc, argv, "s:i:arh")) != -1) {
+    while ((opt = getopt(argc, argv, "s:i:arfh")) != -1) {
         switch (opt) {
             case 's': sensitivity = atoi(optarg); break;
             case 'i': interval_ms = atoi(optarg); break;
             case 'a': log_all = 1; break;
             case 'r': record_events = 1; break;
+            case 'f': foliage_filter = 1; break;
             default: usage(argv[0]); return opt == 'h' ? 0 : 2;
         }
     }
@@ -265,9 +284,9 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    printf("motiond v1.1 sens=%d trigger=%.2f release=%.2f confirm=%d quiet_ms=%d interval_ms=%d record_events=%d\n",
+    printf("motiond v1.2 sens=%d trigger=%.2f release=%.2f confirm=%d quiet_ms=%d interval_ms=%d record_events=%d foliage_filter=%d\n",
            sensitivity, c->trigger, c->release, c->confirm_samples,
-           c->quiet_ms, interval_ms, record_events);
+           c->quiet_ms, interval_ms, record_events, foliage_filter);
     fflush(stdout);
 
     while (running) {
@@ -285,6 +304,8 @@ int main(int argc, char **argv) {
 
             int strong = (s.bin_ratio >= c->trigger) ||
                          (s.moving_level >= 2 && s.bin_ratio >= c->trigger * 0.5);
+            if (strong && foliage_filter && !foliage_filter_accept(&s, c))
+                strong = 0;
 
             if (!active) {
                 if (strong) positives++;
