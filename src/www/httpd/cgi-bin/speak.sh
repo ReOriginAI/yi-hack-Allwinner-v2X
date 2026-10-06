@@ -59,8 +59,10 @@ TEXT="$(dd bs=1 count="$CONTENT_LENGTH" 2>/dev/null)"
 # the new TTS wrapper. Clamp to the wrapper's supported 0.0-5.0 range.
 VOLUME="$(awk -v db="$VOLDB" 'BEGIN { v=exp(log(10)*db/20); if (v<0) v=0; if (v>5) v=5; printf "%.3f", v }')"
 
-ERR="/tmp/tts-cgi.err.$$"
-"$TTS" -v "$LANG" --speed 1.0 --pitch 1.0 --volume "$VOLUME" "$TEXT" >/dev/null 2>"$ERR"
+ERR="/tmp/tts-cgi.err.$"
+trap 'rm -f "$ERR"' 0
+trap 'exit 1' 1 2 15
+(ulimit -f 64 || exit 1; "$TTS" -v "$LANG" --speed 1.0 --pitch 1.0 --volume "$VOLUME" "$TEXT" >/dev/null 2>"$ERR")
 RES=$?
 
 if [ "$RES" -ne 0 ]; then

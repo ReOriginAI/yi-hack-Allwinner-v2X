@@ -38,10 +38,8 @@ lbasename ()
 logAdd ()
 {
     TMP_DATETIME="$(date '+%Y-%m-%d [%H-%M-%S]')"
-    TMP_LOGSTREAM="$(tail -n ${LOG_MAX_LINES} ${LOGFILE} 2>/dev/null)"
-    echo "${TMP_LOGSTREAM}" > "$LOGFILE"
-    echo "${TMP_DATETIME} $*" >> "${LOGFILE}"
-    echo "${TMP_DATETIME} $*"
+    "$YI_HACK_PREFIX/script/bounded_log.sh" "$LOGFILE" "$TMP_DATETIME $*"
+    echo "$TMP_DATETIME $*"
     return 0
 }
 

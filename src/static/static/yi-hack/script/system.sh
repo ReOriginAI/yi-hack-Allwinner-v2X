@@ -71,6 +71,8 @@ rm -f $YI_HACK_PREFIX/www/core
 rm -f $YI_HACK_PREFIX/www/cgi-bin/core
 rm -f $YI_HACK_PREFIX/core
 
+"$YI_HACK_PREFIX/script/log_store.sh" || exit 1
+
 touch /tmp/httpd.conf
 
 # The old two-boot .fw_upgrade copier is incompatible with the local-only

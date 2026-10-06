@@ -4,6 +4,8 @@ export LD_LIBRARY_PATH=/lib:/usr/lib:/home/lib:/home/qigan/lib:/home/app/localli
 
 TMPFILE=$(LC_ALL=C tr -dc 'a-zA-Z0-9' < /dev/urandom | dd bs=1 count=16 2>/dev/null)
 TMPFILE=/tmp/$TMPFILE.tmp
+trap 'rm -f "$TMPFILE"' 0
+trap 'exit 1' 1 2 15
 
 YI_HACK_PREFIX="/tmp/sd/yi-hack"
 CAMERA_CONF_FILE="$YI_HACK_PREFIX/etc/camera.conf"

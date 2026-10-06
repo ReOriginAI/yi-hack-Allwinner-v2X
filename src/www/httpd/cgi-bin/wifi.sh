@@ -68,7 +68,9 @@ if [ "$ACTION" = "scan" ] || [ "$ACTION" = "status" ]; then
         MAINT_PASSWORD_SET=false
     fi
 
-    SCAN_FILE="/tmp/wifi_scan.$$"
+    SCAN_FILE="/tmp/wifi_scan.$"
+    trap 'rm -f "$SCAN_FILE"' 0
+    trap 'exit 1' 1 2 15
     iwlist wlan0 scan 2>/dev/null | grep "ESSID:" | sed 's/^[ \t]*ESSID://g; s/^"//; s/"$//' | grep -v '^$' > "$SCAN_FILE"
 
     printf "Content-type: application/json\r\n\r\n"

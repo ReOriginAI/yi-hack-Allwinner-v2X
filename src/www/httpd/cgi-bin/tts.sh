@@ -114,8 +114,10 @@ printf 'time=%s remote=%s len=%s type=%s voice=%s speed=%s pitch=%s volume=%s\n'
     "$(date +%s 2>/dev/null)" "${REMOTE_ADDR:-local}" "${#TEXT}" "${CONTENT_TYPE:-unknown}" \
     "$VOICE" "$SPEED" "$PITCH" "$VOLUME" >"$LOG_FILE"
 
-ERR="/tmp/tts-cgi.err.$$"
-"$TTS" -v "$VOICE" --speed "$SPEED" --pitch "$PITCH" --volume "$VOLUME" "$TEXT" >/dev/null 2>"$ERR"
+ERR="/tmp/tts-cgi.err.$"
+trap 'rm -f "$ERR"' 0
+trap 'exit 1' 1 2 15
+(ulimit -f 64 || exit 1; "$TTS" -v "$VOICE" --speed "$SPEED" --pitch "$PITCH" --volume "$VOLUME" "$TEXT" >/dev/null 2>"$ERR")
 RES=$?
 printf 'result=%s\n' "$RES" >>"$LOG_FILE"
 

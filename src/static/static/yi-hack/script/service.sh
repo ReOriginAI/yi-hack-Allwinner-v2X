@@ -279,6 +279,7 @@ stop_rtsp()
 
 start_onvif()
 {
+    "$YI_HACK_PREFIX/script/log_store.sh" || return 1
     # If "null" use default
 
     if [[ "$2" == "null" ]]; then
@@ -422,6 +423,7 @@ stop_onvif()
 
 start_wsdd()
 {
+    "$YI_HACK_PREFIX/script/log_store.sh" || return 1
     wsd_simple_server --pid_file /var/run/wsd_simple_server.pid --if_name $ONVIF_NETIF --xaddr "http://%s$D_HTTPD_PORT/onvif/device_service" -m `hostname` -n Yi
 }
 
