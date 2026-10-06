@@ -14,6 +14,7 @@ if ! awk '$2 == "/tmp/yi-service-logs" && $3 == "tmpfs" { found=1 } END { exit !
 fi
 for name in onvif_notify_server onvif_simple_server wsd_simple_server; do
     target="$LOGDIR/$name.log"
+    [ "$name" != onvif_simple_server ] || target="$LOGDIR/cgi.log"
     [ -e "$target" ] || : > "$target"
     [ -L "/tmp/$name.log" ] && [ "$(readlink "/tmp/$name.log")" = "$target" ] && continue
     ln -sf "$target" "/tmp/$name.log" || exit 1
