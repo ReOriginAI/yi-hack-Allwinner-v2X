@@ -304,8 +304,18 @@ start_encoder_backend()
         stop_owned_mp4record
     fi
 
-    "$MOTIOND" -s "$SENS" -i 100 $RECORD_OPT > "$LOGFILE" 2>&1 &
-    PID=$!
+    "$MOTIOND" -s "$SENS" -i 100 $RECORD_OPT 2>&1 |
+        "$YI_HACK_PREFIX/script/motion_log.sh" "$LOGFILE" &
+    LOGGER_PID=$!
+    sleep 0.1
+    # The pipeline PID belongs to the logger. Track the detector itself for
+    # pidfiles and OOM policy; its executable identity remains the stop guard.
+    PID=$(ps | awk '$5 == "/tmp/sd/yi-hack/bin/motiond" { print $1; exit }')
+    if [ -z "$PID" ] || ! kill -0 "$LOGGER_PID" 2>/dev/null; then
+        [ -n "$PID" ] && kill "$PID" 2>/dev/null
+        kill "$LOGGER_PID" 2>/dev/null
+        return 1
+    fi
     echo "$PID" > "$PIDFILE"
 
     # motiond is expendable compared with rmm: if the kernel must choose an
