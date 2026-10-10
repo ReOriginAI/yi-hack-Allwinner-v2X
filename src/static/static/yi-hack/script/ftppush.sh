@@ -33,79 +33,11 @@ SCRIPT_FULLFN="ftppush.sh"
 SCRIPT_NAME="ftppush"
 LOGFILE="/tmp/${SCRIPT_NAME}.log"
 LOG_MAX_LINES="200"
-LAST_FILE_SENT_FILE="/tmp/last_file_sent"
-LAST_FILE_SENT="1970-01-01T00:00"
-if [ -f ${LAST_FILE_SENT_FILE} ]; then
-	LAST_FILE_SENT=$(cat /tmp/last_file_sent)
-fi
-echo $LAST_FILE_SENT > ${LAST_FILE_SENT_FILE}
 
 #
 # -----------------------------------------------------
 # -------------- START OF FUNCTION BLOCK --------------
 # -----------------------------------------------------
-checkFiles ()
-{
-	#
-	FTP_FILE_DELETE_AFTER_UPLOAD="$(get_config FTP_FILE_DELETE_AFTER_UPLOAD)"
-	#
-	logAdd "[INFO] checkFiles"
-	#
-	# Search for new files.
-	if [ -f "/usr/bin/sort" ] || [ -f "/tmp/sd/yi-hack/usr/bin/sort" ]; then
-		# Default: Optimized for busybox
-		L_FILE_LIST="$(find "${FOLDER_TO_WATCH}" -mindepth ${FOLDER_MINDEPTH} -type f \( -name "${FILE_WATCH_PATTERN}" \) | sort -k 1 -n)"
-	else
-		# Alternative: Unsorted output
-		L_FILE_LIST="$(find "${FOLDER_TO_WATCH}" -mindepth ${FOLDER_MINDEPTH} -type f \( -name "${FILE_WATCH_PATTERN}" \))"
-	fi
-	if [ -z "${L_FILE_LIST}" ]; then
-		return 0
-	fi
-	#
-	echo "${L_FILE_LIST}" | while read file; do
-		if [ "${#file}" == "44" ]; then
-			FILE_DATE=${file:15:4}-${file:20:2}-${file:23:2}T${file:26:2}:${file:32:2}
-		else
-			FILE_DATE=${file:15:4}-${file:20:2}-${file:23:2}T${file:26:2}:${file:30:2}
-		fi
-		FILE_YEAR=${FILE_DATE:0:4}
-		FILE_REMPART=${FILE_DATE:5:2}${FILE_DATE:8:2}${FILE_DATE:11:2}${FILE_DATE:14:2}
-		LAST_FILE_SENT=$(cat /tmp/last_file_sent)
-		LAST_FILE_SENT_YEAR=${LAST_FILE_SENT:0:4}
-		LAST_FILE_SENT_REMPART=${LAST_FILE_SENT:5:2}${LAST_FILE_SENT:8:2}${LAST_FILE_SENT:11:2}${LAST_FILE_SENT:14:2}
-		if [ ${FILE_YEAR} -gt ${LAST_FILE_SENT_YEAR} ] || ( [ ${FILE_YEAR} -eq ${LAST_FILE_SENT_YEAR} ] && [ ${FILE_REMPART} -gt ${LAST_FILE_SENT_REMPART} ] ); then
-			if ( ! uploadToFtp -- "${file}" ); then
-				logAdd "[ERROR] checkFiles: uploadToFtp FAILED - [${file}]. Retrying in ${SLEEP_CYCLE_SECONDS} s."
-				return 0
-			fi
-			logAdd "[INFO] checkFiles: uploadToFtp SUCCEEDED - [${file}]."
-			LAST_FILE_SENT=${FILE_DATE}
-			echo $LAST_FILE_SENT > ${LAST_FILE_SENT_FILE}
-			sync
-			if [ "${FTP_FILE_DELETE_AFTER_UPLOAD}" == "yes" ]; then
-				FBASENAME="$(fbasename ${file})"
-				rm -f $FBASENAME.mp4
-				rm -f $FBASENAME.jpg
-			fi
-		else
-			logAdd "[INFO] checkFiles: ignore file [${file}] - already sent."
-		fi
-		#
-	done
-	#
-	# Delete empty sub directories
-	if [ ! -z "${FOLDER_TO_WATCH}" ]; then
-		for d in $(find "${FOLDER_TO_WATCH}/" -mindepth 1 -type d); do
-			#find "${FOLDER_TO_WATCH}/" -mindepth 1 -type d -empty -delete
-			[ -z "`find $d -type f`" ] && rmdir $d
-		done
-	fi
-	#
-	return 0
-}
-
-
 fbasename ()
 {
 	echo ${1:0:$((${#1} - 4))}
@@ -268,6 +200,9 @@ serviceMain ()
 # -------------- END OF FUNCTION BLOCK --------------
 # ---------------------------------------------------
 #
+# Load the per-file queue after defining configuration, transfer and logging.
+. "$YI_HACK_PREFIX/script/ftppush_queue.sh" || exit 1
+
 # set +m
 trap "" SIGHUP
 #

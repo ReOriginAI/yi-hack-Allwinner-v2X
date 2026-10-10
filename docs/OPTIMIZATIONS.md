@@ -513,6 +513,29 @@ For deeper reverse-engineering evidence and benchmarks, see:
 - `docs/vendor-ablation/dispatch-audit.md`
 - `docs/vendor-ablation/boot-operations.md`
 
+## FTP recording queue
+
+Completed MP4s are tracked individually rather than by the minute of the last
+successful transfer. Same-minute clips, older backlogs, and recordings produced
+before the boot clock synchronizes remain eligible for upload. A failed transfer
+retains its file and does not block other pending recordings.
+
+A small `.mp4.ftp-uploaded` receipt beside each retained clip on SD records its
+content checksum and FTP destination identity. Receipts survive uploader restarts
+and reboots, become invalid when contents or destination change, and are committed
+only after successful transfer. Passwords are not stored in receipts. Deletion
+after upload removes the MP4, thumbnail and receipt; retention/manual cleanup is
+followed by pruning orphan receipts. The queue is streamed, with no growing list
+in RAM and no dependence on the obsolete `/tmp/last_file_sent` watermark.
+
+The first scan after upgrading retries remaining completed files because the old
+watermark cannot prove which individual files reached the server. It may overwrite
+the corresponding existing remote filename. Transfer protocol, remote naming, UTC
+hour directories, scheduling and bounded logging remain unchanged. Retained clips
+are checksummed on each scan, so keeping many local videos adds SD read/CPU work.
+
+Regression tests: `python3 src/static/tests/test_ftppush_queue.py -v` (BusyBox ash).
+
 ## Maintenance rule
 
 When adding another optimization, update this file only after the behavior is represented in tracked source/build/install code. Live SSH experiments and proposed changes belong under **Measured findings / not yet implemented** until they become reproducible release behavior.
