@@ -30,6 +30,7 @@ static const unsigned char IPC_MOTION_STOP[16] = {
 
 static volatile sig_atomic_t running = 1;
 static long long ve_retry_after_ms = 0;
+static int ve_uses_vmalloc = 0;
 
 struct motion_stats {
     int scene;
@@ -134,6 +135,74 @@ static int ve_order3_reserve_ok(void) {
     return !invalid && reserve_ok;
 }
 
+/*
+ * Verify the RUNNING audited y623 kernel, not the boot image on flash (which
+ * may have been updated without a reboot). Read only the two VE call sites
+ * from known System RAM after checking the exact kernel symbols and RAM/code
+ * layout. These Thumb BL bytes are the vmalloc/vfree replacements documented
+ * in scripts/patch_y623_ve_debugfs.py. No kernel/device memory is ever written.
+ * Unknown layout, hidden symbols, denied/short reads or either unpatched call
+ * retain the legacy guard. Cache this result once per detector invocation.
+ */
+static int ve_vmalloc_verified(void) {
+    static const struct {
+        const char *name;
+        unsigned long address;
+    } symbols[] = {
+        {"ve_debugfs_release", 0xc018c40eUL},
+        {"ve_debugfs_open",    0xc018c41eUL},
+        {"vfree",             0xc0072f1cUL},
+        {"vmalloc",           0xc0073198UL},
+    };
+    char line[256], name[128], type;
+    unsigned long address;
+    unsigned int seen = 0;
+    FILE *fp = fopen("/proc/kallsyms", "r");
+    if (!fp) return 0;
+    int valid = 1;
+    while (fgets(line, sizeof(line), fp)) {
+        if (sscanf(line, "%lx %c %127s", &address, &type, name) != 3)
+            continue;
+        for (size_t i = 0; i < sizeof(symbols)/sizeof(symbols[0]); ++i) {
+            if (strcmp(name, symbols[i].name) != 0) continue;
+            if (address != symbols[i].address || (seen & (1U << i)))
+                valid = 0;
+            seen |= 1U << i;
+        }
+    }
+    if (ferror(fp)) valid = 0;
+    fclose(fp);
+    if (!valid || seen != 15) return 0;
+
+    fp = fopen("/proc/iomem", "r");
+    if (!fp) return 0;
+    unsigned long start, end;
+    int ram = 0, code = 0;
+    while (fgets(line, sizeof(line), fp)) {
+        if (sscanf(line, " %lx-%lx : %127[^\n]", &start, &end, name) != 3)
+            continue;
+        if (strcmp(name, "System RAM") == 0 &&
+            start == 0x40000000UL && end == 0x43ffffffUL) ram = 1;
+        if (strcmp(name, "Kernel code") == 0 &&
+            start == 0x40008000UL && end == 0x40357fffUL) code = 1;
+    }
+    valid = !ferror(fp) && ram && code;
+    fclose(fp);
+    if (!valid) return 0;
+
+    int fd = open("/dev/mem", O_RDONLY | O_CLOEXEC);
+    if (fd < 0) return 0;
+    unsigned char alloc[4], release[4];
+    static const unsigned char expected_alloc[4] = {0xe6,0xf6,0xb4,0xfe};
+    static const unsigned char expected_release[4] = {0xe6,0xf6,0x82,0xfd};
+    valid = pread(fd, alloc, sizeof(alloc), (off_t)0x4018c42c) == 4 &&
+            pread(fd, release, sizeof(release), (off_t)0x4018c414) == 4 &&
+            memcmp(alloc, expected_alloc, sizeof(alloc)) == 0 &&
+            memcmp(release, expected_release, sizeof(release)) == 0;
+    close(fd);
+    return valid;
+}
+
 static int read_stats(struct motion_stats *s) {
     char buf[BUF_SZ];
     long long now = mono_ms();
@@ -143,7 +212,7 @@ static int read_stats(struct motion_stats *s) {
         return -5;
     }
 
-    if (!ve_order3_reserve_ok()) {
+    if (!ve_uses_vmalloc && !ve_order3_reserve_ok()) {
         ve_retry_after_ms = now + VE_PRESSURE_RETRY_MS;
         errno = EAGAIN;
         return -5;
@@ -210,11 +279,12 @@ static int send_motion_ipc(mqd_t mq, int active) {
 
 static void usage(const char *p) {
     fprintf(stderr,
-        "usage: %s [-s sensitivity_1_10] [-i interval_ms] [-a] [-r]\n"
+        "usage: %s [-s sensitivity_1_10] [-i interval_ms] [-a] [-r] [-k]\n"
         "  -s N   sensitivity 1..10 (default 5)\n"
         "  -i MS  poll interval 100..2000 ms (default 100)\n"
         "  -a     log every sample\n"
         "  -r     send local motion START/STOP IPC for recorder/event consumers\n"
+        "  -k     report verified VE allocator and exit without sampling/events/state writes\n"
         "Default is detector-only: writes " STATE_PATH " and sends no IPC.\n", p);
 }
 
@@ -223,14 +293,16 @@ int main(int argc, char **argv) {
     int interval_ms = 100;
     int log_all = 0;
     int record_events = 0;
+    int check_kernel = 0;
     int opt;
 
-    while ((opt = getopt(argc, argv, "s:i:arh")) != -1) {
+    while ((opt = getopt(argc, argv, "s:i:arkh")) != -1) {
         switch (opt) {
             case 's': sensitivity = atoi(optarg); break;
             case 'i': interval_ms = atoi(optarg); break;
             case 'a': log_all = 1; break;
             case 'r': record_events = 1; break;
+            case 'k': check_kernel = 1; break;
             default: usage(argv[0]); return opt == 'h' ? 0 : 2;
         }
     }
@@ -238,6 +310,13 @@ int main(int argc, char **argv) {
         interval_ms < 100 || interval_ms > 2000) {
         usage(argv[0]);
         return 2;
+    }
+
+    ve_uses_vmalloc = ve_vmalloc_verified();
+    if (check_kernel) {
+        puts(ve_uses_vmalloc ? "ve_allocator=vmalloc-verified" :
+                              "ve_allocator=legacy-guard");
+        return 0;
     }
 
     signal(SIGINT, on_signal);
@@ -265,9 +344,10 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    printf("motiond v1.1 sens=%d trigger=%.2f release=%.2f confirm=%d quiet_ms=%d interval_ms=%d record_events=%d\n",
+    printf("motiond v1.2 sens=%d trigger=%.2f release=%.2f confirm=%d quiet_ms=%d interval_ms=%d record_events=%d ve_allocator=%s\n",
            sensitivity, c->trigger, c->release, c->confirm_samples,
-           c->quiet_ms, interval_ms, record_events);
+           c->quiet_ms, interval_ms, record_events,
+           ve_uses_vmalloc ? "vmalloc-verified" : "legacy-guard");
     fflush(stdout);
 
     while (running) {

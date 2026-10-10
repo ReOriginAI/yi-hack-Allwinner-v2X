@@ -107,12 +107,16 @@ Since `f769f68`, the detector parses the main/high-stream encoder statistics (`C
 
 The detector also carries pressure-aware failure handling added during the low-memory stabilization work:
 
-- it checks `/proc/buddyinfo` before opening the VE debugfs snapshot and backs off for 500 ms if the old order-3 reserve test fails;
+- on stock/unverified kernels it checks `/proc/buddyinfo` before opening the VE debugfs snapshot and backs off for 500 ms if the order-3 reserve test fails;
 - failed VE opens/reads are rate-limited for 1 second instead of immediately hammering the debugfs node again;
 - a missing/failed sample resets confirmation and quiet-period state rather than being interpreted as evidence about motion;
 - the parser and pressure behavior have a dedicated `src/motiond/tests/test_pressure.c` test.
 
-The buddyinfo gate predates the deterministic `vmalloc` kernel patch. On a correctly patched y623 it is now a conservative legacy safeguard rather than a requirement for the VE allocation itself; the kernel no longer needs the original contiguous order-3 block.
+The buddyinfo gate predates the deterministic `vmalloc` kernel patch. Motiond v1.2 bypasses it only after verifying the **running** audited y623 kernel: four exact `/proc/kallsyms` addresses, the known System RAM/kernel-code layout from `/proc/iomem`, and the two patched Thumb call instructions read via `/dev/mem` with a read-only descriptor. It reads eight bytes once at startup and never writes kernel/device memory. It does not infer the running allocator from the boot partition, which could have been flashed without rebooting.
+
+Stock, partially patched, unknown or unverifiable kernels retain the reserve guard. Verified `vmalloc/vfree` kernels no longer lose detector samples merely because free memory is fragmented. Actual VE open/read/parse failures still back off, and missing samples still reset confirmation/quiet state.
+
+The startup line reports `ve_allocator=vmalloc-verified` or `ve_allocator=legacy-guard`. Run `motiond -k` for the same check without VE sampling, motion IPC or state-file writes. Host tests cover both call sites, denied/short reads, unknown metadata, fragmented-memory sampling and real-error backoff in both modes. Diagnostic-only ARM tests on .149 and .150 verified patched and stock detection respectively; this does not establish that every missed real-world event is fixed.
 
 Current caveat: `motiond` still polls `/sys/kernel/debug/mpp/ve` at a 100 ms interval by default. Live Frigate testing shows this remains a meaningful CPU/kernel-pressure hotspot even when the vmalloc kernel patch is present. See **Measured findings / not yet implemented** below.
 
@@ -432,7 +436,7 @@ Possible future work:
 
 - adaptive polling based on load/memory pressure
 - longer idle polling interval with short high-frequency bursts after motion evidence
-- remove/relax the old order-3 buddyinfo gate on kernels known to be vmalloc-patched
+- measure detector latency and CPU after the v1.2 verified-kernel bypass of the old order-3 buddyinfo gate
 - find a cheaper statistics source than repeatedly opening the VE debugfs snapshot
 
 None of these changes is currently recorded here as implemented.
@@ -477,7 +481,7 @@ A few things were tested or discussed but should not be credited with gains that
 - RSS alone overstates the memory cost of the `h264grabber` processes because they share large mappings.
 - `debug.SetMemoryLimit(12 MiB)` is a Go runtime soft limit, not a guaranteed 12 MiB process RSS cap.
 - The explicit 4096-byte `h264grabber` stdout buffer is a syscall/latency trade-off; it replaced an accidental pointer-sized buffer and should not be described as a memory reduction.
-- The `motiond` buddyinfo/order-3 gate remains in userspace, but on release-correct y623 kernels the VE debugfs allocator is now `vmalloc`; the gate is conservative legacy protection rather than proof that current polling still needs an order-3 block.
+- The `motiond` buddyinfo/order-3 gate remains for stock/unverified kernels. Motiond v1.2 skips it on a running kernel whose audited `vmalloc/vfree` call sites are verified; actual VE errors retain backoff.
 - G711/PCMU remains the intended talkback transport. go2rtc already creates the speaker helper on demand, so adding a second transport-level "auto" mode would not remove another resident process.
 
 ## Source/history landmarks
