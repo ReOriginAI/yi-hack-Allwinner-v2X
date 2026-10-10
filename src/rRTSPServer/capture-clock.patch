@@ -1,0 +1,17 @@
+--- live/liveMedia/RTPSink.cpp
++++ live/liveMedia/RTPSink.cpp
+@@ -127,9 +127,14 @@
+   u_int32_t tsNow = convertToRTPTimestamp(timeNow);
++#ifndef YI_SHARED_CAPTURE_CLOCK
++  // Yi's live video and AAC already share capture timestamps. Giving each
++  // track a new origin at its first packet makes later RTCP synchronization
++  // move audio backwards when tracks start at different times.
+   if (!groupsockBeingUsed().hasMultipleDestinations()) {
+     // Don't adjust the timestamp stream if we already have another destination ongoing
+     fTimestampBase = tsNow;
+     fNextTimestampHasBeenPreset = True;
+   }
++#endif
+ 
+   return tsNow;
+ }

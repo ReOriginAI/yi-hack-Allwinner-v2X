@@ -1,11 +1,11 @@
 ##### Change the following for your environment:
-COMPILE_OPTS =		$(INCLUDES) -I. -I./include -I./include/libhelix-aac -O0 -ffunction-sections -fdata-sections -DSOCKLEN_T=socklen_t -D_LARGEFILE_SOURCE=1 -D_FILE_OFFSET_BITS=64 -DNO_OPENSSL=1 -DNO_STD_LIB -DRTP_PAYLOAD_MAX_SIZE=1352
+COMPILE_OPTS =		$(INCLUDES) -I. -I./include -I./include/libhelix-aac -Os -ffunction-sections -fdata-sections -DSOCKLEN_T=socklen_t -D_LARGEFILE_SOURCE=1 -D_FILE_OFFSET_BITS=64 -DNO_OPENSSL=1 -DNO_STD_LIB -DYI_SHARED_CAPTURE_CLOCK -DRTP_PAYLOAD_MAX_SIZE=1352
 C =			c
 C_COMPILER =		$(CC)
 C_FLAGS =		$(COMPILE_OPTS) $(CPPFLAGS) $(CFLAGS)
 CPP =			cpp
 CPLUSPLUS_COMPILER =	$(CXX)
-CPLUSPLUS_FLAGS =	$(COMPILE_OPTS) -Wall -DBSD=1 $(CPPFLAGS) $(CXXFLAGS)
+CPLUSPLUS_FLAGS =	$(COMPILE_OPTS) -std=c++11 -Wall -DBSD=1 $(CPPFLAGS) $(CXXFLAGS)
 OBJ =			o
 LINK =			$(CXX) -o
 LINK_OPTS =		-Wl,--gc-sections -L. $(LDFLAGS)
@@ -56,17 +56,13 @@ PROXY_SERVER_DIR = proxyServer
 
 HLS_PROXY_DIR = hlsProxy
 
-all: livemedia rRTSPServer
+all: rRTSPServer
 
 livemedia:
-	cd $(LIVEMEDIA_DIR) ; $(MAKE)
-	cd $(GROUPSOCK_DIR) ; $(MAKE)
-	cd $(USAGE_ENVIRONMENT_DIR) ; $(MAKE)
-	cd $(BASIC_USAGE_ENVIRONMENT_DIR) ; $(MAKE)
-	cd $(TESTPROGS_DIR) ; $(MAKE)
-	cd $(MEDIA_SERVER_DIR) ; $(MAKE)
-	cd $(PROXY_SERVER_DIR) ; $(MAKE)
-	cd $(HLS_PROXY_DIR) ; $(MAKE)
+	$(MAKE) -C $(LIVEMEDIA_DIR)
+	$(MAKE) -C $(GROUPSOCK_DIR)
+	$(MAKE) -C $(USAGE_ENVIRONMENT_DIR)
+	$(MAKE) -C $(BASIC_USAGE_ENVIRONMENT_DIR)
 	@echo
 	@echo "For more information about this source code (including your obligations under the LGPL), please see our FAQ at http://live555.com/liveMedia/faq.html"
 
@@ -75,7 +71,7 @@ livemedia:
 .$(CPP).$(OBJ):
 	$(CPLUSPLUS_COMPILER) -c $(CPLUSPLUS_FLAGS) -o $@ $<
 
-rRTSPServer_OBJS	= src/rRTSPServer.$(OBJ) \
+rRTSPServer_OBJS	= src/rRTSPServer.$(OBJ) src/YiRTSPServer.$(OBJ) \
 				src/AudioFramedMemorySource.$(OBJ) src/VideoFramedMemorySource.$(OBJ) \
 				src/H264VideoFramedMemoryServerMediaSubsession.$(OBJ) \
 				src/H265VideoFramedMemoryServerMediaSubsession.$(OBJ) \
@@ -89,6 +85,8 @@ rRTSPServer_OBJS	= src/rRTSPServer.$(OBJ) \
 				src/FileServerMediaSubsession_BC.$(OBJ) \
 				src/OnDemandServerMediaSubsession_BC.$(OBJ) \
 				src/Speaker.$(OBJ)
+
+$(LOCAL_LIBS): livemedia
 
 rRTSPServer$(EXE):	$(rRTSPServer_OBJS) $(LOCAL_LIBS)
 	$(LINK)$@ $(CONSOLE_LINK_OPTS) $(rRTSPServer_OBJS) $(LIBS) -lpthread
@@ -104,6 +102,7 @@ install:
 	cd $(HLS_PROXY_DIR) ; $(MAKE) install
 
 clean:
+	rm -f $(rRTSPServer_OBJS) rRTSPServer$(EXE)
 	cd $(LIVEMEDIA_DIR) ; $(MAKE) clean
 	cd $(GROUPSOCK_DIR) ; $(MAKE) clean
 	cd $(USAGE_ENVIRONMENT_DIR) ; $(MAKE) clean

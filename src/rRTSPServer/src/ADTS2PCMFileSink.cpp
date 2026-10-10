@@ -41,7 +41,7 @@ ADTS2PCMFileSink::ADTS2PCMFileSink(UsageEnvironment& env, FILE* fid,
                                    Boolean enableSpeaker,
                                    unsigned bufferSize)
     : FileSink(env, fid, bufferSize, NULL), fSampleRate(sampleRate),
-      fNumChannels(numChannels), fPacketCounter(0) {
+      fNumChannels(numChannels), fPacketCounter(0), fSpeaker(NULL) {
 
     if (debug & 16) fprintf(stderr, "%lld: ADTS2PCMFileSink - Starting sink\n", current_timestamp());
 
@@ -75,7 +75,7 @@ ADTS2PCMFileSink::ADTS2PCMFileSink(UsageEnvironment& env, FILE* fid,
         ret = AACSetRawBlockParams(fAACDecoder, 0, &fAACFrameInfo);
         if (ret == ERR_AAC_NONE) {
             if (enableSpeaker) {
-                fSpeaker = Speaker::createNew();
+                fSpeaker = Speaker::createNew(env);
             } else {
                 fSpeaker = NULL; 
             }
@@ -172,8 +172,7 @@ void ADTS2PCMFileSink::addData(unsigned char* data, unsigned dataSize,
             fprintf(stderr, "Nummer of channels: %d\n", frameInfoOut.nChans);
         }
 
-        if (fSpeaker != NULL)
-            fSpeaker->switchSpeaker(SPEAKER_ON);
+        if (fSpeaker != NULL && fSpeaker->switchSpeaker(SPEAKER_ON) < 0) return;
 
         if (fSampleRate == frameInfoOut.sampRateOut / 2) {
             for (i = 0; i < frameInfoOut.outputSamps / 2; i++) {

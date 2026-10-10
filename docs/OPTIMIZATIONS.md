@@ -120,7 +120,36 @@ The startup line reports `ve_allocator=vmalloc-verified` or `ve_allocator=legacy
 
 Current caveat: `motiond` still polls `/sys/kernel/debug/mpp/ve` at a 100 ms interval by default. Live Frigate testing shows this remains a meaningful CPU/kernel-pressure hotspot even when the vmalloc kernel patch is present. See **Measured findings / not yet implemented** below.
 
-### 5. Minimal embedded go2rtc build
+### Standard (LIVE555) RTSP default
+
+Standard (`RTSP_ALT=standard`) is the recommended camera-side server. Its
+LIVE555 dependency is pinned to `2026.09.23` with a SHA-256 archive check.
+Camera code and libraries use `-Os`, and the build compiles only the libraries
+needed by `rRTSPServer`. The stripped ARM binary measured 290,092 bytes during
+the y623 validation, compared with the device's previous 452,668-byte binary.
+
+The server waits only for the selected video encoders and bounds codec detection
+to 15 seconds, so high-only startup works while the unused low encoder is paused.
+Video and AAC receive timestamps from one capture clock. The camera build keeps
+that shared clock when announcing RTP timestamps, avoiding audio jumps during
+RTCP synchronization and viewer reconnects. Timestamp wrap and interleaved tracks
+have a separate host regression test.
+
+Normal viewers receive camera-facing media only. `Require:
+www.onvif.org/ver20/backchannel` or `?backchannel=1` requests PCMU speaker audio;
+`?backchannel=0` explicitly disables it. ONVIF is optional. The speaker FIFO opens
+only when RTP data arrives, uses nonblocking writes, and honors the TTS/clip
+semaphore. Teardown, repeated SETUP and graceful shutdown reclaim the sink,
+speaker lock, and RTP/RTCP sockets. Speaker expiry uses the event scheduler, so
+there is no polling speaker thread or helper process while idle.
+
+Backchannel controls live beside the RTSP settings in the general configuration
+page. Home-page links include enabled backchannel URLs, audio-only where supported,
+the TTS POST endpoint, and the audio library/page. RTSP configuration changes stop
+the previous engine before starting the new one and refresh ONVIF's advertised
+media profile.
+
+### 5. Optional minimal embedded go2rtc build
 
 Sources:
 

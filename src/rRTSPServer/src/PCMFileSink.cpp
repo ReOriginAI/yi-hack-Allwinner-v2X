@@ -25,6 +25,9 @@
 #include "aLawAudioFilter.hh"
 #include "Speaker.hh"
 #include "rRTSPServer.h"
+#include <fcntl.h>
+#include <unistd.h>
+#include <errno.h>
 
 ////////// PCMFileSink //////////
 
@@ -84,25 +87,25 @@ static u_int16_t linear16FromaLaw(unsigned char aLawByte) {
 }
 
 // PCMFileSink class implementation
-PCMFileSink::PCMFileSink(UsageEnvironment& env, FILE* fid,
+PCMFileSink::PCMFileSink(UsageEnvironment& env, char const* fileName,
                          int destSampleRate, int srcLaw,
                          Boolean enableSpeaker, unsigned bufferSize)
-    : FileSink(env, fid, bufferSize, NULL), fDestSampleRate(destSampleRate),
-      fSrcLaw(srcLaw), fPacketCounter(0) {
+    : FileSink(env, NULL, bufferSize, NULL), fDestSampleRate(destSampleRate),
+      fSrcLaw(srcLaw), fFileName(strDup(fileName)), fEnableSpeaker(enableSpeaker) {
 
     if (debug & 16) fprintf(stderr, "%lld: PCMFileSink - Starting sink\n", current_timestamp());
 
     if (enableSpeaker) {
-        fSpeaker = Speaker::createNew();
+        fSpeaker = Speaker::createNew(env);
     } else {
         fSpeaker = NULL;
     }
-    fPCMBuffer = new int16_t[bufferSize];
-    fLastSample = 0;
+    fPCMBuffer = new int16_t[bufferSize * (destSampleRate / 8000)];
 }
 
 PCMFileSink::~PCMFileSink() {
     delete[] fPCMBuffer;
+    delete[] fFileName;
     if (fSpeaker != NULL)
         delete fSpeaker;
 }
@@ -117,15 +120,8 @@ PCMFileSink* PCMFileSink::createNew(UsageEnvironment& env,
         return NULL;
     }
 
-    do {
-        FILE* fid;
-        fid = OpenOutputFile(env, fileName);
-        if (fid == NULL) break;
-
-        return new PCMFileSink(env, fid, destSampleRate, srcLaw, enableSpeaker, bufferSize);
-    } while (0);
-
-    return NULL;
+    // DESCRIBE/SETUP must not open a FIFO or activate the camera speaker.
+    return new PCMFileSink(env, fileName, destSampleRate, srcLaw, enableSpeaker, bufferSize);
 }
 
 Boolean PCMFileSink::continuePlaying() {
@@ -134,52 +130,44 @@ Boolean PCMFileSink::continuePlaying() {
 }
 
 void PCMFileSink::addData(unsigned char* data, unsigned dataSize,
-                               struct timeval presentationTime) {
-    double distance;
-
-    if (debug & 16) fprintf(stderr, "%lld: PCMFileSink - addData\n", current_timestamp());
-
-    // fPCMBuffer must be 4x larger than dataSize: 8 KHz -> 16 KHz and 8 bit -> 16 bit
-    if (dataSize * 2 * (fDestSampleRate / 8000) > fBufferSize) {
-        fprintf(stderr, "PCMFileSink::addData(): The input frame data was too large for our buffer size (%d).\n", fBufferSize);
-        return;
+                          struct timeval presentationTime) {
+    if (data == NULL || dataSize == 0 || dataSize > fBufferSize) return;
+    // A failed lock must drop the packet, never mix it with TTS or local clips.
+    if (fEnableSpeaker && (fSpeaker == NULL || fSpeaker->switchSpeaker(SPEAKER_ON) < 0)) return;
+    if (fOutFid == NULL) {
+        int fd = open(fFileName, O_WRONLY | O_NONBLOCK);
+        if (fd >= 0) {
+            fOutFid = fdopen(fd, "wb");
+            if (fOutFid == NULL) ::close(fd);
+        }
+        if (fOutFid == NULL) {
+            if (fSpeaker != NULL) fSpeaker->switchSpeaker(SPEAKER_OFF);
+            return;
+        }
     }
 
-    // Convert xLaw to PCM and write to our file
-    // Oversample from 8 KHz to 16 KHz if necessary
-    if (fOutFid != NULL && data != NULL) {
-        if (fDestSampleRate == 16000) {
-            for (unsigned i = 0; i < dataSize * 2; ++i) {
-                if (i % 2 == 0) {
-                    if (fSrcLaw == ULAW) {
-                        distance = (((double) linear16FromuLaw(data[i / 2])) * 2.0) - fLastSample;
-                    } else {
-                        distance = (((double) linear16FromaLaw(data[i / 2])) * 2.0) - fLastSample;
-                    }
-                } else {
-                    distance = 0.0 - fLastSample;
-                }
-                fLastSample += distance * FILTER_M;
-                fPCMBuffer[i] = (int16_t) fLastSample;
+    unsigned factor = fDestSampleRate / 8000;
+    for (unsigned i = 0; i < dataSize; ++i) {
+        int16_t sample = fSrcLaw == ULAW ? linear16FromuLaw(data[i]) : linear16FromaLaw(data[i]);
+        for (unsigned j = 0; j < factor; ++j) fPCMBuffer[i * factor + j] = sample;
+    }
+    unsigned char* bytes = (unsigned char*)fPCMBuffer;
+    size_t left = dataSize * factor * sizeof(int16_t);
+    while (left > 0) {
+        ssize_t written = write(fileno(fOutFid), bytes, left);
+        if (written > 0) {
+            bytes += written;
+            left -= written;
+        } else if (written < 0 && errno == EINTR) {
+            continue;
+        } else {
+            // A full/missing FIFO reader must never stall every RTSP client.
+            if (written < 0 && errno != EAGAIN && errno != EWOULDBLOCK) {
+                fclose(fOutFid);
+                fOutFid = NULL;
+                if (fSpeaker != NULL) fSpeaker->switchSpeaker(SPEAKER_OFF);
             }
-
-            if (fSpeaker != NULL)
-                fSpeaker->switchSpeaker(SPEAKER_ON);
-
-            fwrite(fPCMBuffer, sizeof(int16_t), dataSize * 2, fOutFid);
-        } else  if (fDestSampleRate == 8000) {
-            for (unsigned i = 0; i < dataSize; ++i) {
-                if (fSrcLaw == ULAW) {
-                    fPCMBuffer[i] = linear16FromuLaw(data[i]);
-                } else {
-                    fPCMBuffer[i] = linear16FromaLaw(data[i]);
-                }
-            }
-
-            if (fSpeaker != NULL)
-                fSpeaker->switchSpeaker(SPEAKER_ON);
-
-            fwrite(fPCMBuffer, sizeof(u_int16_t), dataSize, fOutFid);
+            break;
         }
     }
 }
@@ -196,13 +184,6 @@ void PCMFileSink::afterGettingFrame(unsigned frameSize,
                 numTruncatedBytes, fBufferSize + numTruncatedBytes);
     }
     addData(fBuffer, frameSize, presentationTime);
-
-    if (fOutFid == NULL || fflush(fOutFid) == EOF) {
-        // The output file has closed.  Handle this the same way as if the input source had closed:
-        if (fSource != NULL) fSource->stopGettingFrames();
-        onSourceClosure();
-        return;
-    }
 
     // Then try getting the next frame:
     continuePlaying();

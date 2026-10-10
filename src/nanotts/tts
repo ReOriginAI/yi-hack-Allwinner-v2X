@@ -158,7 +158,11 @@ printf 'speaker_rc=%s\n' "$SPK_RC" >>"$TRACE"
 
 if [ "$SPK_RC" -ne 0 ]; then
     "$BUSYBOX" cat "$SPK_ERR" >>"$TRACE" 2>/dev/null
-    echo "Speaker playback failed" >&2
+    if "$BUSYBOX" grep -q '^Speaker is busy' "$SPK_ERR"; then
+        echo "Speaker is busy" >&2
+    else
+        echo "Speaker playback failed" >&2
+    fi
     exit "$SPK_RC"
 fi
 

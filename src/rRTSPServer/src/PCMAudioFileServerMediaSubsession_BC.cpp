@@ -42,7 +42,7 @@ PCMAudioFileServerMediaSubsession_BC
   : FileServerMediaSubsession_BC(env, fileName, reuseFirstSource),
     fSampleRate(sampleRate), fNumChannels(numChannels), fLaw(law),
     fEnableSpeaker(enableSpeaker),
-    fAuxSDPLine(NULL), fRTPTimestampFrequency(sampleRate) {
+    fAuxSDPLine(NULL), fRTPTimestampFrequency(8000) {
 }
 
 PCMAudioFileServerMediaSubsession_BC
@@ -51,7 +51,7 @@ PCMAudioFileServerMediaSubsession_BC
 
 MediaSink* PCMAudioFileServerMediaSubsession_BC
 ::createNewStreamDestination(unsigned clientSessionId, unsigned& estBitrate) {
-    estBitrate = 8; // kbps, estimate
+    estBitrate = 64; // G.711: 8000 samples/second, 8 bits/sample
 
     return PCMFileSink::createNew(envir(), fFileName, fSampleRate, fLaw, fEnableSpeaker);
 }

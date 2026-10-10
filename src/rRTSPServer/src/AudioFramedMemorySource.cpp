@@ -62,8 +62,7 @@ AudioFramedMemorySource::AudioFramedMemorySource(UsageEnvironment& env,
                                                         unsigned char numChannels,
                                                         Boolean useTimeForPres)
     : FramedSource(env), fQBuffer(qBuffer), fProfile(1), fSamplingFrequency(samplingFrequency),
-      fNumChannels(numChannels), fUseTimeForPres(useTimeForPres), fHaveStartedReading(False),
-      fHaveAnchor(false), fAnchorFt(0) {
+      fNumChannels(numChannels), fUseTimeForPres(useTimeForPres), fHaveStartedReading(False) {
 
     u_int8_t samplingFrequencyIndex;
     int i;
@@ -149,9 +148,8 @@ void AudioFramedMemorySource::doGetNextFrame() {
             if (debug & 8) fprintf(stderr, "%lld: AudioFramedMemorySource - doGetNextFrame() read_index = write_index\n", current_timestamp());
             fFrameSize = 0;
             fNumTruncatedBytes = 0;
-            //usleep(2000);
-            nextTask() = envir().taskScheduler().scheduleDelayedTask(2000,
-                                 (TaskFunc*)FramedSource::afterGetting, this);
+            nextTask() = envir().taskScheduler().scheduleDelayedTask(5000,
+                                 doGetNextFrameTask, this);
             return;
         } else if (fQBuffer->frame_queue.front().frame.size() < (unsigned)(HEADER_SIZE + 1)) {
             // Too small, drop it
@@ -192,7 +190,7 @@ void AudioFramedMemorySource::doGetNextFrame() {
     }
 
     if (!fUseTimeForPres) {
-        frametime_to_presentation(frame_time, &fPresentationTime, &fHaveAnchor, &fAnchorWall, &fAnchorFt);
+        fPresentationTime = f.presentation_time;
     } else {
         // Use system clock to set presentation time
         gettimeofday(&fPresentationTime, NULL);

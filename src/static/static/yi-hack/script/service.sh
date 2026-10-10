@@ -47,14 +47,18 @@ init_config()
         D_HTTPD_PORT=:$HTTPD_PORT
     fi
 
+    RTSP_ALT=$(get_config RTSP_ALT)
+    case "$RTSP_ALT" in
+        alternative) ;;
+        go2rtc) [ -x "$YI_HACK_PREFIX/bin/go2rtc" ] || RTSP_ALT=standard ;;
+        *) RTSP_ALT=standard ;;
+    esac
+
     if [[ $(get_config RTSP) == "yes" ]] ; then
-        if [[ $(get_config RTSP_ALT) == "alternative" ]] ; then
+        if [[ "$RTSP_ALT" == "alternative" ]] ; then
             RTSP_DAEMON="rtsp_server_yi"
-        elif [[ $(get_config RTSP_ALT) == "go2rtc" ]] ; then
+        elif [[ "$RTSP_ALT" == "go2rtc" ]] ; then
             RTSP_DAEMON="go2rtc"
-            if [ ! -f /tmp/sd/yi-hack/bin/go2rtc ]; then
-                RTSP_DAEMON="rRTSPServer"
-            fi
         else
             RTSP_DAEMON="rRTSPServer"
         fi
@@ -85,7 +89,6 @@ init_config()
         fi
 
         RTSP_RES=$(get_config RTSP_STREAM)
-        RTSP_ALT=$(get_config RTSP_ALT)
         if [[ $(get_config RTSP_STI) != "yes" ]]; then
             if [[ "$RTSP_ALT" == "standard" ]]; then
                 RTSP_G_STI=""
@@ -108,6 +111,9 @@ init_config()
     if [ -z "$ONVIF_AUDIO_BC" ]; then
         ONVIF_AUDIO_BC=$(get_config ONVIF_AUDIO_BC)
     fi
+    if [ "$(get_config SPEAKER_AUDIO)" == "no" ] || [ "$(get_config RTSP)" != "yes" ]; then
+        ONVIF_AUDIO_BC=NONE
+    fi
     if [ ! -z $ONVIF_AUDIO_BC ]; then
         ONVIF_AUDIO_DECODER="audio_decoder=$ONVIF_AUDIO_BC"
         if [ "$ONVIF_AUDIO_BC" != "NONE" ] && [ "$ONVIF_AUDIO_BC" != "none" ]; then
@@ -122,7 +128,7 @@ init_config()
         ONVIF_AUDIO_DECODER="audio_decoder=$ONVIF_AUDIO_BC"
     fi
 
-    # Keep ONVIF stream URIs query-free. Patched go2rtc enables the reverse
+    # Keep ONVIF stream URIs query-free. Standard and go2rtc enable the reverse
     # audio track when an ONVIF client sends Require: www.onvif.org/ver20/backchannel.
     # The explicit ?backchannel=1 endpoint remains available for non-ONVIF clients.
     RTSP_BACKCHANNEL_QUERY=""
@@ -273,8 +279,15 @@ start_rtsp()
 
 stop_rtsp()
 {
-    killall wd.sh
-    killall $RTSP_DAEMON
+    # The configuration may already select a different server. Stop all RTSP
+    # engines so the previous one cannot retain the port after a live switch.
+    killall -q wd.sh
+    killall -q rRTSPServer rtsp_server_yi go2rtc h264grabber
+    for RTSP_WAIT in 1 2 3 4 5 6 7 8 9 10; do
+        RTSP_RUNNING=$(ps | awk '$5 == "rRTSPServer" || $5 == "rtsp_server_yi" || $5 == "go2rtc" || $5 == "h264grabber" { n++ } END { print n+0 }')
+        [ "$RTSP_RUNNING" -eq 0 ] && break
+        sleep 0.2
+    done
 }
 
 start_onvif()

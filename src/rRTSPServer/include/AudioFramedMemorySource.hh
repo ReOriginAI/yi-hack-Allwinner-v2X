@@ -67,9 +67,6 @@ private:
     unsigned fuSecsPerFrame;
     char fConfigStr[5];
     Boolean fHaveStartedReading;
-    bool fHaveAnchor;
-    struct timeval fAnchorWall;
-    uint32_t fAnchorFt;
 };
 
 #endif

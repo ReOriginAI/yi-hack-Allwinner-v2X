@@ -14,7 +14,7 @@ This project is derived from `yi-hack-Allwinner-v2` and keeps the upstream struc
 
 * This variant uses the kernel's priority based degradation and watchdog automatic recovery which preserves essential processes like the video stream encoder while ablating non-essential processes to free up memory then restarts the non-essential processes. This means Out-of-memory crashes self-recovers functionality without needing a reboot.
 
-* This variant is optimized on opinionated configs mainly selecting go2rtc as the `RTSP server program`.
+* Standard (`rRTSPServer`, based on LIVE555) is the default and recommended camera-side RTSP server. go2rtc remains an optional alternative.
 
 Other upstream `sysroot/` and `sdhack/` directories remain in the repository as reference material, but **they are not supported or built by default** by this custom variant.
 
@@ -76,7 +76,7 @@ Version 3.8.0 includes the model-specific work developed for these two platforms
   - `y28ga`: lightweight firmware IVA motion events
 - duplicate motion/IPC/recording processes prevented
 - `mqttv4` is not started when `MQTT=no`
-- go2rtc RTSP and ONVIF Profile T audio-backchannel support
+- Standard (LIVE555) RTSP and ONVIF Profile T audio-backchannel support; optional camera-side go2rtc
 - local speaker serialization so HTTP playback and RTSP/ONVIF talkback do not write the speaker simultaneously
 - offline NanoTTS
 - persistent SD-card Audio Library
@@ -158,7 +158,9 @@ Once maintenance takeover succeeds, the camera intentionally stays on the mainte
 | `rtsp://IP-CAM/ch0_0.h264?backchannel=1` | Compatibility URL that explicitly requests speaker backchannel |
 | `rtsp://IP-CAM/ch0_1.h264?backchannel=1` | Low-resolution compatibility backchannel URL |
 
-With camera-side **go2rtc**, `SPEAKER_AUDIO=yes`, and ONVIF audio backchannel set to `G711`, ONVIF-aware clients use the normal query-free RTSP URI and send:
+**Standard (LIVE555)** is selected by default with `RTSP_ALT=standard`. It reads the hardware-produced H.264/H.265 and AAC buffers directly, provides an audio-only endpoint, and supports G.711 speaker talkback. The build pins [LIVE555 2026.09.23](https://download.live555.com/changelog.txt) with a verified archive checksum and size optimization.
+
+With Standard or optional camera-side **go2rtc**, `SPEAKER_AUDIO=yes`, and `RTSP_BACKCHANNEL=G711`, ONVIF-aware clients use the normal query-free RTSP URI and send:
 
 ```text
 Require: www.onvif.org/ver20/backchannel
@@ -166,15 +168,20 @@ Require: www.onvif.org/ver20/backchannel
 
 The camera then exposes a `PCMU/8000` `sendonly` backchannel for that RTSP session. Normal viewers that do not request backchannel continue to receive only the camera-facing media tracks.
 
+The backchannel is an RTSP feature and works with `ONVIF=no`. Configure it under **Configurations → RTSP speaker backchannel**, alongside the stream and audio settings. ONVIF only advertises that capability when enabled; `ONVIF_AUDIO_BC` is retained as a compatibility mirror. Standard opens the speaker FIFO only when talkback packets arrive and shares the speaker lock with TTS and stored clips. The home page lists enabled stream/backchannel URLs, the audio-only URL where supported, the TTS POST endpoint, and the audio library/page links. Server, stream, audio, and backchannel changes apply when saved without a reboot.
+
+See [Standard RTSP validation](docs/STANDARD_RTSP_VALIDATION.md) for live-camera checks, installed endpoints and rollback details.
+
 #### Recommended camera-side settings for Frigate / ONVIF
 
 For a camera primarily used with Frigate, Home Assistant, or another local NVR, the following is a reasonable starting point:
 
 ```ini
 RTSP=yes
-RTSP_ALT=go2rtc
-RTSP_STREAM=both
+RTSP_ALT=standard
+RTSP_STREAM=high
 RTSP_AUDIO=aac
+RTSP_BACKCHANNEL=G711
 RTSP_STI=yes
 RTSP_PORT=554
 SPEAKER_AUDIO=yes
@@ -184,7 +191,6 @@ ONVIF_WSDD=yes
 ONVIF_PROFILE=high
 ONVIF_NETIF=wlan0
 ONVIF_WM_SNAPSHOT=no
-ONVIF_AUDIO_BC=G711
 ONVIF_ENABLE_MEDIA2=no
 ONVIF_FAULT_IF_UNKNOWN=no
 ONVIF_FAULT_IF_SET=no
@@ -193,15 +199,15 @@ ONVIF_SYNOLOGY_NVR=no
 
 The important choices are:
 
-- **`RTSP_ALT=go2rtc`** uses the lightweight camera-side go2rtc server and lazy `h264grabber` producers. `RTSP_STREAM=both` makes both high and low endpoints available, but does not run two permanent software encoders.
-- **`RTSP_AUDIO=aac`** is the preferred camera-facing audio format for Frigate recording and browser/MSE playback. It avoids an unnecessary audio transcode on the camera. With `RTSP_STREAM=both`, AAC is attached to the high stream; the low stream remains a good lightweight detection feed.
-- **`ONVIF_PROFILE=high`** is the safest default for ONVIF discovery and talkback because the high stream carries AAC. Use `both` only when a client specifically needs the low profile advertised as well; with camera-side go2rtc and `RTSP_STREAM=both`, the low RTSP stream is intentionally video-only.
-- **`SPEAKER_AUDIO=yes` + `ONVIF_AUDIO_BC=G711`** enables the patched Profile T backchannel. Camera-side go2rtc presents the speaker path as `PCMU/8000` (`G.711 u-law`), which is widely supported for ONVIF two-way audio.
+- **`RTSP_ALT=standard`** uses the native LIVE555 server with direct buffer capture and no separate grabber processes. `RTSP_STREAM=high` lets supported models pause the unused low encoder. Select `both` when an NVR needs the low detection endpoint as well.
+- **`RTSP_AUDIO=aac`** uses camera-native AAC without an audio transcode. Standard shares it across the selected video streams and the audio-only endpoint. Optional camera-side go2rtc attaches AAC only to high when exporting both streams.
+- **`ONVIF_PROFILE=high`** advertises the high stream for discovery and talkback. Use `both` when a client needs both enabled streams advertised.
+- **`SPEAKER_AUDIO=yes` + `RTSP_BACKCHANNEL=G711`** enables the Profile T backchannel as `PCMU/8000` (`G.711 u-law`), independently of the ONVIF service.
 - **`ONVIF_WSDD=yes`** is useful for discovery. If every client is configured manually by IP, WSDD can be disabled without affecting RTSP itself.
 - **`ONVIF_ENABLE_MEDIA2=no`** and the advanced fault/Synology compatibility switches should stay off unless a specific NVR needs them.
 - **`ONVIF_WM_SNAPSHOT=no`** keeps ONVIF snapshots clean and avoids the optional software snapshot timestamp/watermark pass. The live H.264 timestamp OSD is separate.
 
-If two-way audio is not needed, set `ONVIF_AUDIO_BC=NONE`; the rest of the streaming recommendations can stay the same.
+If two-way audio is not needed, set `RTSP_BACKCHANNEL=NONE` (the fresh-install default). Local TTS and stored speaker clips remain available.
 
 ### Snapshot
 
@@ -429,7 +435,7 @@ data:
 
 ## Frigate / go2rtc
 
-Frigate already bundles its own go2rtc. This is separate from the **camera-side go2rtc** selected by `RTSP_ALT=go2rtc`. The camera-side instance exposes the encoded Yi/Kami buffers as RTSP; Frigate's instance should normally open each required camera stream once and then share that local restream with recording, detection, live view, Home Assistant, and audio detection. This minimizes connections and avoids doing any video transcoding on the camera.
+Frigate bundles its own go2rtc on the NVR host, which works with the recommended **Standard (LIVE555)** camera server. Camera-side go2rtc remains optional through `RTSP_ALT=go2rtc`. Frigate should normally open each required camera stream once and share that local restream with recording, detection, live view, Home Assistant, and audio detection. Set `RTSP_STREAM=both` for the main/sub example below; high-only setups can use the main stream for both recording and detection.
 
 For these cameras, a good division of work is:
 

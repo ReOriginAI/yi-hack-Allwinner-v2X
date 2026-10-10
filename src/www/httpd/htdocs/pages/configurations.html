@@ -76,13 +76,13 @@
                         <td>
                             <div class="standard-select">
                                 <select data-key="RTSP_ALT" id="RTSP_ALT">
-                                    <option value="standard">Standard (based on live555 library)</option>
+                                    <option value="standard">Standard (LIVE555, default)</option>
                                     <option value="alternative">Alternative</option>
                                     <option value="go2rtc">go2rtc</option>
                                 </select>
                             </div>
                             <span class="switch-description">
-                                Select the RTSP server program.
+                                Standard is the recommended RTSP server. Server and audio changes are applied live when saved.
                                 <br/>
                                 Note: go2rtc supports only aac audio.
                             </span>
@@ -110,15 +110,31 @@
                         <td>
                             <div class="standard-select">
                                 <select data-key="RTSP_AUDIO" id="RTSP_AUDIO">
-                                    <option value="no">Disabled (default)</option>
+                                    <option value="no">Disabled</option>
                                     <option value="pcm">pcm</option>
                                     <option value="alaw">alaw</option>
                                     <option value="ulaw">ulaw</option>
-                                    <option value="aac">aac</option>
+                                    <option value="aac">aac (default)</option>
                                 </select>
                             </div>
                             <span class="switch-description">
                                 Enable/disable audio for RTSP stream.
+                            </span>
+                        </td>
+                    </tr>
+                    <tr class="row">
+                        <td>RTSP speaker backchannel</td>
+                        <td>
+                            <div class="standard-select">
+                                <select data-key="RTSP_BACKCHANNEL" id="RTSP_BACKCHANNEL">
+                                    <option value="NONE">Disabled</option>
+                                    <option value="G711">G.711 (PCMU, 8 kHz)</option>
+                                </select>
+                            </div>
+                            <span class="switch-description">
+                                Two-way audio through Standard or go2rtc. Requires Speaker audio and RTSP; works with ONVIF disabled. ONVIF clients request talkback automatically; other clients can use the backchannel URLs on the home page. Changes apply immediately.
+                                <br/>
+                                <a href="?page=audio">Audio &amp; Text to Speech</a> shares the speaker with talkback.
                             </span>
                         </td>
                     </tr>
@@ -590,7 +606,7 @@
         </div>
 
         <div class="align-right">
-            <span class="strong">Any change will take effect after the reboot of the camera.</span>
+            <span class="strong">RTSP and speaker settings apply immediately. Other changes take effect after reboot.</span>
         </div>
         <br/>
         <div class="align-right">

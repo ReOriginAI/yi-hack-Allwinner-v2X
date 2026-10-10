@@ -21,7 +21,7 @@
 #ifndef _SPEAKER_HH
 #define _SPEAKER_HH
 
-#include <pthread.h>
+#include "UsageEnvironment.hh"
 #include <semaphore.h>
 
 #define SPEAKER_OFF 0
@@ -36,28 +36,25 @@
 class Speaker {
 
 public:
-    static Speaker* createNew();
+    static Speaker* createNew(UsageEnvironment& env);
     virtual ~Speaker();
     int switchSpeaker(int on);
-    int getCounter();
-    void setCounter(int value);
     Boolean isActive();
-    Boolean stopThread();
 
 protected:
-    Speaker(sem_t *semSpeaker);
+    Speaker(UsageEnvironment& env, sem_t *semSpeaker);
 
 private:
     int openCpld();
     void closeCpld(int fd);
     void runIO(int fd, int n);
+    static void releaseSpeaker(void* data);
 
 private:
-    char *fSemFile;
+    UsageEnvironment& fEnv;
     sem_t *fSemSpeaker;
     Boolean fIsActive;
-    Boolean fExitThread;
-    int fSpeakerCounter;
+    TaskToken fReleaseTask;
 };
 
 #endif

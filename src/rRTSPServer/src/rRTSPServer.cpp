@@ -22,6 +22,8 @@
 
 #include "liveMedia.hh"
 #include "BasicUsageEnvironment.hh"
+#include "YiRTSPServer.hh"
+#include "FrameClock.hh"
 
 #include "H264VideoFramedMemoryServerMediaSubsession.hh"
 #include "H265VideoFramedMemoryServerMediaSubsession.hh"
@@ -51,6 +53,7 @@
 #include <fcntl.h>
 #include <sys/mman.h>
 #include <sys/resource.h>
+#include <signal.h>
 
 #include "rRTSPServer.h"
 
@@ -60,6 +63,18 @@
 #endif
 
 int buf_offset;
+static volatile sig_atomic_t stopRequested = 0;
+static EventLoopWatchVariable eventLoopWatch = 0;
+
+static void requestStop(int) {
+    stopRequested = 1;
+}
+
+static void checkStop(void* data) {
+    UsageEnvironment* environment = (UsageEnvironment*)data;
+    if (stopRequested) eventLoopWatch = 1;
+    else environment->taskScheduler().scheduleDelayedTask(250000, checkStop, data);
+}
 int buf_size;
 int frame_header_size;
 struct stream_type_s stream_type;
@@ -266,26 +281,6 @@ long long current_timestamp() {
  *
  * Must be called only from the (single-threaded) live555 event loop.
  */
-void frametime_to_presentation(uint32_t frame_time, struct timeval *pt,
-                               bool *have_anchor, struct timeval *anchor_wall, uint32_t *anchor_ft) {
-    // Re-anchor on the first frame, or if this frame precedes the anchor.
-    if (*have_anchor && (int32_t)(frame_time - *anchor_ft) < 0) {
-        *have_anchor = false;
-    }
-    if (!*have_anchor) {
-        gettimeofday(anchor_wall, NULL);
-        *anchor_ft = frame_time;
-        *have_anchor = true;
-        *pt = *anchor_wall;
-        return;
-    }
-
-    uint32_t delta_ms = frame_time - *anchor_ft;   // modular: handles the wrap
-    uint64_t usec = (uint64_t) anchor_wall->tv_usec + (uint64_t)(delta_ms % 1000) * 1000;
-    pt->tv_sec  = anchor_wall->tv_sec + (time_t)(delta_ms / 1000) + (time_t)(usec / 1000000);
-    pt->tv_usec = (long)(usec % 1000000);
-}
-
 /* Locate a string in the circular buffer */
 unsigned char *cb_memmem(unsigned char *src, int src_len, unsigned char *what, int what_len)
 {
@@ -453,6 +448,7 @@ void sem_write_unlock()
 
 void *capture(void *ptr)
 {
+    FrameClock frameClock;
     unsigned char *buf_idx, *buf_idx_cur, *buf_idx_end, *buf_idx_end_prev;
     unsigned char *buf_idx_start = NULL;
     unsigned char *header_a1, *header_a2;
@@ -528,7 +524,7 @@ void *capture(void *ptr)
 
     // Autodetect header size if not defined
     if ((frame_header_size == FRAME_HEADER_SIZE_AUTODETECT) && (debug & 3)) fprintf(stderr, "%lld: capture - detecting frame header size\n", current_timestamp());
-    while (frame_header_size == FRAME_HEADER_SIZE_AUTODETECT) {
+    while (!stopRequested && frame_header_size == FRAME_HEADER_SIZE_AUTODETECT) {
         header_a2 = (unsigned char *) std::search(input_buffer.buffer + input_buffer.offset, input_buffer.buffer + input_buffer.size, PPS4_START, PPS4_START + sizeof(PPS4_START));
         if ((header_a2 != NULL) && (header_a2 - 40 > input_buffer.buffer + input_buffer.offset)) {
             header_a1 = cb_move(header_a2, -40);
@@ -548,8 +544,7 @@ void *capture(void *ptr)
 
     if (debug & 3) fprintf(stderr, "%lld: capture - starting capture main loop\n", current_timestamp());
 
-    // Infinite loop
-    while (1) {
+    while (!stopRequested) {
 #ifdef USE_SEMAPHORE
         sem_write_lock();
 #endif
@@ -881,6 +876,7 @@ void *capture(void *ptr)
                     // Guard against a corrupt/short frame
                     if (frame_len > 0) {
                         output_frame of;
+                        of.presentation_time = frameClock.map(frame_time);
                         of.frame.resize(frame_len);
                         cb2s_memcpy(of.frame.data(), copy_src, frame_len);   // copy outside the lock
                         of.counter = frame_counter;
@@ -904,15 +900,12 @@ void *capture(void *ptr)
         usleep(10000);
     }
 
-    // Unreacheable path
-
     // Unmap file from memory
     if (munmap(input_buffer.buffer, input_buffer.size) == -1) {
         fprintf(stderr, "%lld: capture - error - unmapping file\n", current_timestamp());
     } else {
         if (debug & 3) fprintf(stderr, "%lld: capture - unmapping file %s, size %d, from %08x\n", current_timestamp(), input_buffer.filename, input_buffer.size, (unsigned int) input_buffer.buffer);
     }
-
 #ifdef USE_SEMAPHORE
     sem_fshare_close();
 #endif
@@ -1022,7 +1015,7 @@ int main(int argc, char** argv)
     char const* outputAudioFileName = "/tmp/audio_in_fifo";
     struct stat stat_buffer;
     FILE *fFS;
-    Boolean useTimeForPres;
+    Boolean useTimeForPres = False;
 
     // Setting default
     model = Y21GA;
@@ -1543,23 +1536,36 @@ int main(int argc, char** argv)
         exit(EXIT_FAILURE);
     }
 
+    signal(SIGTERM, requestStop);
+    signal(SIGINT, requestStop);
+    signal(SIGHUP, requestStop);
+    signal(SIGPIPE, SIG_IGN);
+
     // Start capture thread
     pth_ret = pthread_create(&capture_thread, NULL, capture, (void*) NULL);
     if (pth_ret != 0) {
         fprintf(stderr, "Failed to create capture thread\n");
         exit(EXIT_FAILURE);
     }
-    pthread_detach(capture_thread);
-
-    sleep(2);
-
-    // Wait for stream type autodetect
-    while (1) {
-        if ((stream_type.codec_low != CODEC_NONE) && (stream_type.codec_high != CODEC_NONE)) {
-            usleep(10000);
-            break;
+    // High-only mode can deliberately pause the low encoder. Wait only for
+    // streams we export, and fail rather than remaining alive without a port.
+    unsigned waitCount = 0;
+    while (!stopRequested) {
+        bool lowReady = resolution != RESOLUTION_LOW && resolution != RESOLUTION_BOTH;
+        bool highReady = resolution != RESOLUTION_HIGH && resolution != RESOLUTION_BOTH;
+        if ((lowReady || stream_type.codec_low != CODEC_NONE) &&
+            (highReady || stream_type.codec_high != CODEC_NONE)) break;
+        if (++waitCount >= 1500) {
+            fprintf(stderr, "Timed out detecting the selected video stream\n");
+            stopRequested = 1;
+            pthread_join(capture_thread, NULL);
+            return 1;
         }
         usleep(10000);
+    }
+    if (stopRequested) {
+        pthread_join(capture_thread, NULL);
+        return 0;
     }
 
     if (debug) {
@@ -1579,7 +1585,7 @@ int main(int argc, char** argv)
     }
 
     // Create the RTSP server:
-    RTSPServer* rtspServer = RTSPServer::createNew(*env, port, authDB);
+    RTSPServer* rtspServer = YiRTSPServer::createNew(*env, port, authDB);
     if (rtspServer == NULL) {
         fprintf(stderr, "Failed to create RTSP server: %s\n", env->getResultMsg());
         exit(1);
@@ -1668,7 +1674,7 @@ int main(int argc, char** argv)
             sms_low->addSubsession(ADTSAudioFramedMemoryServerMediaSubsession
                                        ::createNew(*env, replicator, reuseFirstSource, 16000, 1));
         }
-        if (resolution == RESOLUTION_LOW) {
+        {
             if (back_channel == 1) {
                 PCMAudioFileServerMediaSubsession_BC* smss_bc = PCMAudioFileServerMediaSubsession_BC
                         ::createNew(*env, outputAudioFileName, reuseFirstSource, 16000, 1, ALAW, enable_speaker);
@@ -1723,11 +1729,20 @@ int main(int argc, char** argv)
         announceStream(rtspServer, sms_audio, streamName, audio);
     }
 
-    env->taskScheduler().doEventLoop(); // does not return
+    env->taskScheduler().scheduleDelayedTask(250000, checkStop, env);
+    env->taskScheduler().doEventLoop(&eventLoopWatch);
+
+    // Closing clients releases their speaker locks before the process exits.
+    Medium::close(rtspServer);
+    Medium::close(replicator);
+    pthread_join(capture_thread, NULL);
 
     pthread_mutex_destroy(&(output_queue_low.mutex));
     pthread_mutex_destroy(&(output_queue_high.mutex));
     pthread_mutex_destroy(&(output_queue_audio.mutex));
+    env->reclaim();
+    delete scheduler;
+    delete authDB;
 
     return 0; // only to prevent compiler warning
 }

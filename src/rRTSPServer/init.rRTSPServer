@@ -2,11 +2,12 @@
 
 set -e
 
-ARCHIVE=live.2026.01.12.tar.gz
+ARCHIVE=live.2026.09.23.tar.gz
+ARCHIVE_SHA256=22da8a0e12219f049051052317ff3774eaae888e6f94fd7be746bc236ad0d7eb
 LIBHELIXAAC_VER=2.4.1
 ARCHIVE_LIBHELIXAAC=${LIBHELIXAAC_VER}.tar.gz
 
-export CROSSPATH=/opt/yi/toolchain-sunxi-musl/toolchain/bin
+export CROSSPATH=${CROSSPATH:-/opt/yi/toolchain-sunxi-musl/toolchain/bin}
 export PATH=${PATH}:${CROSSPATH}
 
 export TARGET=arm-openwrt-linux
@@ -48,8 +49,9 @@ cp Makefile.libhelix-aac libhelix-aac/Makefile
 
 # live555
 if [ ! -f $ARCHIVE ]; then
-    wget https://download.videolan.org/pub/contrib/live555/$ARCHIVE
+    wget https://download.live555.com/$ARCHIVE
 fi
+echo "$ARCHIVE_SHA256  $ARCHIVE" | sha256sum -c -
 tar zxvf $ARCHIVE
 find live -type d -exec chmod 755 {} +
 find live -type f -name "*.cpp" -exec chmod 644 {} +
@@ -58,6 +60,7 @@ find live -type f -name "Makefile*" -exec chmod 644 {} +
 
 patch -p0 < rRTSPServer.patch
 patch -p0 < friend.patch
+patch -p0 < capture-clock.patch
 
 cd live || exit 1
 

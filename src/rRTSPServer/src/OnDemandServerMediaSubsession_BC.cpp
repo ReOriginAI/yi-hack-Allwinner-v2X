@@ -225,12 +225,21 @@ void OnDemandServerMediaSubsession_BC::startStream(unsigned clientSessionId,
     }
 }
 
+void OnDemandServerMediaSubsession_BC::deleteStream(unsigned clientSessionId,
+                                                    void*& streamToken) {
+    Destinations* destinations = (Destinations*)fDestinationsHashTable->Lookup(
+                                                    (char const*)clientSessionId);
+    fDestinationsHashTable->Remove((char const*)clientSessionId);
+    // Reverse streams never share a sink: every SETUP creates its own state.
+    // Reclaim its FIFO, speaker lock and RTP/RTCP sockets on TEARDOWN, repeated
+    // SETUP, connection cleanup or server shutdown.
+    delete (StreamState_BC*)streamToken;
+    streamToken = NULL;
+    delete destinations;
+}
+
 void OnDemandServerMediaSubsession_BC::pauseStream(unsigned /*clientSessionId*/,
 						   void* streamToken) {
-
-    // Pausing isn't allowed if multiple clients are receiving data from
-    // the same source:
-    if (fReuseFirstSource) return;
 
     StreamState_BC* streamState = (StreamState_BC*)streamToken;
     if (streamState != NULL) streamState->pause();
@@ -354,7 +363,9 @@ char* OnDemandServerMediaSubsession_BC::getRtpMapLine(RTPSource* rtpSource) cons
 
         return rtpmapLine;
     } else {
-        // The payload format is staic, so there's no "a=rtpmap:" line:
+        // Explicit mapping helps ONVIF clients identify the reverse track.
+        if (rtpSource->rtpPayloadFormat() == 0) return strDup("a=rtpmap:0 PCMU/8000\r\n");
+        if (rtpSource->rtpPayloadFormat() == 8) return strDup("a=rtpmap:8 PCMA/8000\r\n");
         return strDup("");
     }
 }

@@ -27,8 +27,6 @@
 #define ULAW 0
 #define ALAW 1
 
-#define FILTER_M 0.125
-
 class PCMFileSink: public FileSink {
 public:
     static PCMFileSink* createNew(UsageEnvironment& env, char const* fileName,
@@ -43,7 +41,7 @@ public:
     // (Available in case a client wants to add extra data to the output file)
 
 protected:
-    PCMFileSink(UsageEnvironment& env, FILE* fid, int destSampleRate, int srcLaw,
+    PCMFileSink(UsageEnvironment& env, char const* fileName, int destSampleRate, int srcLaw,
                 Boolean enableSpeaker, unsigned bufferSize);
     // called only by createNew()
     virtual ~PCMFileSink();
@@ -62,9 +60,9 @@ protected:
 
     int fDestSampleRate;
     int fSrcLaw;
-    int fPacketCounter;
+    char* fFileName;
+    Boolean fEnableSpeaker;
     int16_t *fPCMBuffer;
-    int16_t fLastSample;
     Speaker *fSpeaker;
 };
 

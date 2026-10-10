@@ -66,10 +66,9 @@ else
 fi
 
 OLD_RTSP_STREAM=""
-OLD_RTSP_BACKCHANNEL=""
 if [ "$CONF_TYPE" == "system" ]; then
+    OLD_RTSP_SETTINGS=$(grep -E '^(RTSP|RTSP_ALT|RTSP_STREAM|RTSP_AUDIO|RTSP_BACKCHANNEL|RTSP_STI|RTSP_PORT|SPEAKER_AUDIO|USERNAME|PASSWORD)=' "$CONF_FILE" 2>/dev/null)
     OLD_RTSP_STREAM=$(grep '^RTSP_STREAM=' "$CONF_FILE" 2>/dev/null | cut -d= -f2-)
-    OLD_RTSP_BACKCHANNEL=$(grep '^RTSP_BACKCHANNEL=' "$CONF_FILE" 2>/dev/null | cut -d= -f2-)
 fi
 
 read -r POST_DATA
@@ -164,20 +163,16 @@ if [ "$CONF_TYPE" == "system" ]; then
     fi
 
     RTSP_STREAM_CHANGED=no
-    RTSP_BACKCHANNEL_CHANGED=no
     if [ -n "$NEW_RTSP_STREAM" ] && [ "$NEW_RTSP_STREAM" != "$OLD_RTSP_STREAM" ]; then
         RTSP_STREAM_CHANGED=yes
     fi
-    if [ "$NEW_RTSP_BACKCHANNEL" != "$OLD_RTSP_BACKCHANNEL" ]; then
-        RTSP_BACKCHANNEL_CHANGED=yes
-    fi
-
-    # RTSP stream selection and speaker backchannel both affect the generated
-    # server configuration, so rebuild RTSP once if either changed.
-    if [ "$RTSP_STREAM_CHANGED" == "yes" ] || [ "$RTSP_BACKCHANNEL_CHANGED" == "yes" ]; then
+    NEW_RTSP_SETTINGS=$(grep -E '^(RTSP|RTSP_ALT|RTSP_STREAM|RTSP_AUDIO|RTSP_BACKCHANNEL|RTSP_STI|RTSP_PORT|SPEAKER_AUDIO|USERNAME|PASSWORD)=' "$CONF_FILE" 2>/dev/null)
+    # Switching engines must stop the old daemon even though the configuration
+    # already names the new one. Rebuild once for all changed RTSP settings.
+    if [ "$NEW_RTSP_SETTINGS" != "$OLD_RTSP_SETTINGS" ]; then
         RTSP_ENABLED=$(grep '^RTSP=' "$CONF_FILE" 2>/dev/null | cut -d= -f2-)
+        "$YI_HACK_PREFIX/script/service.sh" rtsp stop >/dev/null 2>&1
         if [ "$RTSP_ENABLED" == "yes" ]; then
-            "$YI_HACK_PREFIX/script/service.sh" rtsp stop >/dev/null 2>&1
             "$YI_HACK_PREFIX/script/service.sh" rtsp start >/dev/null 2>&1
         elif [ "$RTSP_STREAM_CHANGED" == "yes" ]; then
             # With RTSP disabled, only the encoder state itself needs updating.
@@ -185,9 +180,9 @@ if [ "$CONF_TYPE" == "system" ]; then
         fi
     fi
 
-    # ONVIF advertises the same backchannel capability, so refresh its generated
-    # profile immediately when the backchannel mode changes.
-    if [ "$RTSP_BACKCHANNEL_CHANGED" == "yes" ]; then
+    # Refresh ONVIF's stream URIs, forward audio and backchannel capability
+    # together with the RTSP settings it advertises.
+    if [ "$NEW_RTSP_SETTINGS" != "$OLD_RTSP_SETTINGS" ]; then
         ONVIF_ENABLED=$(grep '^ONVIF=' "$CONF_FILE" 2>/dev/null | cut -d= -f2-)
         if [ "$ONVIF_ENABLED" == "yes" ]; then
             "$YI_HACK_PREFIX/script/service.sh" onvif stop >/dev/null 2>&1

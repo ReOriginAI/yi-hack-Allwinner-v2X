@@ -24,6 +24,26 @@
                 <td>Only audio stream</td>
                 <td id="td_audio_stream"></td>
             </tr>
+            <tr class="row" id="tr_high_res_backchannel" style="display: none;">
+                <td>High res stream with speaker backchannel</td>
+                <td id="td_high_res_backchannel"></td>
+            </tr>
+            <tr class="row" id="tr_low_res_backchannel" style="display: none;">
+                <td>Low res stream with speaker backchannel</td>
+                <td id="td_low_res_backchannel"></td>
+            </tr>
+            <tr class="row" id="tr_tts" style="display: none;">
+                <td>Text to Speech API (POST text)</td>
+                <td id="td_tts"></td>
+            </tr>
+            <tr class="row" id="tr_audio_library" style="display: none;">
+                <td>Speaker clips API</td>
+                <td id="td_audio_library"></td>
+            </tr>
+            <tr class="row" id="tr_audio_page" style="display: none;">
+                <td>Audio &amp; Text to Speech</td>
+                <td id="td_audio_page"></td>
+            </tr>
             <tr class="row">
                 <td>High res snapshot</td>
                 <td id="td_high_res_snapshot"></td>
@@ -41,6 +61,8 @@
                 <td><a href="https://github.com/ReOriginAI/yi-hack-Allwinner-v2X">ReOriginAI/yi-hack-Allwinner-v2X</a></td>
             </tr>
         </table>
+
+        <p>Standard (LIVE555) is the default RTSP server. Speaker backchannel works independently of ONVIF and shares the speaker with TTS. The TTS API accepts a POST with the announcement in a <code>text/plain</code> body. Configure talkback in <a href="?page=configurations">Configurations</a>.</p>
 
         <h5 class="tiny-margin strong">System</h5>
         <hr class="no-margin"/>
