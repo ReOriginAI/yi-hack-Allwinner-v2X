@@ -30,9 +30,46 @@
                     <tr class="row">
                         <td>Timezone</td>
                         <td>
-                            <input class="u-full-width" type="text" placeholder="" data-key="TIMEZONE" id="TIMEZONE"/>
+                            <div class="standard-select">
+                                <select data-key="TIMEZONE" id="TIMEZONE">
+                                    <option value="UTC0">UTC / GMT</option>
+                                    <optgroup label="North America">
+                                        <option value="EST5EDT,M3.2.0,M11.1.0">US Eastern — New York</option>
+                                        <option value="CST6CDT,M3.2.0,M11.1.0">US Central — Chicago</option>
+                                        <option value="MST7MDT,M3.2.0,M11.1.0">US Mountain — Denver</option>
+                                        <option value="PST8PDT,M3.2.0,M11.1.0">US Pacific — Los Angeles</option>
+                                        <option value="MST7">Arizona — Phoenix</option>
+                                        <option value="AKST9AKDT,M3.2.0,M11.1.0">Alaska — Anchorage</option>
+                                        <option value="HST10">Hawaii — Honolulu</option>
+                                        <option value="AST4ADT,M3.2.0,M11.1.0">Atlantic — Halifax</option>
+                                        <option value="NST3:30NDT,M3.2.0,M11.1.0">Newfoundland — St. John's</option>
+                                    </optgroup>
+                                    <optgroup label="Europe and Africa">
+                                        <option value="GMT0BST,M3.5.0/1,M10.5.0">UK — London</option>
+                                        <option value="CET-1CEST,M3.5.0,M10.5.0/3">Central Europe — Paris / Berlin</option>
+                                        <option value="EET-2EEST,M3.5.0/3,M10.5.0/4">Eastern Europe — Helsinki</option>
+                                        <option value="SAST-2">South Africa — Johannesburg</option>
+                                    </optgroup>
+                                    <optgroup label="Asia and Pacific">
+                                        <option value="&lt;+04&gt;-4">UAE — Dubai</option>
+                                        <option value="IST-5:30">India — Kolkata</option>
+                                        <option value="&lt;+0545&gt;-5:45">Nepal — Kathmandu</option>
+                                        <option value="CST-8">China — Shanghai</option>
+                                        <option value="JST-9">Japan — Tokyo</option>
+                                        <option value="AWST-8">Western Australia — Perth</option>
+                                        <option value="AEST-10AEDT,M10.1.0,M4.1.0/3">Eastern Australia — Sydney</option>
+                                        <option value="NZST-12NZDT,M9.5.0,M4.1.0/3">New Zealand — Auckland</option>
+                                    </optgroup>
+                                    <option value="custom">Custom timezone</option>
+                                </select>
+                            </div>
+                            <div id="TIMEZONE_CUSTOM_GROUP" hidden>
+                                <label for="TIMEZONE_CUSTOM">Custom timezone rule</label>
+                                <input class="u-full-width" type="text" id="TIMEZONE_CUSTOM" placeholder="POSIX timezone rule"/>
+                                <a href="?page=tz">Timezone rule reference</a>
+                            </div>
                             <span class="switch-description">
-                                Timezone. Get your timezone string from <a href="?page=tz">this page</a> and copy here.
+                                Used by the camera clock and time overlay. Daylight saving time is automatic where applicable.
                             </span>
                         </td>
                     </tr>
@@ -162,13 +199,13 @@
                                 <span class="switch-text"></span>
                             </label>
                             <span class="switch-description">
-                                Enable/disable time OSD in the upper left corner.
+                                Show the time in the configured timezone in the upper left corner.
                             </span>
                                 <br/>
                             <span class="italic">
                                 It works only if the cam doesn't show osd natively.
                                 <br/>
-                                Warning: this option is not fully compatible with the app. If you use the app you will notice a shift in the timeline.
+                                Select Local time on the Events page to use the same timezone for new recording filenames.
                             </span>
                         </td>
                     </tr>

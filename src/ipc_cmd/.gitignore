@@ -2,6 +2,11 @@
 _install/
 ipc_cmd/ipc_cmd
 ipc_cmd/ipc_multiplex.so
+ipc_cmd/record_metadata.so
+ipc_cmd/nightvision.so
+ipc_cmd/nightvisionctl
+ipc_cmd/record_preroll-*.bin
+ipc_cmd/record_preroll-*.elf
 ipc_cmd/ipc_read
 ipc_cmd/ipc_notify
 ipc_cmd/ipc2file

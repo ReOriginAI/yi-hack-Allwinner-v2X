@@ -454,7 +454,10 @@ int main(int argc, char **argv)
             exit(EXIT_SUCCESS);
         }
 
-        if (fw > 10) {
+        // Only models with an adjacent firmware-specific entry use model+1.
+        // In particular y623 firmware 12 uses its own 0x570 entry, not B091QP.
+        if (fw > 10 && (model == Y20GA || model == H30GA || model == H60GA ||
+                       model == Y211GA || model == Y21GA || model == Y291GA)) {
             model_addr = tz_offset_osd_addr[model + 1][0];
             to_set = tz_offset_osd_addr[model + 1][1];
         } else {

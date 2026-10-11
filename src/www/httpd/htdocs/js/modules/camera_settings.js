@@ -16,6 +16,7 @@ APP.camera_settings = (function($) {
         $(document).on("click.cameraSettingsModule", '#button-save', function(e) {
             saveConfigs();
         });
+        $(document).on("change.cameraSettingsModule", '#NIGHTVISION_MODE', updateNightvisionControls);
     }
 
     function fetchConfigs() {
@@ -30,12 +31,18 @@ APP.camera_settings = (function($) {
                 loadingStatusElem.fadeOut(500);
 
                 $.each(response, function(key, state) {
-                    if (key === "MOTION_SENSITIVITY" || key === "SOUND_SENSITIVITY" || key === "CRUISE") {
+                    if (key === "MOTION_SENSITIVITY" || key === "SOUND_SENSITIVITY" || key === "CRUISE" || key === "NIGHTVISION_MODE") {
                         $('select[data-key="' + key + '"]').prop('value', state);
+                    } else if (key === "NIGHTVISION_THRESHOLD") {
+                        $('#NIGHTVISION_THRESHOLD').val(state);
                     } else {
                         $('input[type="checkbox"][data-key="' + key + '"]').prop('checked', state === 'yes');
                     }
                 });
+                if (!response.NIGHTVISION_MODE) {
+                    $('#NIGHTVISION_MODE').val(response.IR === 'no' ? 'off' : 'auto');
+                }
+                updateNightvisionControls();
             },
             error: function(response) {
                 loadingStatusElem.text("Unable to load settings");
@@ -56,6 +63,7 @@ APP.camera_settings = (function($) {
                 return;
             }
             fetchMotionStatus();
+            fetchNightvisionStatus();
             motionStatusTimer = setTimeout(poll, 2000);
         }
 
@@ -93,10 +101,32 @@ APP.camera_settings = (function($) {
         });
     }
 
+    function updateNightvisionControls() {
+        $('#NIGHTVISION_THRESHOLD').prop('disabled', $('#NIGHTVISION_MODE').prop('disabled') || $('#NIGHTVISION_MODE').val() !== 'auto');
+    }
+
+    function fetchNightvisionStatus() {
+        $.ajax({
+            type: "GET", url: 'cgi-bin/nightvision_status.sh', dataType: "json", cache: false,
+            success: function(data) {
+                $('#NIGHTVISION_MODE').prop('disabled', !data.supported);
+                updateNightvisionControls();
+                var message = data.supported ? 'Current mode: ' + data.state + (data.applied ? '' : ' (applying...)') : 'Night-vision controls unavailable on this firmware';
+                if (data.supported && data.light_level >= 0) message += ', light level: ' + data.light_level;
+                $('#nightvision-runtime-status').text(message);
+            },
+            error: function() { $('#nightvision-runtime-status').text('Night-vision status unavailable'); }
+        });
+    }
+
     function saveConfigs() {
         var saveStatusElem = $('#save-status');
         var configs = {};
 
+        if (!$('#NIGHTVISION_THRESHOLD')[0].checkValidity()) {
+            saveStatusElem.text("Night-vision threshold must be an integer from 1 to 100");
+            return;
+        }
         saveStatusElem.text("Saving...");
 
         $('.configs-switch input[type="checkbox"][data-key]').each(function() {
@@ -106,6 +136,10 @@ APP.camera_settings = (function($) {
         configs["MOTION_SENSITIVITY"] = $('select[data-key="MOTION_SENSITIVITY"]').prop('value');
         configs["SOUND_SENSITIVITY"] = $('select[data-key="SOUND_SENSITIVITY"]').prop('value');
         configs["CRUISE"] = $('select[data-key="CRUISE"]').prop('value');
+        if (!$('#NIGHTVISION_MODE').prop('disabled')) {
+            configs["NIGHTVISION_MODE"] = $('#NIGHTVISION_MODE').val();
+            configs["NIGHTVISION_THRESHOLD"] = $('#NIGHTVISION_THRESHOLD').val();
+        }
 
         $.ajax({
             type: "POST",
@@ -113,6 +147,10 @@ APP.camera_settings = (function($) {
             data: JSON.stringify(configs),
             dataType: "json",
             success: function(response) {
+                if (response.error === true || response.error === "true") {
+                    saveStatusElem.text(response.description || "Error while saving");
+                    return;
+                }
                 var params = [
                     'switch_on=' + configs["SWITCH_ON"],
                     'save_video_on_motion=' + configs["SAVE_VIDEO_ON_MOTION"],
@@ -121,7 +159,6 @@ APP.camera_settings = (function($) {
                     'sound_detection=' + configs["SOUND_DETECTION"],
                     'sound_sensitivity=' + configs["SOUND_SENSITIVITY"],
                     'led=' + configs["LED"],
-                    'ir=' + configs["IR"],
                     'rotate=' + configs["ROTATE"],
                     'cruise=' + configs["CRUISE"]
                 ];
@@ -131,8 +168,9 @@ APP.camera_settings = (function($) {
                     url: 'cgi-bin/camera_settings.sh?' + params.join('&'),
                     dataType: "json",
                     success: function(response) {
-                        saveStatusElem.text("Saved");
+                        saveStatusElem.text(response.error === true || response.error === "true" ? (response.description || "Runtime apply failed") : "Saved");
                         fetchMotionStatus();
+                        fetchNightvisionStatus();
                     },
                     error: function(response) {
                         saveStatusElem.text("Saved, but runtime apply failed");

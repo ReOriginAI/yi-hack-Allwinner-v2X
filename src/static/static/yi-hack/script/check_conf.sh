@@ -83,6 +83,7 @@ SOUND_SENSITIVITY=80
 LED=no
 ROTATE=no
 IR=yes
+NIGHTVISION_THRESHOLD=50
 CRUISE=no"
 
 PARMS3="
@@ -128,6 +129,15 @@ if ! grep -q '^RTSP_BACKCHANNEL=' "$SYSTEM_CONF_FILE" 2>/dev/null; then
         G711|g711) echo 'RTSP_BACKCHANNEL=G711' >> "$SYSTEM_CONF_FILE" ;;
         *)         echo 'RTSP_BACKCHANNEL=NONE' >> "$SYSTEM_CONF_FILE" ;;
     esac
+fi
+
+# Preserve the old IR preference when upgrading a camera's configuration.
+if ! grep -q '^NIGHTVISION_MODE=' "$CAMERA_CONF_FILE" 2>/dev/null; then
+    if grep -q '^IR=no$' "$CAMERA_CONF_FILE" 2>/dev/null; then
+        echo 'NIGHTVISION_MODE=off' >> "$CAMERA_CONF_FILE"
+    else
+        echo 'NIGHTVISION_MODE=auto' >> "$CAMERA_CONF_FILE"
+    fi
 fi
 
 for i in $PARMS1
@@ -223,22 +233,20 @@ case "$RMM_MODEL" in
         fi
         ;;
 esac
-# y28ga vendor mp4record normally muxes main, sub, fast, and AAC tracks. The
-# audited main-only patch changes only the muxer video-track count (3 -> 1), so
-# VENC1 may remain paused during high-only RTSP while VI2/IVA motion stays live.
-# Unknown recorder builds fail closed: stock mp4record remains in place and
-# rtsp_stream_venc.sh will keep VENC1 enabled whenever recording is needed.
-if [ "$RMM_MODEL" = "y28ga" ]; then
+# Both audited recorders use six-second preroll with the retained media clock.
+# y28ga additionally keeps its main-only muxer so VENC1 can remain paused.
+# An unknown build keeps the stock recorder and recording-safe VENC policy.
+if [ "$RMM_MODEL" = "y28ga" ] || [ "$RMM_MODEL" = "y623" ]; then
     MP4_PATCH_LOG=/tmp/mp4record_patch.log
     rm -f "$MP4_PATCH_LOG"
     MP4_PATCHED=$(MODEL_SUFFIX="$RMM_MODEL" sh /tmp/sd/yi-hack/script/prepare_mp4record.sh 2>"$MP4_PATCH_LOG")
     if [ $? -eq 0 ] && [ -n "$MP4_PATCHED" ] && [ -x "$MP4_PATCHED" ]; then
         if ! grep -q ' /home/app/mp4record ' /proc/mounts 2>/dev/null; then
             if ! mount --bind "$MP4_PATCHED" /home/app/mp4record; then
-                echo "check_conf: failed to bind patched y28ga mp4record" >> "$MP4_PATCH_LOG"
+                echo "check_conf: failed to bind patched $RMM_MODEL mp4record" >> "$MP4_PATCH_LOG"
             fi
         fi
     else
-        echo "check_conf: using stock y28ga mp4record" >> "$MP4_PATCH_LOG"
+        echo "check_conf: using stock $RMM_MODEL mp4record" >> "$MP4_PATCH_LOG"
     fi
 fi

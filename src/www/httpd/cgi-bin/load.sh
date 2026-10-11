@@ -56,11 +56,7 @@ else
     ipc_cmd -l on
 fi
 
-if [[ $(get_config IR) == "no" ]] ; then
-    ipc_cmd -i off
-else
-    ipc_cmd -i on
-fi
+"$YI_HACK_PREFIX/script/nightvision.sh" apply >/dev/null 2>&1
 
 if [[ $(get_config ROTATE) == "no" ]] ; then
     ipc_cmd -r off

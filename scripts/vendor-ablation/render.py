@@ -12,7 +12,10 @@ REQUIRED = ('www/onvif/onvif_simple_server', 'script/log_store.sh', 'script/boun
             'script/configure_wifi.sh', 'script/wifidhcp.sh', 'script/ethdhcp.sh',
             'script/prepare_rmm.sh', 'script/prepare_mp4record.sh', 'script/rtsp_stream_venc.sh', 'script/ensure_y623_ve_kernel.sh',
             'lib/ipc_multiplex.so', 'bin/cloudAPI',
-            'bin/cloudAPI_fake', 'bin/ipc_cmd')
+            'bin/cloudAPI_fake', 'bin/ipc_cmd', 'script/nightvision.sh', 'bin/nightvisionctl', 'lib/nightvision.so',
+            'script/time_config.sh', 'script/apply_time.sh', 'script/update_osd_tz.sh', 'bin/set_tz_offset',
+            'lib/record_metadata.so', 'bin/ipc2file',
+            'lib/record_preroll-y623.bin', 'lib/record_preroll-y28ga.bin')
 
 
 def render(model, noop, sd):

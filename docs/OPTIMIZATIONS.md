@@ -120,6 +120,36 @@ The startup line reports `ve_allocator=vmalloc-verified` or `ve_allocator=legacy
 
 Current caveat: `motiond` still polls `/sys/kernel/debug/mpp/ve` at a 100 ms interval by default. Live Frigate testing shows this remains a meaningful CPU/kernel-pressure hotspot even when the vmalloc kernel patch is present. See **Measured findings / not yet implemented** below.
 
+### Motion metadata during SD MP4 finalization
+
+The existing motion-event consumer stores a bounded, shared 8,240-byte history
+in tmpfs. A recorder-local library embeds UTC timestamps and clip offsets in the
+`yi_motion` MP4 tag before the recorder closes and renames its file. This avoids
+a separate metadata process, media readback, and remux. The consumer also blocks
+on its queue instead of sleeping 500 ms after every event. Playback data and
+recording tracks are retained; live RTSP is unchanged. See
+[the format, footprint, and validation](MOTION_METADATA.md).
+
+### Local camera and recording time
+
+The configuration page offers common timezone presets with daylight saving
+rules and retains custom rules. The Home clock, overlay and Local-time SD
+filenames follow the saved camera timezone without changing UTC media or motion
+epochs. Fixes include the y623 firmware-12 overlay table selection, signed
+fractional offsets, and the y28ga recorder's duplicate filename offset. The
+existing cron refreshes the overlay; no extra daemon is added. See
+[local-time behavior and live validation](LOCAL_TIME.md).
+
+### Night-vision controls in the native camera loop
+
+Manual Day/Night mode and an adjustable automatic light threshold run inside
+the existing firmware control loop. A guarded 5,800-byte library retains the
+native ISP, IR-cut, infrared LED, encoder and y28ga IVA transitions. It uses a
+48-byte shared control structure and a 4 KiB call bridge, with no additional
+daemon, thread or frame buffers. The default threshold of 50 preserves the
+original behavior; the automatic hysteresis and delay remain in place. See
+[controls, supported binaries and recovery](NIGHTVISION.md).
+
 ### Standard (LIVE555) RTSP default
 
 Standard (`RTSP_ALT=standard`) is the recommended camera-side server. Its
@@ -148,6 +178,11 @@ page. Home-page links include enabled backchannel URLs, audio-only where support
 the TTS POST endpoint, and the audio library/page. RTSP configuration changes stop
 the previous engine before starting the new one and refresh ONVIF's advertised
 media profile.
+
+Watchdog startup checks again after the 30-second delay, including when an old
+watchdog is still handling SIGTERM. Its singleton lock prevents duplicate
+instances. This fixes a restart race found during the
+[y28ga Standard deployment](STANDARD_RTSP_Y28GA_VALIDATION.md).
 
 ### 5. Optional minimal embedded go2rtc build
 
@@ -564,6 +599,24 @@ hour directories, scheduling and bounded logging remain unchanged. Retained clip
 are checksummed on each scan, so keeping many local videos adds SD read/CPU work.
 
 Regression tests: `python3 src/static/tests/test_ftppush_queue.py -v` (BusyBox ash).
+
+## SD recording preroll
+
+Both audited native recorders now request 6,000 ms of lookback and compute
+buffer duration from retained packet timestamps. This fixes a cached-time
+fault that could skip all buffered footage after a backwards camera clock
+correction. First-frame UTC creation time keeps embedded motion offsets and
+local filenames aligned with the buffered video. The existing encoded rings
+are retained; a 536-byte ARM extension adds one executable mapping page per
+recorder, with no additional video queue or daemon. y28ga keeps its main-only
+muxer and recorder-aware encoder warmup. Both boot and runtime service paths
+recognize the new recorder hashes.
+
+Live clips contained approximately 5.3 seconds of preroll on y623 and 4.4
+seconds on y28ga, with all video/audio tracks decodable and FTP validated on
+y623. The requested six seconds is limited by available encoded history and
+keyframe alignment. Sources, hashes, tests and live evidence are documented in
+[RECORDING_PREROLL.md](RECORDING_PREROLL.md).
 
 ## Maintenance rule
 

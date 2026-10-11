@@ -68,12 +68,7 @@ typedef enum
 
 int ipc_init();
 void ipc_stop();
-static int open_queue();
-static int clear_queue();
-static void handle_ipc_unrecognized();
-static void handle_ipc_motion_generic(int detect);
 int ipc_set_callback(IPC_MESSAGE_TYPE type, void (*f)());
-static void call_callback(IPC_MESSAGE_TYPE type);
 int parse_message(char *msg, ssize_t len);
 int daemonize(int flags);
 int check_pid(char *file_name);

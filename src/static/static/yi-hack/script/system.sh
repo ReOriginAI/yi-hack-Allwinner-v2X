@@ -173,8 +173,10 @@ log "Starting local media processes" 1
         cd /home/app
         set_tz_offset -c osd -o off
         sleep 2
-        LD_LIBRARY_PATH="/tmp/sd/yi-hack/lib:/lib:/usr/lib:/home/lib:/home/qigan/lib:/home/app/locallib:/tmp/sd:/tmp/sd/gdb" ./rmm &
+        NIGHTVISION_PRELOAD=$("$YI_HACK_PREFIX/script/nightvision.sh" preload)
+        YI_NIGHTVISION_MODEL="$MODEL_SUFFIX" LD_PRELOAD="$NIGHTVISION_PRELOAD" LD_LIBRARY_PATH="/tmp/sd/yi-hack/lib:/lib:/usr/lib:/home/lib:/home/qigan/lib:/home/app/locallib:/tmp/sd:/tmp/sd/gdb" ./rmm &
         sleep 6
+        "$YI_HACK_PREFIX/script/nightvision.sh" apply >/dev/null 2>&1 || true
         # Match the low hardware encoder to RTSP_STREAM after rmm initializes,
         # even when the RTSP server itself is disabled.
         $YI_HACK_PREFIX/script/rtsp_stream_venc.sh "$(get_config RTSP_STREAM)" >/dev/null 2>&1 || true
@@ -315,7 +317,7 @@ if [ ! -z "$CRONTAB" ]; then
     echo -e "$CRONTAB" > /var/spool/cron/crontabs/root
 fi
 if [[ $(get_config TIME_OSD) == "yes" ]] ; then
-    echo "1 * * * * /tmp/sd/yi-hack/script/update_osd_tz.sh" >> /var/spool/cron/crontabs/root
+    echo "* * * * * /tmp/sd/yi-hack/script/update_osd_tz.sh" >> /var/spool/cron/crontabs/root
 fi
 if [[ $(get_config SNAPSHOT) == "yes" ]] && [[ $(get_config SNAPSHOT_VIDEO) == "yes" ]] ; then
     echo "* * * * * /tmp/sd/yi-hack/script/thumb.sh cron" >> /var/spool/cron/crontabs/root

@@ -146,14 +146,24 @@
                         </td>
                     </tr>
                     <tr class="row">
-                        <td>IR led</td>
+                        <td>Night vision</td>
                         <td>
-                            <label class="switch small">
-                                <input type="checkbox" data-key="IR"/>
-                                <span class="slider round"></span>
-                                <span class="switch-text"></span>
-                            </label>
-                            <span class="switch-description">Enable automatic IR/night-vision hardware.</span>
+                            <div class="standard-select">
+                                <select data-key="NIGHTVISION_MODE" id="NIGHTVISION_MODE">
+                                    <option value="auto">Automatic</option>
+                                    <option value="on">Night on</option>
+                                    <option value="off">Night off (day/color)</option>
+                                </select>
+                            </div>
+                            <span class="switch-description">Choose automatic switching or force night/day mode. Night mode controls the IR light, IR filter, and image processing together.</span><br/>
+                            <strong id="nightvision-runtime-status">Checking...</strong>
+                        </td>
+                    </tr>
+                    <tr class="row">
+                        <td>Automatic night-vision threshold</td>
+                        <td>
+                            <input type="number" min="1" max="100" step="1" value="50" data-key="NIGHTVISION_THRESHOLD" id="NIGHTVISION_THRESHOLD" aria-label="Automatic night-vision threshold"/>
+                            <span class="switch-description">1–100; 50 keeps the original threshold. Higher values switch to night vision in brighter light. The camera retains a separate day threshold and switching delay to avoid rapid cycling. This setting is used in Automatic mode.</span>
                         </td>
                     </tr>
                     <tr class="row">

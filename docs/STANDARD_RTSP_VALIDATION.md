@@ -1,6 +1,8 @@
 # Standard RTSP validation
 
 Validated on 2026-10-10 against the y623 camera at `192.168.1.150`.
+The subsequent [y28ga deployment and checks](STANDARD_RTSP_Y28GA_VALIDATION.md)
+are recorded separately.
 The camera now runs `RTSP_ALT=standard` on port 554, with its existing high-only
 stream, native AAC audio, G.711 backchannel, speaker audio and ONVIF enabled.
 Source, documentation and UI recommend Standard; go2rtc remains selectable.
@@ -77,7 +79,7 @@ python3 scripts/test_standard_rtsp.py 192.168.1.150 --transport udp \
 
 Audio tests used silent PCMU and zero-volume TTS. They establish delivery and
 speaker-lock behavior; physical speaker acoustics were not assessed. Hardware
-validation covers this y623 camera, not other camera models.
+validation in this record covers this y623 camera.
 
 ## Installed endpoints
 

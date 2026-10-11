@@ -75,6 +75,10 @@ Version 3.8.0 includes the model-specific work developed for these two platforms
   - `y623`: encoder-statistics `motiond`
   - `y28ga`: lightweight firmware IVA motion events
 - duplicate motion/IPC/recording processes prevented
+- motion timestamps embedded during SD MP4 finalization, with no video remux or extra daemon ([format and extraction](docs/MOTION_METADATA.md))
+- six-second SD recording lookback using retained frame timestamps, with no extra video buffer ([limits and validation](docs/RECORDING_PREROLL.md))
+- common timezone presets, local video time overlays and SD filename time selection ([behavior and validation](docs/LOCAL_TIME.md))
+- manual night vision and an adjustable automatic light threshold ([controls and compatibility](docs/NIGHTVISION.md))
 - `mqttv4` is not started when `MQTT=no`
 - Standard (LIVE555) RTSP and ONVIF Profile T audio-backchannel support; optional camera-side go2rtc
 - local speaker serialization so HTTP playback and RTSP/ONVIF talkback do not write the speaker simultaneously

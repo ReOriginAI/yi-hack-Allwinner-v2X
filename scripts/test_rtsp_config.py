@@ -24,9 +24,12 @@ class ConfigTests(unittest.TestCase):
         shutil.copy(CGI / "validate.sh", self.prefix / "www/cgi-bin")
         self.log = self.prefix / "services.log"
         self.log.touch()
-        for name in ("service.sh", "rtsp_stream_venc.sh"):
+        for name in ("service.sh", "rtsp_stream_venc.sh", "apply_time.sh"):
             script = self.prefix / "script" / name
-            script.write_text('#!/bin/sh\nprintf "%s %s\\n" "$1" "$2" >>"$TEST_SERVICE_LOG"\n')
+            if name == "apply_time.sh":
+                script.write_text('#!/bin/sh\nprintf "time apply\\n" >>"$TEST_SERVICE_LOG"\n')
+            else:
+                script.write_text('#!/bin/sh\nprintf "%s %s\\n" "$1" "$2" >>"$TEST_SERVICE_LOG"\n')
             script.chmod(0o755)
         for name in ("tts", "speaker", "go2rtc"):
             binary = self.prefix / "bin" / name
@@ -91,6 +94,34 @@ class ConfigTests(unittest.TestCase):
         self.cgi("set_configs.sh", json.dumps({"RTSP_ALT": "standard"}))
         self.assertEqual(self.log.read_text(), "")
 
+    def test_watchdog_checks_after_stopping_process_exits(self):
+        source = (ROOT / "src/static/static/yi-hack/script/service.sh").read_text()
+        start = source.index("ensure_rtsp_watchdog()\n")
+        function = source[start:source.index("\nstart_rtsp()", start)]
+        delayed = self.prefix / "delay-finished"
+        started = self.prefix / "watchdog-started"
+        watchdog = self.prefix / "script/wd.sh"
+        watchdog.write_text('#!/bin/sh\n: > "$TEST_WATCHDOG_STARTED"\n')
+        watchdog.chmod(0o755)
+        env = {**self.env, "TEST_WATCHDOG_DELAY": str(delayed),
+               "TEST_WATCHDOG_STARTED": str(started)}
+        for remains_running in (False, True):
+            with self.subTest(remains_running=remains_running):
+                delayed.unlink(missing_ok=True)
+                started.unlink(missing_ok=True)
+                # Before the delay, ps sees the old shell handling SIGTERM.
+                # A healthy watchdog remains visible after the delay instead.
+                process = "printf '123 root wd.sh\\n'"
+                if not remains_running:
+                    process = '[ -e "$TEST_WATCHDOG_DELAY" ] || ' + process
+                shell = ('sleep() { : > "$TEST_WATCHDOG_DELAY"; }\n'
+                         + 'ps() { ' + process + '; }\n' + function
+                         + '\nensure_rtsp_watchdog\nwait || :\n')
+                subprocess.run(["busybox", "ash", "-c", shell], env=env,
+                               check=True, capture_output=True, text=True)
+                self.assertTrue(delayed.exists())
+                self.assertEqual(started.exists(), not remains_running)
+
     def test_audio_and_backchannel_changes_without_onvif(self):
         self.configure(ONVIF="no")
         self.cgi("set_configs.sh", json.dumps({"RTSP_AUDIO": "ulaw", "RTSP_BACKCHANNEL": "G711"}))
@@ -100,6 +131,21 @@ class ConfigTests(unittest.TestCase):
     def test_disabling_rtsp_stops_previous_server(self):
         self.cgi("set_configs.sh", json.dumps({"RTSP": "no"}))
         self.assertEqual(self.log.read_text().splitlines(), ["rtsp stop", "onvif stop", "onvif start"])
+
+    def test_time_changes_apply_once_without_restarting_rtsp(self):
+        self.cgi("set_configs.sh", json.dumps({"TIMEZONE": "EST5EDT,M3.2.0,M11.1.0",
+                                              "TIME_OSD": "yes", "EVENTS_TIME": "local"}))
+        self.assertEqual(self.log.read_text().splitlines(), ["time apply"])
+        self.log.write_text("")
+        self.cgi("set_configs.sh", json.dumps({"TIMEZONE": "EST5EDT,M3.2.0,M11.1.0",
+                                              "TIME_OSD": "yes", "EVENTS_TIME": "local"}))
+        self.assertEqual(self.log.read_text(), "")
+
+    def test_fractional_and_custom_timezone_rules_roundtrip(self):
+        for rule in ("NST3:30NDT,M3.2.0,M11.1.0", "<+0545>-5:45", "GMT0BST,M3.5.0/1,M10.5.0"):
+            with self.subTest(rule=rule):
+                self.cgi("set_configs.sh", json.dumps({"TIMEZONE": rule}))
+                self.assertIn("TIMEZONE=" + rule + "\n", self.conf.read_text())
 
 
 if __name__ == "__main__":

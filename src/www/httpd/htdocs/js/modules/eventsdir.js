@@ -90,7 +90,8 @@ APP.eventsdir = (function($) {
             data: JSON.stringify(configs),
             dataType: "json",
             success: function(response) {
-                saveStatusElem.text("Saved");
+                saveStatusElem.text(response.error === 'true' ? "Could not apply settings" : "Saved");
+                if (response.error !== 'true') updateEventsDirPage();
             },
             error: function(response) {
                 saveStatusElem.text("Error while saving");

@@ -9,7 +9,9 @@
 #define _L_	__LINE__
 
 #define IPC_QUEUE_NAME "/ipc_dispatch"
+#ifndef MMAP_INFO
 #define MMAP_INFO      "/tmp/mmap.info"
+#endif
 
 #define MID_P2P 1
 #define MID_RMM 2

@@ -66,9 +66,15 @@ else
 fi
 
 OLD_RTSP_STREAM=""
+TIME_APPLY_ERROR=false
+NIGHTVISION_APPLY_ERROR=false
+if [ "$CONF_TYPE" = camera ]; then
+    OLD_NIGHTVISION_SETTINGS=$(grep -E '^(IR|NIGHTVISION_MODE|NIGHTVISION_THRESHOLD)=' "$CONF_FILE" 2>/dev/null)
+fi
 if [ "$CONF_TYPE" == "system" ]; then
     OLD_RTSP_SETTINGS=$(grep -E '^(RTSP|RTSP_ALT|RTSP_STREAM|RTSP_AUDIO|RTSP_BACKCHANNEL|RTSP_STI|RTSP_PORT|SPEAKER_AUDIO|USERNAME|PASSWORD)=' "$CONF_FILE" 2>/dev/null)
     OLD_RTSP_STREAM=$(grep '^RTSP_STREAM=' "$CONF_FILE" 2>/dev/null | cut -d= -f2-)
+    OLD_TIME_SETTINGS=$(grep -E '^(TIMEZONE|TIME_OSD|EVENTS_TIME)=' "$CONF_FILE" 2>/dev/null)
 fi
 
 read -r POST_DATA
@@ -80,6 +86,33 @@ if [ "$VALID" != "0" ]; then
     printf "\"%s\":\"%s\"\\n" "error" "true"
     printf "}"
     exit
+fi
+
+# Validate the complete night-vision request before changing any saved setting.
+if [ "$CONF_TYPE" = camera ]; then
+    NV_MODE=$(echo "$POST_DATA" | jq -r '.NIGHTVISION_MODE // empty')
+    NV_THRESHOLD=$(echo "$POST_DATA" | jq -r '.NIGHTVISION_THRESHOLD // empty')
+    NV_INVALID=no
+    if echo "$POST_DATA" | jq -e 'has("NIGHTVISION_MODE")' >/dev/null 2>&1; then
+        case "$NV_MODE" in auto|on|off) ;; *) NV_INVALID=yes ;; esac
+    fi
+    if echo "$POST_DATA" | jq -e 'has("NIGHTVISION_THRESHOLD")' >/dev/null 2>&1; then
+        case "$NV_THRESHOLD" in
+            ''|*[!0-9]*) NV_INVALID=yes ;;
+            *) [ "${#NV_THRESHOLD}" -le 3 ] && [ "$NV_THRESHOLD" -ge 1 ] && [ "$NV_THRESHOLD" -le 100 ] || NV_INVALID=yes ;;
+        esac
+    fi
+    if [ "$NV_INVALID" = yes ]; then
+        printf 'Content-type: application/json\r\n\r\n{"error":true,"description":"Invalid night-vision mode or threshold"}'
+        exit
+    fi
+    # Existing configurations need not have gone through a reboot/migration yet.
+    if [ -n "$NV_MODE" ] && ! grep -q '^NIGHTVISION_MODE=' "$CONF_FILE"; then
+        echo 'NIGHTVISION_MODE=auto' >> "$CONF_FILE"
+    fi
+    if [ -n "$NV_THRESHOLD" ] && ! grep -q '^NIGHTVISION_THRESHOLD=' "$CONF_FILE"; then
+        echo 'NIGHTVISION_THRESHOLD=50' >> "$CONF_FILE"
+    fi
 fi
 # Change temporarily \n with \t (2 bytes)
 POST_DATA="${POST_DATA//\\n/\\t}"
@@ -140,10 +173,34 @@ for ROW in $ROWS; do
 
 done
 
+if [ "$CONF_TYPE" = camera ]; then
+    # Preserve old IR API clients while making the three-state mode authoritative.
+    if [ -n "$NV_MODE" ]; then
+        [ "$NV_MODE" = off ] && NV_IR=no || NV_IR=yes
+        sed -i "s/^IR=.*/IR=$NV_IR/" "$CONF_FILE"
+    elif echo "$POST_DATA" | jq -e 'has("IR")' >/dev/null 2>&1; then
+        NV_IR=$(grep '^IR=' "$CONF_FILE" | cut -d= -f2-)
+        [ "$NV_IR" = no ] && NV_MODE=off || NV_MODE=auto
+        if grep -q '^NIGHTVISION_MODE=' "$CONF_FILE"; then
+            sed -i "s/^NIGHTVISION_MODE=.*/NIGHTVISION_MODE=$NV_MODE/" "$CONF_FILE"
+        else
+            echo "NIGHTVISION_MODE=$NV_MODE" >> "$CONF_FILE"
+        fi
+    fi
+    NEW_NIGHTVISION_SETTINGS=$(grep -E '^(IR|NIGHTVISION_MODE|NIGHTVISION_THRESHOLD)=' "$CONF_FILE" 2>/dev/null)
+    if [ "$NEW_NIGHTVISION_SETTINGS" != "$OLD_NIGHTVISION_SETTINGS" ]; then
+        "$YI_HACK_PREFIX/script/nightvision.sh" apply >/dev/null 2>&1 || NIGHTVISION_APPLY_ERROR=true
+    fi
+fi
+
 # System settings that can safely be applied immediately are normalized here.
 # RTSP_BACKCHANNEL is the public/source-of-truth setting; ONVIF_AUDIO_BC is kept
 # only as the compatibility mirror consumed by service.sh and ONVIF advertising.
 if [ "$CONF_TYPE" == "system" ]; then
+    NEW_TIME_SETTINGS=$(grep -E '^(TIMEZONE|TIME_OSD|EVENTS_TIME)=' "$CONF_FILE" 2>/dev/null)
+    if [ "$NEW_TIME_SETTINGS" != "$OLD_TIME_SETTINGS" ]; then
+        "$YI_HACK_PREFIX/script/apply_time.sh" >/dev/null 2>&1 || TIME_APPLY_ERROR=true
+    fi
     NEW_RTSP_STREAM=$(grep '^RTSP_STREAM=' "$CONF_FILE" 2>/dev/null | cut -d= -f2-)
     NEW_RTSP_BACKCHANNEL=$(grep '^RTSP_BACKCHANNEL=' "$CONF_FILE" 2>/dev/null | cut -d= -f2-)
 
@@ -196,5 +253,9 @@ fi
 printf "Content-type: application/json\r\n\r\n"
 
 printf "{\n"
-printf "\"%s\":\"%s\"\\n" "error" "false"
+if [ "$NIGHTVISION_APPLY_ERROR" = true ]; then
+    printf '"error":true,"description":"Saved, but night-vision controls are unavailable"\n'
+else
+printf "\"%s\":\"%s\"\\n" "error" "$TIME_APPLY_ERROR"
+fi
 printf "}"

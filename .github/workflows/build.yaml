@@ -26,7 +26,7 @@ jobs:
             bison bisonc++ libbison-dev autoconf autotools-dev \
             automake libssl-dev zlib1g-dev libzzip-dev flex libfl-dev \
             yui-compressor closure-compiler optipng jpegoptim libtidy5deb1 node-less \
-            sassc sass-spec libhtml-tidy-perl libxml2-utils rsync qemu-user-static p7zip-full xz-utils
+            sassc sass-spec libhtml-tidy-perl libxml2-utils rsync qemu-user-static p7zip-full xz-utils ffmpeg busybox jq
 
       - name: Test WiFi configuration parser
         run: sh scripts/test_configure_wifi.sh
@@ -38,6 +38,17 @@ jobs:
         run: |
           gcc -Wall -Wextra -Werror -O2 src/motiond/tests/test_pressure.c -lrt -o /tmp/test-motiond-pressure
           /tmp/test-motiond-pressure
+
+      - name: Test recorder-local motion metadata
+        run: |
+          python3 scripts/test_record_metadata.py
+          python3 scripts/test_record_preroll.py
+
+      - name: Test configuration and local recording time
+        run: |
+          python3 scripts/test_rtsp_config.py
+          python3 scripts/test_time_config.py
+          python3 scripts/test_nightvision.py
 
       - name: Download toolchain
         run: |
@@ -66,6 +77,7 @@ jobs:
             tar tzf "$archive" | grep -qx 'yi-hack/startup.sh'
             tar tzf "$archive" | grep -qx 'yi-hack/script/ensure_y623_ve_kernel.sh'
             tar tzf "$archive" | grep -qx "yi-hack/script/prepare_mp4record.sh"
+            tar tzf "$archive" | grep -qx "yi-hack/lib/record_preroll-${model}.bin"
             tar tzf "$archive" | grep -qx "yi-hack/script/rtsp_stream_venc.sh"
             if [ "$model" = y623 ]; then
               tar tzf "$archive" | grep -qx 'Factory/boot-vmalloc.bin'

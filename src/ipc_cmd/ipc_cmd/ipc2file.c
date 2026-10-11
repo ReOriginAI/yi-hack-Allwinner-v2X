@@ -31,6 +31,7 @@
 #include <limits.h>
 
 #include "ipc2file.h"
+#include "motion_metadata_events.h"
 
 #define DEFAULT_PID_FILE "/var/run/ipc2file.pid"
 
@@ -56,7 +57,7 @@ static void call_callback(IPC_MESSAGE_TYPE type);
 typedef void(*func_ptr_t)(void* arg);
 func_ptr_t *ipc_callbacks;
 
-int exit_main = 0;
+volatile sig_atomic_t exit_main = 0;
 int last_alarm = -1;
 
 int ipc_init()
@@ -128,6 +129,8 @@ static void handle_ipc_unrecognized()
 
 static void handle_ipc_motion_generic(int detect)
 {
+    if (detect == IPC_MSG_MOTION_START || detect == IPC_MSG_MOTION_STOP)
+        motion_history_observe(detect == IPC_MSG_MOTION_START, motion_wall_ms());
     fprintf(stderr, "GOT GENERIC MOTION\n");
     call_callback(detect);
 }
@@ -436,7 +439,6 @@ void print_usage(char *progname)
 
 int main(int argc, char **argv)
 {
-    int errno;
     char *endptr;
     int c, ret;
     char pid_file[1024];
@@ -520,8 +522,13 @@ int main(int argc, char **argv)
     }
 
     // Set signal handler
-    signal(SIGTERM, signal_handler);
-    signal(SIGINT, signal_handler);
+    struct sigaction action;
+    memset(&action, 0, sizeof(action));
+    action.sa_handler = signal_handler;
+    sigemptyset(&action.sa_mask);
+    // Let termination interrupt a blocking mq_receive rather than restart it.
+    sigaction(SIGTERM, &action, NULL);
+    sigaction(SIGINT, &action, NULL);
 
     if (foreground == 0) {
         ret = daemonize(0);
@@ -559,6 +566,10 @@ int main(int argc, char **argv)
         exit(EXIT_FAILURE);
     }
 
+    // Reuse this existing queue consumer; no metadata daemon or polling loop.
+    if (motion_history_start())
+        fprintf(stderr, "Motion metadata history unavailable\n");
+
     ipc_set_callback(IPC_MSG_MOTION_START, &callback_motion_generic);
     ipc_set_callback(IPC_MSG_MOTION_STOP, &callback_motion_generic);
     ipc_set_callback(IPC_MSG_AI_HUMAN_DETECTION, &callback_motion_generic);
@@ -577,7 +588,9 @@ int main(int argc, char **argv)
             parse_message(buffer, bytes_read);
         }
 
-        usleep(500 * 1000);
+        // mq_receive blocks until the next event. Back off only on real errors.
+        if (bytes_read < 0 && errno != EINTR)
+            usleep(500 * 1000);
     }
 
     ipc_stop();

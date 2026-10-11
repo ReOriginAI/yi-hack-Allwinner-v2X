@@ -20,7 +20,9 @@ else
 fi
 MFG_PART=$(grep  -oE  ".{0,0}mfg@.{0,9}" /sys/firmware/devicetree/base/chosen/bootargs | cut -c 5-14)
 SERIAL_NUMBER=$(dd bs=1 count=20 skip=36 if=/dev/$MFG_PART 2>/dev/null | tr '\0' '0' | cut -c1-20)
-LOCAL_TIME=$(date)
+YI_HACK_PREFIX=${YI_HACK_PREFIX:-/tmp/sd/yi-hack}
+. "$YI_HACK_PREFIX/script/time_config.sh"
+LOCAL_TIME=$(TZ="$(camera_timezone)" date)
 UPTIME=$(cat /proc/uptime | cut -d ' ' -f1)
 LOAD_AVG=$(cat /proc/loadavg | cut -d ' ' -f1-3)
 TOTAL_MEMORY=$(free -k | awk 'NR==2{print $2}')

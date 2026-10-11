@@ -3,6 +3,7 @@
 CONF_FILE="etc/system.conf"
 
 YI_HACK_PREFIX="/tmp/sd/yi-hack"
+. "$YI_HACK_PREFIX/script/time_config.sh"
 
 HOMEVER=$(cat /home/homever)
 HV=${HOMEVER:0:2}
@@ -157,14 +158,14 @@ init_config()
 
 ensure_rtsp_watchdog()
 {
-    WD_COUNT=$(ps | grep wd.sh | grep -v grep | grep -c ^)
-    if [ "$WD_COUNT" -eq 0 ]; then
-        (
-            sleep 30
-            WD_COUNT=$(ps | grep wd.sh | grep -v grep | grep -c ^)
-            [ "$WD_COUNT" -eq 0 ] && $YI_HACK_PREFIX/script/wd.sh >/dev/null 2>&1
-        ) &
-    fi
+    # A watchdog handling SIGTERM can stay visible until its sleep ends.
+    # Check after the delay even if that old process is still visible now.
+    # wd.sh's singleton lock handles simultaneous delayed starters.
+    (
+        sleep 30
+        WD_COUNT=$(ps | grep wd.sh | grep -v grep | grep -c ^)
+        [ "$WD_COUNT" -eq 0 ] && $YI_HACK_PREFIX/script/wd.sh >/dev/null 2>&1
+    ) &
 }
 
 start_rtsp()
@@ -554,13 +555,52 @@ if [ "$ACTION" == "start" ] ; then
             # its input tracks. Patched y28ga may keep VENC1 paused; stock builds
             # are forced to the recording-safe encoder state.
             $YI_HACK_PREFIX/script/rtsp_stream_venc.sh "$(get_config RTSP_STREAM)" >/dev/null 2>&1 || true
+            MP4_MD5=$(md5sum /home/app/mp4record | cut -d' ' -f1)
+            MP4_WARM_LOW=no
+            # The main-only muxer still fetches sub/fast codec headers at init.
+            # Supply them briefly when restarting with VENC1 already paused.
+            if { [ "$MODEL_SUFFIX:$MP4_MD5" = "y28ga:0d7a4ca9e73fd75806a6ebb75a8accbc" ] ||
+                 [ "$MODEL_SUFFIX:$MP4_MD5" = "y28ga:c541480baa510ad34944e9e763c6b505" ]; } &&
+               [ "$(md5sum /home/app/rmm | cut -d' ' -f1)" = "14aa4ee21e04fb40a3c321fdcd12eef4" ]; then
+                if "$YI_HACK_PREFIX/bin/ipc_cmd" -V on >/dev/null 2>&1; then
+                    MP4_WARM_LOW=yes
+                fi
+            fi
             cd /home/app
-            if [[ $(get_config TIME_OSD) == "yes" ]] ; then
-                TZP=`TZ=$TZ_TMP date +%z`
-                TZP=${TZP:0:3}:${TZP:3:2}
-                TZ=GMT$TZP ./mp4record > /dev/null &
-            else
-                ./mp4record > /dev/null &
+            (
+                # Install metadata inside the recorder only for audited builds.
+                # The muxer writes it before close/rename, with no media remux.
+                MP4_METADATA="$YI_HACK_PREFIX/lib/record_metadata.so"
+                if [ -r "$MP4_METADATA" ]; then
+                    case "$MODEL_SUFFIX:$MP4_MD5" in
+                        y623:c4ee01f6491b26a37db8d92c59605496|y623:06774adfc4368e7dede2ea618a96c2b6|y28ga:d3aff9fb80bc1d61ec78de281e6e9784|y28ga:c541480baa510ad34944e9e763c6b505|y28ga:0d7a4ca9e73fd75806a6ebb75a8accbc)
+                            export YI_RECORD_METADATA_MODEL="$MODEL_SUFFIX"
+                            export LD_PRELOAD="$MP4_METADATA${LD_PRELOAD:+:$LD_PRELOAD}"
+                            ;;
+                    esac
+                fi
+                # Use the full rule so DST changes are handled by localtime.
+                # Explicit UTC also prevents inheriting httpd's local timezone.
+                export TZ="$(recording_timezone)"
+                exec ./mp4record
+            ) > /dev/null &
+            MP4_PID=$!
+            if [ "$MP4_WARM_LOW" = "yes" ]; then
+                MP4_WAIT=0
+                while [ -r "/proc/$MP4_PID/status" ] && [ "$MP4_WAIT" -lt 100 ]; do
+                    MP4_THREADS=$(awk '/^Threads:/ {print $2}' "/proc/$MP4_PID/status")
+                    if [ "${MP4_THREADS:-0}" -gt 1 ]; then
+                        # record_file fetches the cached codec headers again.
+                        # Allow this pass before restoring the encoder policy;
+                        # waiting for a video file would keep VENC1 on when idle.
+                        sleep 2
+                        $YI_HACK_PREFIX/script/rtsp_stream_venc.sh "$(get_config RTSP_STREAM)" >/dev/null 2>&1 || true
+                        break
+                    fi
+                    sleep 0.1
+                    MP4_WAIT=$((MP4_WAIT+1))
+                done
+                # On timeout leave VENC1 available so init can still finish.
             fi
         fi
     elif [ "$NAME" == "motion" ]; then

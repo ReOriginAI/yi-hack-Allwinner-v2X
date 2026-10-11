@@ -12,6 +12,22 @@ APP.configurations = (function($) {
         $(document).on("click", '#button-save', function(e) {
             saveConfigs();
         });
+        $(document).on("change", '#TIMEZONE', function() {
+            $('#TIMEZONE_CUSTOM_GROUP').prop('hidden', this.value !== 'custom');
+        });
+    }
+
+    function setTimezone(value) {
+        // Retain unknown existing rules instead of replacing them on save.
+        var zone = value || 'UTC0';
+        if (zone === 'GMT0') zone = 'UTC0';
+        var preset = false;
+        $('#TIMEZONE option').each(function() {
+            if (this.value === zone && this.value !== 'custom') preset = true;
+        });
+        $('#TIMEZONE').prop('value', preset ? zone : 'custom');
+        $('#TIMEZONE_CUSTOM').prop('value', preset ? '' : value);
+        $('#TIMEZONE_CUSTOM_GROUP').prop('hidden', preset);
     }
 
     function fetchConfigs() {
@@ -26,7 +42,9 @@ APP.configurations = (function($) {
                 loadingStatusElem.fadeOut(500);
 
                 $.each(response, function(key, state) {
-                    if (key == "HOSTNAME" || key == "TIMEZONE" || key == "TIMELAPSE_DT" || key == "TIMELAPSE_VDT" || key == "NTP_SERVER" || key == "HTTPD_PORT" || key == "RTSP_PORT" || key == "USERNAME")
+                    if (key == "TIMEZONE")
+                        setTimezone(state);
+                    else if (key == "HOSTNAME" || key == "TIMELAPSE_DT" || key == "TIMELAPSE_VDT" || key == "NTP_SERVER" || key == "HTTPD_PORT" || key == "RTSP_PORT" || key == "USERNAME")
                         $('input[type="text"][data-key="' + key + '"]').prop('value', state);
                     else if (key == "RTSP_ALT" || key == "RTSP_STREAM" || key == "RTSP_AUDIO" || key == "RTSP_BACKCHANNEL" || key=="SWAP_SWAPPINESS")
                         $('select[data-key="' + key + '"]').prop('value', state);
@@ -65,7 +83,8 @@ APP.configurations = (function($) {
         //            return;
         //        }
 
-        configs["TIMEZONE"] = $('input[type="text"][data-key="TIMEZONE"]').prop('value');
+        configs["TIMEZONE"] = $('#TIMEZONE').prop('value') === 'custom'
+            ? $('#TIMEZONE_CUSTOM').prop('value') : $('#TIMEZONE').prop('value');
         configs["TIMELAPSE_DT"] = $('input[type="text"][data-key="TIMELAPSE_DT"]').prop('value');
         configs["TIMELAPSE_VDT"] = $('input[type="text"][data-key="TIMELAPSE_VDT"]').prop('value');
         configs["NTP_SERVER"] = $('input[type="text"][data-key="NTP_SERVER"]').prop('value');
@@ -91,7 +110,7 @@ APP.configurations = (function($) {
             data: escapedConfigData,
             dataType: "json",
             success: function(response) {
-                saveStatusElem.text("Saved");
+                saveStatusElem.text(response.error === 'true' ? "Could not apply settings" : "Saved");
             },
             error: function(response) {
                 saveStatusElem.text("Error while saving");

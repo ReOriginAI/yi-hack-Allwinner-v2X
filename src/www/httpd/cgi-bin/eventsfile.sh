@@ -2,6 +2,8 @@
 
 CONF_FILE="etc/system.conf"
 YI_HACK_PREFIX="/tmp/sd/yi-hack"
+. "$YI_HACK_PREFIX/script/time_config.sh"
+export TZ="$(camera_timezone)"
 
 HOMEVER=$(cat /home/homever)
 HV=${HOMEVER:0:2}
@@ -66,13 +68,7 @@ if [ "$DIR" == "none" ] ; then
 fi
 
 DIRS00="${DIR:0:4}-${DIR:5:2}-${DIR:8:2} ${DIR:11:2}:00"
-if [[ $(get_config EVENTS_TIME) == "autodetect" ]] ; then
-    DIRS00E=$(date -u -d "$DIRS00" +"%s")
-elif [[ $(get_config EVENTS_TIME) == "local" ]] ; then
-    DIRS00E=$(date -d "$DIRS00" +"%s")
-elif [[ $(get_config EVENTS_TIME) == "gmt" ]] ; then
-    DIRS00E=$(date -u -d "$DIRS00" +"%s")
-fi
+DIRS00E=$(TZ="$(recording_timezone)" date -d "$DIRS00" +"%s")
 DIRL=$(date +%YY%mM%dD%HH -d "@$DIRS00E")
 
 printf "Content-type: application/json\r\n\r\n"
