@@ -1,6 +1,6 @@
 #!/bin/sh
 
-YI_HACK_PREFIX="/tmp/sd/yi-hack"
+YI_HACK_PREFIX=${YI_HACK_PREFIX:-/tmp/sd/yi-hack}
 SERVICE="$YI_HACK_PREFIX/script/motion_service.sh"
 CAMERA_CONF="$YI_HACK_PREFIX/etc/camera.conf"
 MODEL_SUFFIX=$(cat "$YI_HACK_PREFIX/model_suffix" 2>/dev/null)
@@ -76,6 +76,36 @@ esac
 case "$RECORDING" in yes|no) ;; *) RECORDING=no ;; esac
 case "$STATUS" in started|stopped|failed|duplicate|unsupported) ;; *) STATUS=unknown ;; esac
 
-printf "Content-type: application/json\r\n\r\n"
+CUSTOM_SUPPORTED=false
+[ "$BACKEND" = encoder-stats ] && CUSTOM_SUPPORTED=true
+. "$YI_HACK_PREFIX/script/motion_settings.sh"
+SETTINGS=$(motion_read_config | jq 'with_entries(select(.key | startswith("MOTION_")))')
+METRICS=null
+EFFECTIVE=null
+if [ "$BACKEND" = encoder-stats ]; then
+    if [ "$STATUS" = started ]; then
+        # Capture before reading uptime: a concurrent publication must not look
+        # newer than NOW and cause a valid fresh sample to be discarded.
+        SNAPSHOT=$(cat "${MOTION_TELEMETRY_PATH:-/tmp/motion.telemetry}" 2>/dev/null)
+        NOW=$(awk '{printf "%.0f", $1 * 1000}' /proc/uptime)
+        METRICS=$(printf '%s\n' "$SNAPSHOT" | jq -c --argjson now "$NOW" '
+            . + {sample_age_ms:($now - .monotonic_ms)} |
+            select(.sample_age_ms >= 0 and .sample_age_ms <= (.effective.interval_ms * 2 + 2500))
+        ' 2>/dev/null)
+        [ -n "$METRICS" ] || METRICS=null
+    fi
+    if [ "$METRICS" != null ]; then
+        EFFECTIVE=$(printf '%s\n' "$METRICS" | jq '.effective')
+    else
+        EFFECTIVE=$($SERVICE settings 2>/dev/null)
+        [ -n "$EFFECTIVE" ] || EFFECTIVE=null
+    fi
+fi
+case "$SENSITIVITY" in 1|2|3) FIRMWARE_LEVEL=low ;; 8|9|10) FIRMWARE_LEVEL=high ;; *) FIRMWARE_LEVEL=medium ;; esac
+
+printf "Content-type: application/json\r\nCache-Control: no-store\r\n\r\n"
 printf '{"error":false,"model":"%s","backend":"%s","backend_label":"%s","status":"%s","state":"%s","sensitivity":%s,"sensitivity_supported":%s,"sd_backup":"%s"}' \
-    "$MODEL_SUFFIX" "$BACKEND" "$BACKEND_LABEL" "$STATUS" "$STATE" "$SENSITIVITY" "$SENSITIVITY_SUPPORTED" "$RECORDING"
+    "$MODEL_SUFFIX" "$BACKEND" "$BACKEND_LABEL" "$STATUS" "$STATE" "$SENSITIVITY" "$SENSITIVITY_SUPPORTED" "$RECORDING" |
+    jq --argjson custom "$CUSTOM_SUPPORTED" --argjson settings "$SETTINGS" --argjson metrics "$METRICS" \
+       --argjson effective "$EFFECTIVE" --arg firmware "$FIRMWARE_LEVEL" \
+       '. + {custom_supported:$custom,settings:$settings,metrics:$metrics,effective:$effective,firmware_sensitivity:$firmware}'

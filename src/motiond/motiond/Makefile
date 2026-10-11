@@ -3,7 +3,7 @@ LIBS += -lrt
 
 all: motiond
 
-motiond.o: motiond.c
+motiond.o: motiond.c motion_tuning.h
 	$(CC) -c $< -fPIC -Os -o $@
 
 motiond: $(OBJECTS)

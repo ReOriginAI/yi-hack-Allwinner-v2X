@@ -49,7 +49,7 @@
                                 <span class="slider round"></span>
                                 <span class="switch-text"></span>
                             </label>
-                            <span class="switch-description">Enable the local model-aware motion service. On y28ga this uses the lightweight generic firmware IVA detector and local IPC events. The old firmware motion-publication gate is used internally; human/vehicle/animal classifiers, face detection, and PTZ tracking remain disabled.</span>
+                            <span class="switch-description">Detect changes in the scene and publish motion events for local recording.</span>
                         </td>
                     </tr>
                     <tr class="row">
@@ -96,6 +96,57 @@
                     </tr>
                     </tbody>
                 </table>
+                <div id="motion-custom-panel" hidden>
+                    <h5>Fine motion adjustment</h5>
+                    <p>Use the live readings below to distinguish background changes from motion you want to record. Changes apply when you save.</p>
+                    <label class="switch small">
+                        <input type="checkbox" id="MOTION_CUSTOM" data-key="MOTION_CUSTOM"/>
+                        <span class="slider round"></span><span class="switch-text"></span>
+                    </label>
+                    <label for="MOTION_CUSTOM" class="inline-block">Use custom thresholds</label>
+                    <button type="button" id="motion-copy-preset">Copy selected sensitivity preset</button>
+                    <fieldset id="motion-custom-fields" disabled>
+                        <table class="u-full-width padded-table config-table">
+                            <tbody>
+                            <tr><td><label for="MOTION_START_THRESHOLD">Start threshold (%)</label></td><td>
+                                <input type="number" id="MOTION_START_THRESHOLD" data-key="MOTION_START_THRESHOLD" min="0.01" max="100" step="0.01" value="3.00"/>
+                                <span class="switch-description">Start when the change ratio reaches this value. Lower values detect smaller changes.</span>
+                            </td></tr>
+                            <tr><td><label for="MOTION_STOP_THRESHOLD">Stop threshold (%)</label></td><td>
+                                <input type="number" id="MOTION_STOP_THRESHOLD" data-key="MOTION_STOP_THRESHOLD" min="0" max="99.99" step="0.01" value="0.30"/>
+                                <span class="switch-description">Begin the quiet countdown at or below this value. Set it above the idle background reading and below the start threshold.</span>
+                            </td></tr>
+                            <tr><td><label for="MOTION_START_SAMPLES">Start confirmation (samples)</label></td><td>
+                                <input type="number" id="MOTION_START_SAMPLES" data-key="MOTION_START_SAMPLES" min="1" max="50" step="1" value="3"/>
+                                <span class="switch-description" id="motion-start-timing">Consecutive samples above the start threshold. Fewer samples capture briefer motion.</span>
+                            </td></tr>
+                            <tr><td><label for="MOTION_STOP_DELAY">Quiet time before stopping (ms)</label></td><td>
+                                <input type="number" id="MOTION_STOP_DELAY" data-key="MOTION_STOP_DELAY" min="100" max="30000" step="1" value="2000"/>
+                                <span class="switch-description">Motion remains active until the scene stays below the stop threshold for this long. A new change resets the countdown.</span>
+                            </td></tr>
+                            <tr><td><label for="MOTION_POLL_INTERVAL">Sample interval (ms)</label></td><td>
+                                <input type="number" id="MOTION_POLL_INTERVAL" data-key="MOTION_POLL_INTERVAL" min="100" max="2000" step="1" value="100"/>
+                                <span class="switch-description">100 ms responds fastest. Larger values reduce sampling work but can miss brief motion.</span>
+                            </td></tr>
+                            <tr><td><label for="MOTION_STOP_REQUIRE_ZERO">Require motion level zero to stop</label></td><td>
+                                <label class="switch small"><input type="checkbox" id="MOTION_STOP_REQUIRE_ZERO" data-key="MOTION_STOP_REQUIRE_ZERO" checked/><span class="slider round"></span><span class="switch-text"></span></label>
+                                <span class="switch-description">Disable if background changes keep the motion level above zero. The stop threshold and quiet time still apply.</span>
+                            </td></tr>
+                            </tbody>
+                        </table>
+                    </fieldset>
+                    <h5>Live detector readings</h5>
+                    <p id="motion-effective-settings">Checking active settings...</p>
+                    <div id="motion-live-readings" role="status">Waiting for a detector sample...</div>
+                    <svg id="motion-history-chart" viewBox="0 0 600 130" width="100%" height="130" role="img" aria-label="Recent scene change ratios with start and stop thresholds" hidden>
+                        <path id="motion-chart-start" stroke="#d97706" stroke-dasharray="5 4" fill="none"/>
+                        <path id="motion-chart-stop" stroke="#0891b2" stroke-dasharray="5 4" fill="none"/>
+                        <path id="motion-chart-ratio" stroke="currentColor" stroke-width="2" fill="none"/>
+                        <text id="motion-chart-scale" x="8" y="14" fill="currentColor" font-size="12"/>
+                    </svg>
+                    <p class="switch-description">Recent samples: solid line = scene change, orange = start, blue = stop. The readings come from the running detector. Custom mode starts using the change threshold alone; sensitivity presets also use the encoder's strong-motion hint.</p>
+                </div>
+                <p id="motion-firmware-limit" hidden>This camera offers three firmware sensitivity levels: low, medium, and high. Separate change thresholds and timing controls are unavailable on this firmware.</p>
             </div>
         </div>
 

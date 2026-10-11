@@ -49,6 +49,7 @@ jobs:
           python3 scripts/test_rtsp_config.py
           python3 scripts/test_time_config.py
           python3 scripts/test_nightvision.py
+          python3 scripts/test_motion_tuning.py
 
       - name: Download toolchain
         run: |

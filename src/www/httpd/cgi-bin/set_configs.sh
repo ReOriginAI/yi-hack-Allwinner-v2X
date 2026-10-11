@@ -68,6 +68,8 @@ fi
 OLD_RTSP_STREAM=""
 TIME_APPLY_ERROR=false
 NIGHTVISION_APPLY_ERROR=false
+MOTION_APPLY_ERROR=false
+MOTION_REQUEST=no
 if [ "$CONF_TYPE" = camera ]; then
     OLD_NIGHTVISION_SETTINGS=$(grep -E '^(IR|NIGHTVISION_MODE|NIGHTVISION_THRESHOLD)=' "$CONF_FILE" 2>/dev/null)
 fi
@@ -90,6 +92,20 @@ fi
 
 # Validate the complete night-vision request before changing any saved setting.
 if [ "$CONF_TYPE" = camera ]; then
+    if echo "$POST_DATA" | jq -e 'keys | any(test("^(MOTION_(DETECTION|SENSITIVITY|CUSTOM|START_THRESHOLD|STOP_THRESHOLD|START_SAMPLES|STOP_DELAY|POLL_INTERVAL|STOP_REQUIRE_ZERO)|SAVE_VIDEO_ON_MOTION)$"))' >/dev/null 2>&1; then
+        MOTION_REQUEST=yes
+        . "$YI_HACK_PREFIX/script/motion_settings.sh" || exit 1
+        MOTION_OLD=$(motion_read_config)
+        MOTION_MERGED=$(printf '%s\n' "$MOTION_OLD" | jq --argjson changes "$POST_DATA" '. + $changes')
+        if ! motion_validate_json "$MOTION_MERGED"; then
+            printf 'Content-type: application/json\r\n\r\n{"error":true,"description":"Invalid motion settings: stop threshold must be below start; check numeric ranges"}'
+            exit
+        fi
+        if [ "$(cat "$YI_HACK_PREFIX/model_suffix" 2>/dev/null)" = y28ga ] && [ "$(echo "$MOTION_MERGED" | jq -r '.MOTION_CUSTOM')" = yes ]; then
+            printf 'Content-type: application/json\r\n\r\n{"error":true,"description":"This camera supports firmware sensitivity levels only; custom thresholds are unavailable"}'
+            exit
+        fi
+    fi
     NV_MODE=$(echo "$POST_DATA" | jq -r '.NIGHTVISION_MODE // empty')
     NV_THRESHOLD=$(echo "$POST_DATA" | jq -r '.NIGHTVISION_THRESHOLD // empty')
     NV_INVALID=no
@@ -105,6 +121,14 @@ if [ "$CONF_TYPE" = camera ]; then
     if [ "$NV_INVALID" = yes ]; then
         printf 'Content-type: application/json\r\n\r\n{"error":true,"description":"Invalid night-vision mode or threshold"}'
         exit
+    fi
+    if [ "$MOTION_REQUEST" = yes ]; then
+        for KEY in MOTION_CUSTOM MOTION_START_THRESHOLD MOTION_STOP_THRESHOLD MOTION_START_SAMPLES MOTION_STOP_DELAY MOTION_POLL_INTERVAL MOTION_STOP_REQUIRE_ZERO; do
+            if ! grep -q "^$KEY=" "$CONF_FILE"; then
+                VALUE=$(echo "$MOTION_MERGED" | jq -r --arg key "$KEY" '.[$key]')
+                printf '%s=%s\n' "$KEY" "$VALUE" >> "$CONF_FILE"
+            fi
+        done
     fi
     # Existing configurations need not have gone through a reboot/migration yet.
     if [ -n "$NV_MODE" ] && ! grep -q '^NIGHTVISION_MODE=' "$CONF_FILE"; then
@@ -191,6 +215,15 @@ if [ "$CONF_TYPE" = camera ]; then
     if [ "$NEW_NIGHTVISION_SETTINGS" != "$OLD_NIGHTVISION_SETTINGS" ]; then
         "$YI_HACK_PREFIX/script/nightvision.sh" apply >/dev/null 2>&1 || NIGHTVISION_APPLY_ERROR=true
     fi
+    if [ "$MOTION_REQUEST" = yes ]; then
+        MOTION_NEW=$(motion_read_config)
+        MOTION_CHANGED=$(printf '%s\n' "$MOTION_NEW" | jq --argjson old "$MOTION_OLD" '
+            [to_entries[] | select(.key | test("^(MOTION_|SAVE_VIDEO_ON_MOTION$)"))] !=
+            [$old | to_entries[] | select(.key | test("^(MOTION_|SAVE_VIDEO_ON_MOTION$)"))]')
+        if [ "$MOTION_CHANGED" = true ]; then
+            "$YI_HACK_PREFIX/script/motion_service.sh" restart >/dev/null 2>&1 || MOTION_APPLY_ERROR=true
+        fi
+    fi
 fi
 
 # System settings that can safely be applied immediately are normalized here.
@@ -253,7 +286,9 @@ fi
 printf "Content-type: application/json\r\n\r\n"
 
 printf "{\n"
-if [ "$NIGHTVISION_APPLY_ERROR" = true ]; then
+if [ "$MOTION_APPLY_ERROR" = true ]; then
+    printf '"error":true,"description":"Saved, but motion detection failed to apply; check motion status"\n'
+elif [ "$NIGHTVISION_APPLY_ERROR" = true ]; then
     printf '"error":true,"description":"Saved, but night-vision controls are unavailable"\n'
 else
 printf "\"%s\":\"%s\"\\n" "error" "$TIME_APPLY_ERROR"

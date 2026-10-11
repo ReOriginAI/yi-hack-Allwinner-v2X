@@ -1,6 +1,6 @@
 #!/bin/sh
 
-YI_HACK_PREFIX="/tmp/sd/yi-hack"
+YI_HACK_PREFIX=${YI_HACK_PREFIX:-/tmp/sd/yi-hack}
 CAMERA_CONF="$YI_HACK_PREFIX/etc/camera.conf"
 SYSTEM_CONF="$YI_HACK_PREFIX/etc/system.conf"
 MOTIOND="$YI_HACK_PREFIX/bin/motiond"
@@ -81,6 +81,28 @@ motion_sensitivity()
         1|2|3|4|5|6|7|8|9|10) echo "$VALUE" ;;
         *) echo 5 ;;
     esac
+}
+
+encoder_arguments()
+{
+    . "$YI_HACK_PREFIX/script/motion_settings.sh" || return 1
+    SETTINGS=$(motion_read_config) || return 1
+    motion_validate_json "$SETTINGS" || {
+        echo "invalid saved motion settings" >&2
+        return 1
+    }
+    set -- -s "$(motion_sensitivity)" -i 100
+    if [ "$(get_camera_config MOTION_CUSTOM)" = yes ]; then
+        ZERO=1
+        [ "$(get_camera_config MOTION_STOP_REQUIRE_ZERO)" = no ] && ZERO=0
+        set -- -s "$(motion_sensitivity)" -i "$(get_camera_config MOTION_POLL_INTERVAL)" \
+            --trigger "$(get_camera_config MOTION_START_THRESHOLD)" \
+            --release "$(get_camera_config MOTION_STOP_THRESHOLD)" \
+            --confirm "$(get_camera_config MOTION_START_SAMPLES)" \
+            --quiet-ms "$(get_camera_config MOTION_STOP_DELAY)" --require-zero "$ZERO"
+    fi
+    # All tokens above are numeric or fixed option names, validated before use.
+    printf '%s\n' "$@"
 }
 
 firmware_motion_sensitivity()
@@ -264,7 +286,7 @@ start_encoder_backend()
         return 1
     fi
 
-    SENS=$(motion_sensitivity)
+    ARGS=$(encoder_arguments) || return 1
     RECORD_OPT=""
 
     if [ "$(get_camera_config SAVE_VIDEO_ON_MOTION)" = "yes" ]; then
@@ -278,7 +300,7 @@ start_encoder_backend()
         stop_owned_mp4record
     fi
 
-    "$MOTIOND" -s "$SENS" -i 100 $RECORD_OPT 2>&1 |
+    "$MOTIOND" $ARGS $RECORD_OPT 2>&1 |
         "$YI_HACK_PREFIX/script/motion_log.sh" "$LOGFILE" &
     LOGGER_PID=$!
     sleep 0.1
@@ -454,8 +476,13 @@ case "$1" in
     sensitivity)
         motion_sensitivity
         ;;
+    settings)
+        [ "$(motion_backend)" = encoder-stats ] || exit 1
+        ARGS=$(encoder_arguments) || exit 1
+        "$MOTIOND" $ARGS --settings
+        ;;
     *)
-        echo "usage: $0 {start|stop|restart|status|backend|sensitivity}" >&2
+        echo "usage: $0 {start|stop|restart|status|backend|sensitivity|settings}" >&2
         exit 2
         ;;
 esac

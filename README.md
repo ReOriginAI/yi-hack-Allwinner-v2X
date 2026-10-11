@@ -118,6 +118,8 @@ The shared interface includes:
 
 - local motion enable/disable
 - motion sensitivity
+- fine y623 motion thresholds, confirmation, quiet time and sampling interval, with live readings and a chart ([tuning guide](docs/MOTION_TUNING.md))
+- actual low/medium/high firmware sensitivity choices on y28ga
 - live motion backend/runtime state polling
 - local SD motion recording control
 - Audio Library upload/list/play/delete controls
@@ -364,6 +366,9 @@ The important fields are:
 - `state`: `idle`, `motion`, `disabled`, or `unavailable`
 - `sensitivity`: configured 1-10 value
 - `sd_backup`: whether local motion recording is enabled
+- `custom_supported`: whether separate thresholds and timing controls are available
+- `effective`: settings used by the detector, including custom mode and the stop rule
+- `metrics`: recent change ratio, motion level, quiet countdown and sample age; `null` when unavailable
 
 For `y623`, the backend uses H.264 encoder statistics. For `y28ga`, only the generic firmware IVA `motion_alarm` event is consumed; legacy human/vehicle/animal classifier files are not treated as motion.
 

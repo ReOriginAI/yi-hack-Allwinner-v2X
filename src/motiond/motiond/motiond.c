@@ -9,10 +9,13 @@
 #include <signal.h>
 #include <mqueue.h>
 #include <ctype.h>
+#include <getopt.h>
+#include "motion_tuning.h"
 
 #define VE_PATH "/sys/kernel/debug/mpp/ve"
 #define BUDDY_PATH "/proc/buddyinfo"
 #define STATE_PATH "/tmp/motion.state"
+#define TELEMETRY_PATH "/tmp/motion.telemetry"
 #define IPC_QUEUE_NAME "/ipc_dispatch"
 #define BUF_SZ 8192
 #define VE_MIN_ORDER3_UNITS 4
@@ -31,34 +34,6 @@ static const unsigned char IPC_MOTION_STOP[16] = {
 static volatile sig_atomic_t running = 1;
 static long long ve_retry_after_ms = 0;
 static int ve_uses_vmalloc = 0;
-
-struct motion_stats {
-    int scene;
-    int move;
-    int moving_level;
-    double bin_ratio;
-    int moving_th;
-};
-
-struct sens_cfg {
-    double trigger;
-    double release;
-    int confirm_samples;
-    int quiet_ms;
-};
-
-static const struct sens_cfg cfgs[10] = {
-    {15.00, 1.50, 5, 2000},
-    {10.00, 1.00, 5, 2000},
-    { 7.00, 0.70, 4, 2000},
-    { 5.00, 0.50, 4, 2000},
-    { 3.00, 0.30, 3, 2000},
-    { 2.00, 0.20, 3, 2000},
-    { 1.20, 0.15, 3, 2000},
-    { 0.80, 0.15, 2, 2000},
-    { 0.50, 0.15, 2, 2000},
-    { 0.25, 0.15, 2, 2000},
-};
 
 static void on_signal(int sig) {
     (void)sig;
@@ -277,6 +252,55 @@ static int send_motion_ipc(mqd_t mq, int active) {
     return mq_send(mq, (const char *)msg, 16, 0);
 }
 
+static int parse_int_arg(const char *text, int *value) {
+    if (!*text || strlen(text) > 5) return 0;
+    for (const char *p = text; *p; ++p) if (!isdigit((unsigned char)*p)) return 0;
+    *value = (int)strtol(text, NULL, 10);
+    return 1;
+}
+
+static int parse_ratio_arg(const char *text, double *value) {
+    int whole = 0, fraction = 0, dot = 0;
+    for (const char *p = text; *p; ++p) {
+        if (*p == '.' && !dot) { dot = 1; continue; }
+        if (!isdigit((unsigned char)*p)) return 0;
+        if (dot) ++fraction; else ++whole;
+    }
+    if (whole < 1 || whole > 3 || fraction > 2 || (dot && !fraction)) return 0;
+    *value = strtod(text, NULL);
+    return isfinite(*value);
+}
+
+static void settings_json(char *buffer, size_t size, const struct sens_cfg *c,
+                          int interval, int custom) {
+    snprintf(buffer, size, "{\"custom\":%s,\"trigger\":%.2f,\"release\":%.2f,"
+        "\"confirm_samples\":%d,\"quiet_ms\":%d,\"interval_ms\":%d,"
+        "\"require_zero\":%s,\"level_boost\":%s}", custom ? "true" : "false",
+        c->trigger, c->release, c->confirm_samples, c->quiet_ms, interval,
+        c->require_zero ? "true" : "false", c->level_boost ? "true" : "false");
+}
+
+/* Publish existing samples once per second in RAM; the web UI never opens VE.
+ * Rename makes every read a complete snapshot. No video or SD-card writes. */
+static void write_telemetry(const struct motion_detector *d, const struct motion_stats *s,
+                            int rc, long long now, const char *settings) {
+    char buffer[768], sample[128];
+    if (rc == 0) snprintf(sample, sizeof(sample),
+        "\"bin_ratio\":%.2f,\"moving_level\":%d", s->bin_ratio, s->moving_level);
+    else snprintf(sample, sizeof(sample), "\"bin_ratio\":null,\"moving_level\":null");
+    int n = snprintf(buffer, sizeof(buffer),
+        "{\"monotonic_ms\":%lld,\"active\":%s,%s,\"read_error\":%d,"
+        "\"positive_samples\":%d,\"quiet_elapsed_ms\":%lld,\"effective\":%s}\n",
+        now, d->active ? "true" : "false", sample, rc, d->positives,
+        d->quiet_since < 0 ? 0 : now - d->quiet_since, settings);
+    if (n < 0 || (size_t)n >= sizeof(buffer)) return;
+    int fd = open(TELEMETRY_PATH ".tmp", O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644);
+    if (fd < 0) return;
+    ssize_t written = write(fd, buffer, (size_t)n);
+    close(fd);
+    if (written == n) rename(TELEMETRY_PATH ".tmp", TELEMETRY_PATH);
+}
+
 static void usage(const char *p) {
     fprintf(stderr,
         "usage: %s [-s sensitivity_1_10] [-i interval_ms] [-a] [-r] [-k]\n"
@@ -285,6 +309,10 @@ static void usage(const char *p) {
         "  -a     log every sample\n"
         "  -r     send local motion START/STOP IPC for recorder/event consumers\n"
         "  -k     report verified VE allocator and exit without sampling/events/state writes\n"
+        "  --trigger PCT --release PCT  custom start/stop change ratios (0.01..100 / 0..start)\n"
+        "  --confirm N --quiet-ms MS    start samples (1..50), quiet delay (100..30000)\n"
+        "  --require-zero 0|1          require motion level zero while quiet\n"
+        "  --settings                  print effective settings JSON and exit\n"
         "Default is detector-only: writes " STATE_PATH " and sends no IPC.\n", p);
 }
 
@@ -294,23 +322,53 @@ int main(int argc, char **argv) {
     int log_all = 0;
     int record_events = 0;
     int check_kernel = 0;
+    int show_settings = 0, custom = 0, valid_args = 1;
+    struct sens_cfg overrides = {0};
+    unsigned fields = 0;
+    static const struct option options[] = {
+        {"trigger", required_argument, NULL, 'T'},
+        {"release", required_argument, NULL, 'R'},
+        {"confirm", required_argument, NULL, 'C'},
+        {"quiet-ms", required_argument, NULL, 'Q'},
+        {"require-zero", required_argument, NULL, 'Z'},
+        {"settings", no_argument, NULL, 'J'},
+        {NULL, 0, NULL, 0}
+    };
     int opt;
 
-    while ((opt = getopt(argc, argv, "s:i:arkh")) != -1) {
+    while ((opt = getopt_long(argc, argv, "s:i:arkh", options, NULL)) != -1) {
         switch (opt) {
-            case 's': sensitivity = atoi(optarg); break;
-            case 'i': interval_ms = atoi(optarg); break;
+            case 's': valid_args &= parse_int_arg(optarg, &sensitivity); break;
+            case 'i': valid_args &= parse_int_arg(optarg, &interval_ms); break;
+            case 'T': valid_args &= parse_ratio_arg(optarg, &overrides.trigger); fields |= 1; break;
+            case 'R': valid_args &= parse_ratio_arg(optarg, &overrides.release); fields |= 2; break;
+            case 'C': valid_args &= parse_int_arg(optarg, &overrides.confirm_samples); fields |= 4; break;
+            case 'Q': valid_args &= parse_int_arg(optarg, &overrides.quiet_ms); fields |= 8; break;
+            case 'Z': valid_args &= parse_int_arg(optarg, &overrides.require_zero); fields |= 16; break;
+            case 'J': show_settings = 1; break;
             case 'a': log_all = 1; break;
             case 'r': record_events = 1; break;
             case 'k': check_kernel = 1; break;
             default: usage(argv[0]); return opt == 'h' ? 0 : 2;
         }
     }
-    if (sensitivity < 1 || sensitivity > 10 ||
-        interval_ms < 100 || interval_ms > 2000) {
+    if (!valid_args || optind != argc || sensitivity < 1 || sensitivity > 10) {
         usage(argv[0]);
         return 2;
     }
+
+    struct sens_cfg config = cfgs[sensitivity - 1];
+    if (fields & 1) config.trigger = overrides.trigger;
+    if (fields & 2) config.release = overrides.release;
+    if (fields & 4) config.confirm_samples = overrides.confirm_samples;
+    if (fields & 8) config.quiet_ms = overrides.quiet_ms;
+    if (fields & 16) config.require_zero = overrides.require_zero;
+    custom = fields != 0;
+    if (custom) config.level_boost = 0; /* Custom start threshold is literal. */
+    if (!motion_config_valid(&config, interval_ms)) { usage(argv[0]); return 2; }
+    char effective[256];
+    settings_json(effective, sizeof(effective), &config, interval_ms, custom);
+    if (show_settings) { puts(effective); return 0; }
 
     ve_uses_vmalloc = ve_vmalloc_verified();
     if (check_kernel) {
@@ -331,11 +389,10 @@ int main(int argc, char **argv) {
         }
     }
 
-    const struct sens_cfg *c = &cfgs[sensitivity - 1];
-    int active = 0;
-    int positives = 0;
-    long long quiet_since = -1;
+    const struct sens_cfg *c = &config;
+    struct motion_detector detector = {.quiet_since = -1};
     long long last_heartbeat = 0;
+    long long last_telemetry = -1000;
     struct motion_stats prev = {-999,-999,-999,-999.0,-999};
 
     if (write_state(0) != 0) {
@@ -344,16 +401,32 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    printf("motiond v1.2 sens=%d trigger=%.2f release=%.2f confirm=%d quiet_ms=%d interval_ms=%d record_events=%d ve_allocator=%s\n",
+    printf("motiond v1.3 sens=%d trigger=%.2f release=%.2f confirm=%d quiet_ms=%d interval_ms=%d record_events=%d ve_allocator=%s custom=%d require_zero=%d\n",
            sensitivity, c->trigger, c->release, c->confirm_samples,
            c->quiet_ms, interval_ms, record_events,
-           ve_uses_vmalloc ? "vmalloc-verified" : "legacy-guard");
+           ve_uses_vmalloc ? "vmalloc-verified" : "legacy-guard", custom, c->require_zero);
     fflush(stdout);
 
     while (running) {
         struct motion_stats s;
         int rc = read_stats(&s);
         long long now = mono_ms();
+        if (rc == 0 && (!isfinite(s.bin_ratio) || s.bin_ratio < 0 ||
+                        s.bin_ratio > 100 || s.moving_level < 0)) rc = -5;
+        int transition = motion_update(&detector, c, rc == 0 ? &s : NULL, now);
+        if (transition) {
+            if (write_state(detector.active) != 0) perror("write_state");
+            if (record_events && send_motion_ipc(mq, detector.active) != 0)
+                perror("mq_send motion");
+            printf("t=%lld MOTION %s bin=%.2f level=%d move=%d%s\n", now,
+                detector.active ? "ON" : "OFF", s.bin_ratio, s.moving_level, s.move,
+                record_events ? (detector.active ? " IPC=START" : " IPC=STOP") : "");
+            fflush(stdout);
+        }
+        if (now - last_telemetry >= 1000) {
+            write_telemetry(&detector, &s, rc, now, effective);
+            last_telemetry = now;
+        }
 
         if (rc == 0) {
             int changed =
@@ -363,48 +436,9 @@ int main(int argc, char **argv) {
                 s.moving_th != prev.moving_th ||
                 s.bin_ratio != prev.bin_ratio;
 
-            int strong = (s.bin_ratio >= c->trigger) ||
-                         (s.moving_level >= 2 && s.bin_ratio >= c->trigger * 0.5);
-
-            if (!active) {
-                if (strong) positives++;
-                else positives = 0;
-
-                if (positives >= c->confirm_samples) {
-                    active = 1;
-                    quiet_since = -1;
-                    if (write_state(1) != 0) perror("write_state");
-                    if (record_events && send_motion_ipc(mq, 1) != 0)
-                        perror("mq_send START");
-                    printf("t=%lld MOTION ON bin=%.2f level=%d move=%d%s\n",
-                           now, s.bin_ratio, s.moving_level, s.move,
-                           record_events ? " IPC=START" : "");
-                    fflush(stdout);
-                }
-            } else {
-                int quiet = (s.bin_ratio <= c->release && s.moving_level == 0);
-                if (quiet) {
-                    if (quiet_since < 0) quiet_since = now;
-                    if (now - quiet_since >= c->quiet_ms) {
-                        active = 0;
-                        positives = 0;
-                        if (write_state(0) != 0) perror("write_state");
-                        if (record_events && send_motion_ipc(mq, 0) != 0)
-                            perror("mq_send STOP");
-                        printf("t=%lld MOTION OFF bin=%.2f level=%d move=%d quiet=%lldms%s\n",
-                               now, s.bin_ratio, s.moving_level, s.move,
-                               now - quiet_since,
-                               record_events ? " IPC=STOP" : "");
-                        fflush(stdout);
-                    }
-                } else {
-                    quiet_since = -1;
-                }
-            }
-
             if (log_all || changed || now - last_heartbeat >= 2000) {
                 printf("t=%lld state=%d sens=%d scene=%d move=%d level=%d bin=%.2f th=%d%s\n",
-                       now, active, sensitivity, s.scene, s.move, s.moving_level,
+                       now, detector.active, sensitivity, s.scene, s.move, s.moving_level,
                        s.bin_ratio, s.moving_th, changed ? " *" : "");
                 fflush(stdout);
                 last_heartbeat = now;
@@ -412,8 +446,6 @@ int main(int argc, char **argv) {
             prev = s;
         } else {
             /* Missing samples establish neither motion nor a quiet period. */
-            positives = 0;
-            quiet_since = -1;
             if (now - last_heartbeat >= 2000) {
                 fprintf(stderr, "t=%lld read_error=%d errno=%d\n", now, rc, errno);
                 fflush(stderr);
@@ -427,10 +459,11 @@ int main(int argc, char **argv) {
         nanosleep(&req, NULL);
     }
 
-    if (active && record_events && mq != (mqd_t)-1) {
+    if (detector.active && record_events && mq != (mqd_t)-1) {
         if (send_motion_ipc(mq, 0) != 0) perror("mq_send STOP");
     }
     write_state(0);
+    unlink(TELEMETRY_PATH);
     if (mq != (mqd_t)-1) mq_close(mq);
     printf("motiond stopped\n");
     return 0;
