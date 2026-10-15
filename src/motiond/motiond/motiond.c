@@ -11,12 +11,23 @@
 #include <ctype.h>
 #include <getopt.h>
 #include "motion_tuning.h"
+#include "motion_delivery.h"
+#include "motion_mask.h"
+#include "../../ipc_cmd/ipc_cmd/motion_metadata_levels.h"
 
+#ifndef VE_PATH
 #define VE_PATH "/sys/kernel/debug/mpp/ve"
+#endif
 #define BUDDY_PATH "/proc/buddyinfo"
+#ifndef STATE_PATH
 #define STATE_PATH "/tmp/motion.state"
+#endif
+#ifndef TELEMETRY_PATH
 #define TELEMETRY_PATH "/tmp/motion.telemetry"
+#endif
+#ifndef IPC_QUEUE_NAME
 #define IPC_QUEUE_NAME "/ipc_dispatch"
+#endif
 #define BUF_SZ 8192
 #define VE_MIN_ORDER3_UNITS 4
 #define VE_PRESSURE_RETRY_MS 500
@@ -237,19 +248,16 @@ static int read_stats(struct motion_stats *s) {
 }
 
 static int write_state(int active) {
-    int fd = open(STATE_PATH, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644);
+    int fd = open(STATE_PATH ".tmp", O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644);
     if (fd < 0) return -1;
     const char *v = active ? "1\n" : "0\n";
     ssize_t wr = write(fd, v, 2);
-    int saved = errno;
-    close(fd);
+    int saved = wr == 2 ? 0 : wr < 0 ? errno : EIO;
+    if (close(fd) && !saved) saved = errno;
+    if (!saved && rename(STATE_PATH ".tmp", STATE_PATH)) saved = errno;
+    if (saved) unlink(STATE_PATH ".tmp");
     errno = saved;
-    return wr == 2 ? 0 : -1;
-}
-
-static int send_motion_ipc(mqd_t mq, int active) {
-    const unsigned char *msg = active ? IPC_MOTION_START : IPC_MOTION_STOP;
-    return mq_send(mq, (const char *)msg, 16, 0);
+    return saved ? -1 : 0;
 }
 
 static int parse_int_arg(const char *text, int *value) {
@@ -283,16 +291,31 @@ static void settings_json(char *buffer, size_t size, const struct sens_cfg *c,
 /* Publish existing samples once per second in RAM; the web UI never opens VE.
  * Rename makes every read a complete snapshot. No video or SD-card writes. */
 static void write_telemetry(const struct motion_detector *d, const struct motion_stats *s,
-                            int rc, long long now, const char *settings) {
-    char buffer[768], sample[128];
+                            int rc, long long now, const char *settings,
+                            const struct motion_delivery *ipc, int state_pending,
+                            const struct motion_mask *mask) {
+    char buffer[1600], sample[192], mask_json[512];
+    if (mask->enabled && !mask->error) snprintf(mask_json,sizeof(mask_json),
+        "{\"enabled\":true,\"error\":0,\"ratio\":%.3f,\"age_ms\":%lld,"
+        "\"predicted_frame\":%s,\"source_version\":%u,\"activity\":\"%s\"}",
+        mask->ratio,now-mask->frame.monotonic_ms,mask->frame.p_frame?"true":"false",
+        mask->source_version,mask->activity);
+    else snprintf(mask_json,sizeof(mask_json),
+        "{\"enabled\":%s,\"error\":%d,\"fallback\":%s,\"ratio\":null,\"activity\":null}",
+        mask->enabled?"true":"false",mask->enabled?mask->error:0,mask->fallback?"true":"false");
     if (rc == 0) snprintf(sample, sizeof(sample),
-        "\"bin_ratio\":%.2f,\"moving_level\":%d", s->bin_ratio, s->moving_level);
-    else snprintf(sample, sizeof(sample), "\"bin_ratio\":null,\"moving_level\":null");
+        "\"scene\":%d,\"move\":%d,\"moving_level\":%d,\"bin_ratio\":%.2f,\"moving_th\":%d",
+        s->scene, s->move, s->moving_level, s->bin_ratio, s->moving_th);
+    else snprintf(sample, sizeof(sample),
+        "\"scene\":null,\"move\":null,\"moving_level\":null,\"bin_ratio\":null,\"moving_th\":null");
     int n = snprintf(buffer, sizeof(buffer),
         "{\"monotonic_ms\":%lld,\"active\":%s,%s,\"read_error\":%d,"
-        "\"positive_samples\":%d,\"quiet_elapsed_ms\":%lld,\"effective\":%s}\n",
+        "\"positive_samples\":%d,\"quiet_elapsed_ms\":%lld,"
+        "\"ipc_pending\":%s,\"ipc_error\":%d,\"state_pending\":%s,\"effective\":%s,\"mask\":%s}\n",
         now, d->active ? "true" : "false", sample, rc, d->positives,
-        d->quiet_since < 0 ? 0 : now - d->quiet_since, settings);
+        d->quiet_since < 0 ? 0 : now - d->quiet_since,
+        motion_delivery_pending(ipc) ? "true" : "false", ipc->error,
+        state_pending ? "true" : "false", settings, mask_json);
     if (n < 0 || (size_t)n >= sizeof(buffer)) return;
     int fd = open(TELEMETRY_PATH ".tmp", O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644);
     if (fd < 0) return;
@@ -313,6 +336,9 @@ static void usage(const char *p) {
         "  --confirm N --quiet-ms MS    start samples (1..50), quiet delay (100..30000)\n"
         "  --require-zero 0|1          require motion level zero while quiet\n"
         "  --settings                  print effective settings JSON and exit\n"
+        "  --mask CELLS                240 row-major exclusion cells (1 ignores, 0 includes)\n"
+        "  --mask-vector-pixels N      minimum vector motion 1..16 pixels (default 1)\n"
+        "  --mask-difference N         intra-block temporal difference 0..255 (default 12; 0 disables)\n"
         "Default is detector-only: writes " STATE_PATH " and sends no IPC.\n", p);
 }
 
@@ -325,6 +351,7 @@ int main(int argc, char **argv) {
     int show_settings = 0, custom = 0, valid_args = 1;
     struct sens_cfg overrides = {0};
     unsigned fields = 0;
+    struct motion_mask mask={.vector_pixels=1,.difference_threshold=12};
     static const struct option options[] = {
         {"trigger", required_argument, NULL, 'T'},
         {"release", required_argument, NULL, 'R'},
@@ -332,6 +359,9 @@ int main(int argc, char **argv) {
         {"quiet-ms", required_argument, NULL, 'Q'},
         {"require-zero", required_argument, NULL, 'Z'},
         {"settings", no_argument, NULL, 'J'},
+        {"mask", required_argument, NULL, 'M'},
+        {"mask-vector-pixels", required_argument, NULL, 'P'},
+        {"mask-difference", required_argument, NULL, 'D'},
         {NULL, 0, NULL, 0}
     };
     int opt;
@@ -346,13 +376,21 @@ int main(int argc, char **argv) {
             case 'Q': valid_args &= parse_int_arg(optarg, &overrides.quiet_ms); fields |= 8; break;
             case 'Z': valid_args &= parse_int_arg(optarg, &overrides.require_zero); fields |= 16; break;
             case 'J': show_settings = 1; break;
+            case 'M':
+                valid_args &= motion_mask_valid(optarg);
+                if (valid_args) {memcpy(mask.cells,optarg,sizeof(mask.cells));mask.enabled=1;}
+                break;
+            case 'P': valid_args &= parse_int_arg(optarg,&mask.vector_pixels); break;
+            case 'D': valid_args &= parse_int_arg(optarg,&mask.difference_threshold); break;
             case 'a': log_all = 1; break;
             case 'r': record_events = 1; break;
             case 'k': check_kernel = 1; break;
             default: usage(argv[0]); return opt == 'h' ? 0 : 2;
         }
     }
-    if (!valid_args || optind != argc || sensitivity < 1 || sensitivity > 10) {
+    if (!valid_args || optind != argc || sensitivity < 1 || sensitivity > 10 ||
+        mask.vector_pixels<1 || mask.vector_pixels>16 ||
+        mask.difference_threshold<0 || mask.difference_threshold>255) {
         usage(argv[0]);
         return 2;
     }
@@ -379,52 +417,96 @@ int main(int argc, char **argv) {
 
     signal(SIGINT, on_signal);
     signal(SIGTERM, on_signal);
-
-    mqd_t mq = (mqd_t)-1;
-    if (record_events) {
-        mq = mq_open(IPC_QUEUE_NAME, O_RDWR);
-        if (mq == (mqd_t)-1) {
-            perror("mq_open " IPC_QUEUE_NAME);
-            return 1;
-        }
+    signal(SIGPIPE, SIG_IGN);
+    /* Diagnostics are expendable; detection and event delivery are not.
+     * The service pipes stdout/stderr to its RAM logger. Drop diagnostics if
+     * that pipe is full or closed, instead of blocking the sampling loop. */
+    struct stat log_stat;
+    if (!fstat(STDOUT_FILENO, &log_stat) && S_ISFIFO(log_stat.st_mode)) {
+        int flags = fcntl(STDOUT_FILENO, F_GETFL);
+        if (flags >= 0) fcntl(STDOUT_FILENO, F_SETFL, flags | O_NONBLOCK);
     }
+    setvbuf(stdout, NULL, _IONBF, 0);
+
+    struct motion_delivery ipc;
+    motion_delivery_init(&ipc, record_events, IPC_QUEUE_NAME);
 
     const struct sens_cfg *c = &config;
     struct motion_detector detector = {.quiet_since = -1};
     long long last_heartbeat = 0;
     long long last_telemetry = -1000;
+    long long last_ipc_warning = -2000;
+    long long mask_started_ms=mono_ms();
     struct motion_stats prev = {-999,-999,-999,-999.0,-999};
 
-    if (write_state(0) != 0) {
-        perror("write_state");
-        if (mq != (mqd_t)-1) mq_close(mq);
-        return 1;
-    }
+    int state_pending = write_state(0) != 0;
+    if (state_pending) perror("write_state");
+    if (motion_levels_start() != 0) perror("motion level history");
 
-    printf("motiond v1.3 sens=%d trigger=%.2f release=%.2f confirm=%d quiet_ms=%d interval_ms=%d record_events=%d ve_allocator=%s custom=%d require_zero=%d\n",
+    printf("motiond v1.5.1 sens=%d trigger=%.2f release=%.2f confirm=%d quiet_ms=%d interval_ms=%d record_events=%d ve_allocator=%s custom=%d require_zero=%d mask=%d\n",
            sensitivity, c->trigger, c->release, c->confirm_samples,
            c->quiet_ms, interval_ms, record_events,
-           ve_uses_vmalloc ? "vmalloc-verified" : "legacy-guard", custom, c->require_zero);
+           ve_uses_vmalloc ? "vmalloc-verified" : "legacy-guard", custom, c->require_zero,mask.enabled);
     fflush(stdout);
 
     while (running) {
-        struct motion_stats s;
+        clearerr(stdout);
+        clearerr(stderr);
+        struct motion_stats s = {0};
         int rc = read_stats(&s);
         long long now = mono_ms();
         if (rc == 0 && (!isfinite(s.bin_ratio) || s.bin_ratio < 0 ||
                         s.bin_ratio > 100 || s.moving_level < 0)) rc = -5;
-        int transition = motion_update(&detector, c, rc == 0 ? &s : NULL, now);
+        struct motion_stats spatial=s;
+        struct sens_cfg detection_config=*c;
+        int skip_update=0, detection_valid=rc==0;
+        if (mask.enabled) {
+            int map_rc=motion_mask_read(&mask,now);
+            mask.fallback=map_rc<0 && (mask.last_pid || now-mask_started_ms>=1000);
+            if (map_rc>=0) {
+                skip_update=map_rc==0;
+                spatial.bin_ratio=mask.ratio;
+                spatial.moving_level=mask.ratio<=c->release?0:1;
+                detection_config.level_boost=0;
+            }
+            else if (!mask.fallback) detection_valid=0;
+            /* An unavailable spatial source falls back to the whole-frame
+             * detector, explicitly reported in telemetry/UI. Never silently
+             * lose recording because an optional publisher failed. */
+        }
+        int transition=skip_update?0:motion_update(&detector,&detection_config,detection_valid?&spatial:NULL,now);
+        // Capture the triggering reading before IPC/logging can delay its time.
+        int capture = motion_levels_due(detector.active, transition > 0, now);
+        if (capture || now - last_telemetry >= 1000) {
+            struct timespec wall;
+            if (clock_gettime(CLOCK_REALTIME, &wall) == 0) {
+                struct motion_level_sample raw = {
+                    .unix_ms = (int64_t)wall.tv_sec * 1000 + wall.tv_nsec / 1000000,
+                    .scene = s.scene, .move = s.move, .moving_level = s.moving_level,
+                    .bin_ratio = s.bin_ratio, .moving_th = s.moving_th
+                };
+                motion_levels_tick(capture && detector.active, rc == 0, &raw, now);
+            }
+        }
         if (transition) {
-            if (write_state(detector.active) != 0) perror("write_state");
-            if (record_events && send_motion_ipc(mq, detector.active) != 0)
-                perror("mq_send motion");
+            state_pending = write_state(detector.active) != 0;
+            if (state_pending) perror("write_state");
+            motion_delivery_want(&ipc, detector.active);
+        }
+        if (motion_delivery_tick(&ipc, now, IPC_MOTION_START, IPC_MOTION_STOP) &&
+            now - last_ipc_warning >= 2000) {
+            perror("motion IPC pending");
+            last_ipc_warning = now;
+        }
+        if (transition) {
             printf("t=%lld MOTION %s bin=%.2f level=%d move=%d%s\n", now,
                 detector.active ? "ON" : "OFF", s.bin_ratio, s.moving_level, s.move,
                 record_events ? (detector.active ? " IPC=START" : " IPC=STOP") : "");
             fflush(stdout);
         }
         if (now - last_telemetry >= 1000) {
-            write_telemetry(&detector, &s, rc, now, effective);
+            if (state_pending) state_pending = write_state(detector.active) != 0;
+            write_telemetry(&detector, &s, rc, now, effective, &ipc, state_pending,&mask);
             last_telemetry = now;
         }
 
@@ -459,12 +541,21 @@ int main(int argc, char **argv) {
         nanosleep(&req, NULL);
     }
 
-    if (detector.active && record_events && mq != (mqd_t)-1) {
-        if (send_motion_ipc(mq, 0) != 0) perror("mq_send STOP");
+    /* Service shutdown is bounded even if the broker is unavailable. A later
+     * startup/reconnection resets stale recorder motion before sending START. */
+    motion_delivery_want(&ipc, 0);
+    for (int attempt = 0; attempt < 5 && motion_delivery_pending(&ipc); ++attempt) {
+        motion_delivery_tick(&ipc, mono_ms(), IPC_MOTION_START, IPC_MOTION_STOP);
+        if (motion_delivery_pending(&ipc)) {
+            struct timespec retry = {.tv_nsec = 100000000};
+            nanosleep(&retry, NULL);
+        }
     }
+    if (motion_delivery_pending(&ipc)) fprintf(stderr, "motion IPC STOP not delivered before shutdown\n");
     write_state(0);
     unlink(TELEMETRY_PATH);
-    if (mq != (mqd_t)-1) mq_close(mq);
+    motion_delivery_close(&ipc);
+    motion_mask_close(&mask);
     printf("motiond stopped\n");
     return 0;
 }

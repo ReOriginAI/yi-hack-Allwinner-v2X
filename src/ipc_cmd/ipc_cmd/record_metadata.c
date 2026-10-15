@@ -18,6 +18,7 @@
 #include <unistd.h>
 
 #include "motion_metadata_events.h"
+#include "motion_metadata_levels.h"
 #define JSON_CAPACITY 32768
 #define RECORD_FDS 4
 #define MP4_EPOCH 2082844800ULL
@@ -235,7 +236,26 @@ static int append_text(char *json, size_t *used, const char *format, ...) {
     return 0;
 }
 
+static int build_raw_json(const struct movie *movie, char *json) {
+    struct motion_levels levels;
+    // Unavailable sampling must not masquerade as a measured empty interval.
+    if (motion_levels_read(&levels)) return -1;
+    size_t used = 0;
+    int failed = append_text(json, &used, "{\"schema\":" MOTION_RAW_SCHEMA ",\"data\":[");
+    size_t included = 0;
+    for (size_t i = 0; !failed && i < levels.count; ++i) {
+        const struct motion_level_sample *sample = &levels.samples[(levels.first + i) % LEVEL_CAPACITY];
+        if (sample->unix_ms < movie->start_ms || sample->unix_ms > movie->start_ms + movie->duration_ms) continue;
+        failed = append_text(json, &used, "%s[%" PRId64 ",%d,%d,%d,%.10g,%d]",
+            included++ ? "," : "", sample->unix_ms, sample->scene, sample->move,
+            sample->moving_level, sample->bin_ratio, sample->moving_th);
+    }
+    if (!failed) failed = append_text(json, &used, "]}");
+    return failed ? -1 : (int)used;
+}
+
 static int build_json(const struct movie *movie, char *json) {
+    if (!strcmp(model, "y623")) return build_raw_json(movie, json);
     size_t used = 0;
     struct motion_history history = {.baseline_state=-1, .last_state=-1, .baseline_ms=INT64_MAX};
     int available = motion_history_read(&history) == 0;
@@ -274,7 +294,8 @@ static int build_json(const struct movie *movie, char *json) {
         failed = append_text(json, &used, "%s[%" PRId64 ",%" PRId64 ",%d,\"transition\"]",
             included++ ? "," : "", event->unix_ms - movie->start_ms, event->unix_ms, event->state);
     }
-    if (!failed) failed = append_text(json, &used, "]}");
+    if (!failed) failed = append_text(json, &used, "]");
+    if (!failed) failed = append_text(json, &used, "}");
     return failed ? -1 : (int)used;
 }
 

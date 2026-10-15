@@ -2,6 +2,10 @@
 
 This procedure allows you to unbrick your cam using a backup file (which you did previously).
 
+This branch includes recovery layouts only for Yi Pro 2K (`y623`) and Kami
+1080p (`y28ga`). The Linux and Windows build/clean scripts process only those
+two directories. Shared recovery utilities remain available for both models.
+
 Please note: bootloader saves the hash of the file and if it matches the hash of the file you are trying to load, this procedure will not work.
 
 In this case, you have to use a different file: for example you can use "factory" if you have previously used "hacked" and vice versa (see below).

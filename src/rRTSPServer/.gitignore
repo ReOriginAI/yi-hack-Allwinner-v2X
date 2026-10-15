@@ -2,6 +2,7 @@
 _install/
 live/
 live.*.tar.gz
+!vendor/live.*.tar.gz
 fdk-aac/
 v*.tar.gz
 libhelix-aac/

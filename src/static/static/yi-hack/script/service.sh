@@ -423,7 +423,7 @@ start_onvif()
     echo "input_file=/tmp/onvif_notify_server/sound_detection" >> $ONVIF_SRVD_CONF
 
     chmod 0600 $ONVIF_SRVD_CONF
-    ipc2file
+    "$YI_HACK_PREFIX/script/motion_service.sh" events || return 1
     mkdir -p /tmp/onvif_notify_server
     onvif_notify_server --conf_file $ONVIF_SRVD_CONF
 }
@@ -431,8 +431,10 @@ start_onvif()
 stop_onvif()
 {
     killall onvif_notify_server
-    killall ipc2file
     killall onvif_simple_server
+    # Recording and local motion retain their shared event history even when
+    # ONVIF is disabled or restarted.
+    "$YI_HACK_PREFIX/script/motion_service.sh" events-stop-if-unused
 }
 
 start_wsdd()
@@ -548,6 +550,9 @@ if [ "$ACTION" == "start" ] ; then
             mqtt-config > /dev/null &
         fi
     elif [ "$NAME" == "mp4record" ]; then
+        # Collect motion history before the first recording, independently of
+        # ONVIF. Repeated starts also repair a missing event consumer.
+        "$YI_HACK_PREFIX/script/motion_service.sh" events || exit 1
         # mp4record is not internally singleton-safe. Never start a duplicate.
         MP4_COUNT=$(mp4record_count)
         if [ "$MP4_COUNT" -eq 0 ]; then

@@ -26,6 +26,15 @@ export AR=${CROSSPREFIX}ar
 SCRIPT_DIR=$(cd `dirname $0` && pwd)
 cd $SCRIPT_DIR
 
+# Upstream retains only its newest release. Keep the tested source in the
+# repository, and validate it before downloads or removing a working build.
+ARCHIVE_PATH="$SCRIPT_DIR/vendor/$ARCHIVE"
+if [ ! -r "$ARCHIVE_PATH" ]; then
+    printf 'Missing bundled LIVE555 source: %s\n' "$ARCHIVE_PATH" >&2
+    exit 1
+fi
+echo "$ARCHIVE_SHA256  $ARCHIVE_PATH" | sha256sum -c -
+
 rm -rf ./_install
 rm -rf ./live
 rm -rf ./fdk-aac
@@ -48,11 +57,7 @@ rm -rf ESP8266Audio-${LIBHELIXAAC_VER}
 cp Makefile.libhelix-aac libhelix-aac/Makefile
 
 # live555
-if [ ! -f $ARCHIVE ]; then
-    wget https://download.live555.com/$ARCHIVE
-fi
-echo "$ARCHIVE_SHA256  $ARCHIVE" | sha256sum -c -
-tar zxvf $ARCHIVE
+tar zxvf "$ARCHIVE_PATH"
 find live -type d -exec chmod 755 {} +
 find live -type f -name "*.cpp" -exec chmod 644 {} +
 find live -type f -name "*.hh" -exec chmod 644 {} +

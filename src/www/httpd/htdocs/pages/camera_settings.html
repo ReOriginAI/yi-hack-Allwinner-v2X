@@ -96,7 +96,8 @@
                     </tr>
                     </tbody>
                 </table>
-                <div id="motion-custom-panel" hidden>
+                <div id="motion-details-panel" hidden>
+                    <div id="motion-custom-panel" hidden>
                     <h5>Fine motion adjustment</h5>
                     <p>Use the live readings below to distinguish background changes from motion you want to record. Changes apply when you save.</p>
                     <label class="switch small">
@@ -135,18 +136,87 @@
                             </tbody>
                         </table>
                     </fieldset>
+                    </div>
                     <h5>Live detector readings</h5>
                     <p id="motion-effective-settings">Checking active settings...</p>
+                    <div id="motion-mask-panel" hidden>
+                        <h5>Motion exclusion mask</h5>
+                        <label><input type="checkbox" data-key="MOTION_MASK_ENABLED" id="MOTION_MASK_ENABLED"/> Enable exclusion mask</label>
+                        <p>Click or drag to paint ignored areas in red on this 20 × 12 grid. Click a red cell to include it again. Arrow keys move the cursor; Space toggles a cell. Changes apply when you save.</p>
+                        <canvas id="motion-mask-canvas" width="640" height="360" tabindex="0" role="img" aria-label="Motion exclusion grid; red cells are ignored" style="width:100%; max-width:640px; aspect-ratio:16/9; touch-action:none; background:#222; cursor:crosshair; border:1px solid #777;"></canvas>
+                        <p><button type="button" id="motion-mask-snapshot">Refresh reference snapshot</button> <button type="button" id="motion-mask-clear">Include all</button> <button type="button" id="motion-mask-all">Ignore all</button></p>
+                        <p id="motion-mask-status" role="status">Mask disabled.</p>
+                        <p>Green outlines show recent moving cells. The snapshot refreshes only on request. Masking affects detection; live and recorded video remain complete.</p>
+                        <div id="motion-mask-encoder-settings">
+                        <p>The low-resolution encoder stays enabled while masking is used.</p>
+                        <label for="MOTION_MASK_VECTOR_PIXELS">Minimum block movement (pixels)</label>
+                        <input type="number" id="MOTION_MASK_VECTOR_PIXELS" min="1" max="16" step="1" value="1"/>
+                        <label for="MOTION_MASK_DIFFERENCE">Intra-block change threshold (0 disables)</label>
+                        <input type="number" id="MOTION_MASK_DIFFERENCE" min="0" max="255" step="1" value="12"/>
+                        <p>The spatial score counts included moving blocks as a percentage of the full view. It uses encoder motion vectors and changes in newly intra-coded blocks. Larger values above reject smaller changes. Start/stop thresholds and timing apply to this score while masking is enabled; vendor whole-frame hints do not override the mask.</p>
+                        </div>
+                        <div id="motion-mask-iva-description" hidden>
+                            <p>On y28ga, this mask filters the vendor's existing foreground pixel counts before its motion decision. It reuses the raw capture and detector already running; it does not enable the low-resolution video encoder. Use Low, Medium or High above to adjust native sensitivity. The vector and intra-block controls belong to the y623 encoder detector.</p>
+                            <p>The lines below show changed foreground pixels as a percentage of the full view: raw (blue) and included after masking (pink). These percentages are diagnostic readings; the vendor's native timing and sensitivity determine recording events.</p>
+                            <svg id="motion-iva-chart" viewBox="0 0 600 150" width="100%" height="150" role="img" aria-label="Recent raw and included native foreground percentages" hidden>
+                                <path id="motion-iva-raw" stroke="#2563eb" stroke-width="2" fill="none"/>
+                                <path id="motion-iva-included" stroke="#db2777" stroke-width="2" fill="none"/>
+                                <text id="motion-iva-scale" x="5" y="145" fill="currentColor"></text>
+                            </svg>
+                        </div>
+                        <p>If the mask source fails its checks, detection falls back to the whole view and reports that here. Masking changes which motion events are recorded; it preserves each model's video metadata format.</p>
+                    </div>
                     <div id="motion-live-readings" role="status">Waiting for a detector sample...</div>
-                    <svg id="motion-history-chart" viewBox="0 0 600 130" width="100%" height="130" role="img" aria-label="Recent scene change ratios with start and stop thresholds" hidden>
+                    <svg id="motion-history-chart" viewBox="0 0 600 360" width="100%" height="360" role="img" aria-label="Recent vendor BinImgRatio, Scene, Move, MovingLevel and MovingTh readings" hidden>
                         <path id="motion-chart-start" stroke="#d97706" stroke-dasharray="5 4" fill="none"/>
                         <path id="motion-chart-stop" stroke="#0891b2" stroke-dasharray="5 4" fill="none"/>
                         <path id="motion-chart-ratio" stroke="currentColor" stroke-width="2" fill="none"/>
+                        <path id="motion-chart-masked" stroke="#db2777" stroke-width="2" fill="none"/>
                         <text id="motion-chart-scale" x="8" y="14" fill="currentColor" font-size="12"/>
+                        <path id="motion-chart-scene" stroke="#16a34a" stroke-width="2" fill="none"/>
+                        <path id="motion-chart-move" stroke="#7c3aed" stroke-width="2" stroke-dasharray="3 3" fill="none"/>
+                        <path id="motion-chart-level" stroke="#dc2626" stroke-width="2" stroke-dasharray="9 4" fill="none"/>
+                        <text id="motion-chart-grades-scale" x="8" y="150" fill="currentColor" font-size="12"/>
+                        <path id="motion-chart-threshold" stroke="#64748b" stroke-width="2" fill="none"/>
+                        <text id="motion-chart-threshold-scale" x="8" y="280" fill="currentColor" font-size="12"/>
                     </svg>
-                    <p class="switch-description">Recent samples: solid line = scene change, orange = start, blue = stop. The readings come from the running detector. Custom mode starts using the change threshold alone; sensitivity presets also use the encoder's strong-motion hint.</p>
+                    <div id="motion-encoder-reading-description">
+                    <p class="switch-description">Last two minutes, read from the running detector every two seconds. Top: BinImgRatio (%) with orange start and blue stop thresholds. Middle: <span style="color: #16a34a">Scene</span>, <span style="color: #7c3aed">Move</span> (short dashes), <span style="color: #dc2626">MovingLevel</span> (long dashes). Bottom: MovingTh, the encoder's block-difference threshold. Each panel has its own scale.</p>
+                    <p class="switch-description">Scene grades texture complexity (0–2), Move grades motion complexity (0–4), and MovingLevel grades scene-change intensity (0–3). BinImgRatio is the percentage of 8×8 blocks whose difference score exceeds MovingTh. These vendor summaries do not identify objects. With masking disabled, custom start thresholds use BinImgRatio and presets can also use the stronger MovingLevel hint. With masking enabled, the pink spatial score uses the start/stop thresholds.</p>
+                    </div>
                 </div>
                 <p id="motion-firmware-limit" hidden>This camera offers three firmware sensitivity levels: low, medium, and high. Separate change thresholds and timing controls are unavailable on this firmware.</p>
+                <details id="motion-metadata-guide">
+                    <summary><strong>Video motion metadata: format, extraction and examples</strong></summary>
+                    <p id="motion-iva-metadata-description" hidden>On y28ga, SD recordings retain the event-based <code>yi-motion-v1</code> object in <code>yi_motion</code>. Its <code>event_columns</code> header is <code>["offset_ms","unix_ms","state","kind"]</code>; each <code>events</code> row follows that order. State 1 means motion, 0 means idle, and <code>kind</code> distinguishes a transition from a startup observation. <code>initial_state</code> describes the state at clip start; -1 means unknown. <code>history_available</code> and <code>history_truncated</code> describe missing history. Masking changes these events, without adding foreground pixel counts to the MP4. The extraction command below works for both formats.</p>
+                    <p>New y623 SD recordings contain a compact <code>yi_motion</code> JSON tag: one static column header (<code>schema</code>) and an array of raw vendor readings (<code>data</code>). The recorder embeds it while finishing the MP4, and FTP uploads retain it. Run this on your computer with FFprobe and jq:</p>
+                    <pre style="white-space: pre-wrap; overflow-wrap: anywhere;"><code>ffprobe -v error -show_entries format_tags=yi_motion -of json recording.mp4 |
+  jq '.format.tags.yi_motion | fromjson' &gt; motion.json</code></pre>
+                    <pre style="white-space: pre-wrap; overflow-wrap: anywhere;"><code>{
+  "schema": ["unix_ms", "Scene", "Move", "MovingLevel", "BinImgRatio", "MovingTh"],
+  "data": [
+    [1791858420000, 0, 1, 1, 2.10, 20],
+    [1791858420200, 0, 2, 2, 4.25, 20],
+    [1791858420400, 0, 2, 2, 3.80, 20]
+  ]
+}</code></pre>
+                    <table class="u-full-width padded-table">
+                        <thead><tr><th>Column</th><th>Meaning</th></tr></thead>
+                        <tbody>
+                            <tr><td><code>unix_ms</code></td><td>UTC Unix timestamp in milliseconds. Local-time filenames do not shift this value.</td></tr>
+                            <tr><td><code>Scene</code></td><td>Vendor texture-complexity grade, documented range 0–2.</td></tr>
+                            <tr><td><code>Move</code></td><td>Vendor motion-complexity grade, documented range 0–4.</td></tr>
+                            <tr><td><code>MovingLevel</code></td><td>Vendor scene-change intensity grade, documented range 0–3.</td></tr>
+                            <tr><td><code>BinImgRatio</code></td><td>Percentage (0–100) of 8×8 blocks whose difference score exceeds MovingTh.</td></tr>
+                            <tr><td><code>MovingTh</code></td><td>Vendor block-difference threshold, documented range 10–31. This is separate from the detector's start/stop percentages.</td></tr>
+                        </tbody>
+                    </table>
+                    <p>Rows are captured only while our detector is active, including the reading that triggers START. Each motion starts with five samples about 200 ms apart, including the trigger; later samples are about one second apart until the detector returns to idle. A short motion stops the burst early. Use the actual timestamps because polling and load affect spacing. No idle or pre-trigger readings are added.</p>
+                    <p>Each file includes only readings whose timestamps fall within that video. A clip that starts during an existing motion gets its continuing samples; it does not receive a fabricated trigger. These arrays contain measurements, without inferred motion intervals or object classifications. Gaps can also come from invalid readings. A missing tag means sampling was unavailable or the recorder/container was unsupported; an empty <code>data</code> array means no valid retained active samples matched the clip.</p>
+                    <p>Export the header and all raw rows as CSV:</p>
+                    <pre style="white-space: pre-wrap; overflow-wrap: anywhere;"><code>jq -r '.schema, .data[] | @csv' motion.json</code></pre>
+                    <p>To locate a reading in the video, subtract the video's UTC <code>creation_time</code> from <code>unix_ms / 1000</code>. The video start time has one-second precision. Older recordings and other models may still use the previous <code>yi-motion-v1</code> object with <code>events</code> and optional <code>levels</code>; existing files are retained.</p>
+                </details>
             </div>
         </div>
 

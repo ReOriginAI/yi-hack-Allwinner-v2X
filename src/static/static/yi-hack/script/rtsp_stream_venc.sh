@@ -71,7 +71,9 @@ set -- $(md5sum "$RMM_PATH" 2>/dev/null)
 
 case "$STREAM" in
     high)
-        if recording_needs_low_venc; then
+        if recording_needs_low_venc ||
+           { [ "$MODEL_SUFFIX" = y623 ] && [ "$(get_conf MOTION_DETECTION "$CAMERA_CONF")" = yes ] &&
+             [ "$(get_conf MOTION_MASK_ENABLED "$CAMERA_CONF")" = yes ]; }; then
             STATE=on
         else
             STATE=off

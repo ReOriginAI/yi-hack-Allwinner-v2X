@@ -90,12 +90,13 @@ with tempfile.TemporaryDirectory(prefix="yi-record-metadata-") as folder:
     library, driver, unit = temp / "metadata.so", temp / "driver", temp / "unit"
     flags = ["cc", "-std=c11", "-Wall", "-Wextra", "-Werror", "-Os"]
     run(flags + ["-shared", "-fPIC", "-pthread", str(SOURCE / "record_metadata.c"),
-                 str(SOURCE / "motion_metadata_events.c"),
+                 str(SOURCE / "motion_metadata_events.c"), str(SOURCE / "motion_metadata_levels.c"),
                  "-ldl", "-lrt", "-o", str(library)])
     consumer = temp / "ipc2file-test.o"
     run(["cc", "-Os", "-Dmain=ipc2file_main", "-c", str(SOURCE / "ipc2file.c"), "-o", str(consumer)])
     run(flags + [str(SOURCE / "test_record_metadata_driver.c"), str(consumer),
-                 str(SOURCE / "motion_metadata_events.c"), "-lrt", "-o", str(driver)])
+                 str(SOURCE / "motion_metadata_events.c"), str(SOURCE / "motion_metadata_levels.c"),
+                 "-lrt", "-o", str(driver)])
     run(flags + ["-pthread", str(SOURCE / "test_record_metadata.c"), "-ldl", "-lrt", "-o", str(unit)])
     print(run([str(unit)]).stdout.strip())
     source = temp / "source.mp4"
@@ -113,20 +114,29 @@ with tempfile.TemporaryDirectory(prefix="yi-record-metadata-") as folder:
         record.mkdir()
         env = {**os.environ, "LD_PRELOAD": str(library), "YI_RECORD_ROOT": str(record),
                "YI_MOTION_EVENTS": str(record / "events"),
+               "YI_MOTION_LEVELS": str(record / "levels"),
                "YI_RECORD_METADATA_MODEL": model}
         run([str(driver), str(record), str(source), "events"], env=env)
         output = record / "tmp.mp4.tmp"
         result = probe(output)
         metadata = json.loads(result["format"]["tags"]["yi_motion"])
-        assert metadata["schema"] == "yi-motion-v1" and metadata["model"] == model
-        assert metadata["history_available"], metadata
-        transitions = [event for event in metadata["events"] if event[3] == "transition"]
-        assert [event[2] for event in transitions][-2:] == [1, 0], metadata
-        assert len(transitions) in (2, 3), metadata
-        for offset, unix_ms, state, kind in metadata["events"]:
-            assert unix_ms == metadata["video_start_unix_ms"] + offset
-            assert 0 <= offset <= metadata["duration_ms"] and state in (0, 1)
-            assert kind in ("sample", "transition")
+        if model == "y623":
+            assert set(metadata) == {"schema", "data"}, metadata
+            assert metadata["schema"] == ["unix_ms", "Scene", "Move", "MovingLevel", "BinImgRatio", "MovingTh"]
+            assert len(metadata["data"]) == 2, metadata
+            assert [row[1:] for row in metadata["data"]] == [[2, 4, 2, 3.25, 20], [2, 4, 3, 8.5, 20]]
+            assert all(len(row)==6 and row[0]>0 for row in metadata["data"])
+        else:
+            assert metadata["schema"] == "yi-motion-v1" and metadata["model"] == model
+            assert metadata["history_available"], metadata
+            transitions = [event for event in metadata["events"] if event[3] == "transition"]
+            assert [event[2] for event in transitions][-2:] == [1, 0], metadata
+            assert len(transitions) in (2, 3), metadata
+            assert "levels" not in metadata, metadata
+            for offset, unix_ms, state, kind in metadata["events"]:
+                assert unix_ms == metadata["video_start_unix_ms"] + offset
+                assert 0 <= offset <= metadata["duration_ms"] and state in (0, 1)
+                assert kind in ("sample", "transition")
         modified = output.read_bytes()
         assert next(body for kind, _, body in atoms(modified) if kind == b"mdat") == original_mdat
         moov = next(body for kind, _, body in atoms(modified) if kind == b"moov")

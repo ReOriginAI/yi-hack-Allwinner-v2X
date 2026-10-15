@@ -4,7 +4,7 @@ OBJECTS_N = ipc_notify.o
 OBJECTS_2 = ipc2file.o motion_metadata_events.o
 #LIBS = -lpthread -lrt
 
-all: ipc_cmd ipc_read ipc_notify ipc2file ipc_multiplex.so record_metadata.so nightvision.so nightvisionctl record_preroll-y623.bin record_preroll-y28ga.bin
+all: ipc_cmd ipc_read ipc_notify ipc2file ipc_multiplex.so record_metadata.so nightvision.so motion_map.so motion_iva.so motion_ivactl nightvisionctl record_preroll-y623.bin record_preroll-y28ga.bin
 
 PREROLL_FLAGS = -marm -march=armv7-a -Os -Wall -Wextra -Werror -ffreestanding -fno-builtin -fno-pic -fno-stack-protector -fno-unwind-tables -fno-asynchronous-unwind-tables
 
@@ -35,11 +35,21 @@ record_preroll-%.bin: record_preroll-%.elf
 ipc_multiplex.so: ipc_multiplex.c dispatch_poll.c ipc_multiplex.h
 	$(CC) ipc_multiplex.c dispatch_poll.c -fPIC -Os -shared -pthread -ldl -lrt -o $@
 
-record_metadata.so: record_metadata.c motion_metadata_events.c motion_metadata_events.h
-	$(CC) record_metadata.c motion_metadata_events.c -std=c11 -Wall -Wextra -fPIC -Os -shared -pthread -ldl -lrt -o $@
+record_metadata.so: record_metadata.c motion_metadata_events.c motion_metadata_events.h motion_metadata_levels.c motion_metadata_levels.h
+	$(CC) record_metadata.c motion_metadata_events.c motion_metadata_levels.c -std=c11 -Wall -Wextra -fPIC -Os -shared -pthread -ldl -lrt -o $@
 
 nightvision.so: nightvision.c nightvision.h
 	$(CC) nightvision.c -std=c11 -Wall -Wextra -fPIC -Os -shared -o $@
+
+motion_map.so: motion_map_y623.c motion_map.h
+	$(CC) motion_map_y623.c -std=c11 -Wall -Wextra -fPIC -Os -shared -o $@
+
+motion_iva.so: motion_iva_y28ga.c motion_iva_y28ga.S motion_iva.h
+	$(CC) motion_iva_y28ga.c motion_iva_y28ga.S -mthumb -march=armv7-a -mfpu=neon -std=c11 -Wall -Wextra -fPIC -O2 -shared -ldl -o $@
+
+motion_ivactl: motion_ivactl.c motion_iva.h
+	$(CC) motion_ivactl.c -std=c11 -Wall -Wextra -Os -o $@
+	$(STRIP) $@
 
 nightvisionctl: nightvisionctl.c nightvision.h
 	$(CC) nightvisionctl.c -std=c11 -Wall -Wextra -Os -o $@
@@ -74,6 +84,8 @@ clean:
 	rm -f ipc_multiplex.so
 	rm -f record_metadata.so
 	rm -f nightvision.so nightvisionctl
+	rm -f motion_map.so
+	rm -f motion_iva.so motion_ivactl
 	rm -f $(OBJECTS_C)
 	rm -f $(OBJECTS_R)
 	rm -f $(OBJECTS_N)

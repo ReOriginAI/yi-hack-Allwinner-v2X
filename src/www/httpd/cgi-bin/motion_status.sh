@@ -82,6 +82,14 @@ CUSTOM_SUPPORTED=false
 SETTINGS=$(motion_read_config | jq 'with_entries(select(.key | startswith("MOTION_")))')
 METRICS=null
 EFFECTIVE=null
+IVA_MASK=null
+IVA_SUPPORTED=false
+if [ "$MODEL_SUFFIX" = y28ga ] && [ -x "$YI_HACK_PREFIX/bin/motion_ivactl" ]; then
+    IVA_MASK=$("$YI_HACK_PREFIX/bin/motion_ivactl" --status 2>/dev/null)
+    [ -n "$IVA_MASK" ] || IVA_MASK=null
+    IVA_SUPPORTED=$(printf '%s\n' "$IVA_MASK" | jq -r '.ready // false' 2>/dev/null)
+    [ "$IVA_SUPPORTED" = true ] || IVA_SUPPORTED=false
+fi
 if [ "$BACKEND" = encoder-stats ]; then
     if [ "$STATUS" = started ]; then
         # Capture before reading uptime: a concurrent publication must not look
@@ -108,4 +116,5 @@ printf '{"error":false,"model":"%s","backend":"%s","backend_label":"%s","status"
     "$MODEL_SUFFIX" "$BACKEND" "$BACKEND_LABEL" "$STATUS" "$STATE" "$SENSITIVITY" "$SENSITIVITY_SUPPORTED" "$RECORDING" |
     jq --argjson custom "$CUSTOM_SUPPORTED" --argjson settings "$SETTINGS" --argjson metrics "$METRICS" \
        --argjson effective "$EFFECTIVE" --arg firmware "$FIRMWARE_LEVEL" \
-       '. + {custom_supported:$custom,settings:$settings,metrics:$metrics,effective:$effective,firmware_sensitivity:$firmware}'
+       --argjson iva "$IVA_MASK" --argjson iva_supported "$IVA_SUPPORTED" \
+       '. + {custom_supported:$custom,mask_supported:(($custom and .model == "y623") or $iva_supported),iva_mask:$iva,settings:$settings,metrics:$metrics,effective:$effective,firmware_sensitivity:$firmware}'

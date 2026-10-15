@@ -31,17 +31,24 @@ jobs:
       - name: Test WiFi configuration parser
         run: sh scripts/test_configure_wifi.sh
 
+      - name: Verify two-model source and recovery scope
+        run: python3 scripts/test_model_scope.py
+
+      - name: Verify bundled LIVE555 source and camera patches
+        run: python3 scripts/test_live555_source.py
+
       - name: Test y623 VE kernel release path
         run: sh scripts/test_y623_ve_kernel.sh
 
       - name: Test y623 motiond VE channel parser
         run: |
-          gcc -Wall -Wextra -Werror -O2 src/motiond/tests/test_pressure.c -lrt -o /tmp/test-motiond-pressure
+          gcc -Wall -Wextra -Werror -O2 src/motiond/tests/test_pressure.c src/ipc_cmd/ipc_cmd/motion_metadata_levels.c -lrt -o /tmp/test-motiond-pressure
           /tmp/test-motiond-pressure
 
       - name: Test recorder-local motion metadata
         run: |
           python3 scripts/test_record_metadata.py
+          python3 scripts/test_motion_history_service.py
           python3 scripts/test_record_preroll.py
 
       - name: Test configuration and local recording time
@@ -50,6 +57,9 @@ jobs:
           python3 scripts/test_time_config.py
           python3 scripts/test_nightvision.py
           python3 scripts/test_motion_tuning.py
+          python3 scripts/test_motion_robustness.py
+          python3 scripts/test_motion_mask.py
+          python3 scripts/test_motion_iva.py
 
       - name: Download toolchain
         run: |

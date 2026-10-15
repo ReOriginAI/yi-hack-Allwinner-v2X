@@ -92,7 +92,7 @@ fi
 
 # Validate the complete night-vision request before changing any saved setting.
 if [ "$CONF_TYPE" = camera ]; then
-    if echo "$POST_DATA" | jq -e 'keys | any(test("^(MOTION_(DETECTION|SENSITIVITY|CUSTOM|START_THRESHOLD|STOP_THRESHOLD|START_SAMPLES|STOP_DELAY|POLL_INTERVAL|STOP_REQUIRE_ZERO)|SAVE_VIDEO_ON_MOTION)$"))' >/dev/null 2>&1; then
+    if echo "$POST_DATA" | jq -e 'keys | any(test("^(MOTION_(DETECTION|SENSITIVITY|CUSTOM|START_THRESHOLD|STOP_THRESHOLD|START_SAMPLES|STOP_DELAY|POLL_INTERVAL|STOP_REQUIRE_ZERO|MASK_ENABLED|MASK_CELLS|MASK_VECTOR_PIXELS|MASK_DIFFERENCE)|SAVE_VIDEO_ON_MOTION)$"))' >/dev/null 2>&1; then
         MOTION_REQUEST=yes
         . "$YI_HACK_PREFIX/script/motion_settings.sh" || exit 1
         MOTION_OLD=$(motion_read_config)
@@ -100,6 +100,23 @@ if [ "$CONF_TYPE" = camera ]; then
         if ! motion_validate_json "$MOTION_MERGED"; then
             printf 'Content-type: application/json\r\n\r\n{"error":true,"description":"Invalid motion settings: stop threshold must be below start; check numeric ranges"}'
             exit
+        fi
+        if [ "$(echo "$MOTION_MERGED" | jq -r '.MOTION_MASK_ENABLED')" = yes ]; then
+            case "$(cat "$YI_HACK_PREFIX/model_suffix" 2>/dev/null)" in
+                y623) ;;
+                y28ga)
+                    IVA_READY=false
+                    if [ -x "$YI_HACK_PREFIX/bin/motion_ivactl" ]; then
+                        IVA_READY=$("$YI_HACK_PREFIX/bin/motion_ivactl" --status 2>/dev/null | jq -r '.ready // false')
+                    fi
+                    if [ "$IVA_READY" != true ]; then
+                        printf 'Content-type: application/json\r\n\r\n{"error":true,"description":"Native IVA mask hook is unavailable; load the supported firmware hook before enabling masking"}'
+                        exit
+                    fi ;;
+                *)
+                    printf 'Content-type: application/json\r\n\r\n{"error":true,"description":"Exclusion masks require a supported y623 or y28ga motion backend"}'
+                    exit ;;
+            esac
         fi
         if [ "$(cat "$YI_HACK_PREFIX/model_suffix" 2>/dev/null)" = y28ga ] && [ "$(echo "$MOTION_MERGED" | jq -r '.MOTION_CUSTOM')" = yes ]; then
             printf 'Content-type: application/json\r\n\r\n{"error":true,"description":"This camera supports firmware sensitivity levels only; custom thresholds are unavailable"}'
@@ -123,7 +140,7 @@ if [ "$CONF_TYPE" = camera ]; then
         exit
     fi
     if [ "$MOTION_REQUEST" = yes ]; then
-        for KEY in MOTION_CUSTOM MOTION_START_THRESHOLD MOTION_STOP_THRESHOLD MOTION_START_SAMPLES MOTION_STOP_DELAY MOTION_POLL_INTERVAL MOTION_STOP_REQUIRE_ZERO; do
+        for KEY in MOTION_CUSTOM MOTION_START_THRESHOLD MOTION_STOP_THRESHOLD MOTION_START_SAMPLES MOTION_STOP_DELAY MOTION_POLL_INTERVAL MOTION_STOP_REQUIRE_ZERO MOTION_MASK_ENABLED MOTION_MASK_CELLS MOTION_MASK_VECTOR_PIXELS MOTION_MASK_DIFFERENCE; do
             if ! grep -q "^$KEY=" "$CONF_FILE"; then
                 VALUE=$(echo "$MOTION_MERGED" | jq -r --arg key "$KEY" '.[$key]')
                 printf '%s=%s\n' "$KEY" "$VALUE" >> "$CONF_FILE"

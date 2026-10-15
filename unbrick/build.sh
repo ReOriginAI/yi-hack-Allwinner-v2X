@@ -31,7 +31,7 @@ if [ "$TYPE" != "factory" ] && [ "$TYPE" != "hacked" ]; then
     exit
 fi
 
-for DIR in * ; do
+for DIR in y623 y28ga; do
     if [ -d $DIR ]; then
         FILENAME=`cat $DIR/filename`
         if [ -f $DIR/mtdblock2.bin ]; then
@@ -50,11 +50,7 @@ for DIR in * ; do
                 umount $DIR/mnt
                 rm -rf $DIR/mnt
                 update_init
-                if [ $FILENAME == "b091qp" ]; then
-                    PAD="0x00150000"
-                else
-                    PAD="0x00130000"
-                fi
+                PAD="0x00130000"
                 ./create.jffs2 $PAD $DIR/backup $DIR/mtdblock4_hacked.bin
                 rm -rf $DIR/backup
             else

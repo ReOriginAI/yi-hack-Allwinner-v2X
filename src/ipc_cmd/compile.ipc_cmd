@@ -35,6 +35,9 @@ cp ./ipc2file ../_install/bin || exit 1
 cp ./ipc_multiplex.so ../_install/lib || exit 1
 cp ./record_metadata.so ../_install/lib || exit 1
 cp ./nightvision.so ../_install/lib || exit 1
+cp ./motion_map.so ../_install/lib || exit 1
+cp ./motion_iva.so ../_install/lib || exit 1
+cp ./motion_ivactl ../_install/bin || exit 1
 cp ./nightvisionctl ../_install/bin || exit 1
 
 ${STRIP} ../_install/bin/* || exit 1

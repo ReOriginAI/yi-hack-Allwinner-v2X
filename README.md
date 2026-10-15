@@ -16,7 +16,7 @@ This project is derived from `yi-hack-Allwinner-v2` and keeps the upstream struc
 
 * Standard (`rRTSPServer`, based on LIVE555) is the default and recommended camera-side RTSP server. go2rtc remains an optional alternative.
 
-Other upstream `sysroot/` and `sdhack/` directories remain in the repository as reference material, but **they are not supported or built by default** by this custom variant.
+The model-specific `sysroot/`, `sdhack/`, and `unbrick/` trees contain only `y623` and `y28ga`. Shared services and dependencies support both targets.
 
 ## Supported targets
 
@@ -164,7 +164,7 @@ Once maintenance takeover succeeds, the camera intentionally stays on the mainte
 | `rtsp://IP-CAM/ch0_0.h264?backchannel=1` | Compatibility URL that explicitly requests speaker backchannel |
 | `rtsp://IP-CAM/ch0_1.h264?backchannel=1` | Low-resolution compatibility backchannel URL |
 
-**Standard (LIVE555)** is selected by default with `RTSP_ALT=standard`. It reads the hardware-produced H.264/H.265 and AAC buffers directly, provides an audio-only endpoint, and supports G.711 speaker talkback. The build pins [LIVE555 2026.09.23](https://download.live555.com/changelog.txt) with a verified archive checksum and size optimization.
+**Standard (LIVE555)** is selected by default with `RTSP_ALT=standard`. It reads the hardware-produced H.264/H.265 and AAC buffers directly, provides an audio-only endpoint, and supports G.711 speaker talkback. The build pins [LIVE555 2026.09.23](https://download.live555.com/changelog.txt) using a [bundled, checksum-verified source archive](src/rRTSPServer/vendor/README.md), with size optimization.
 
 With Standard or optional camera-side **go2rtc**, `SPEAKER_AUDIO=yes`, and `RTSP_BACKCHANNEL=G711`, ONVIF-aware clients use the normal query-free RTSP URI and send:
 
@@ -546,7 +546,7 @@ sudo ./scripts/pack_fw.sh y623
 sudo ./scripts/pack_fw.sh y28ga
 ```
 
-Other upstream model names are rejected by `scripts/common.sh` in this custom branch even if their historical sysroot directories still exist.
+Other model names are rejected by `scripts/common.sh`; their firmware and recovery trees are not included in this branch.
 
 ### GitHub Actions
 

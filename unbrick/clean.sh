@@ -1,6 +1,6 @@
 #!/bin/bash
 
-for DIR in * ; do
+for DIR in y623 y28ga; do
     if [ -d $DIR ]; then
         FILENAME=`cat $DIR/filename`
         rm -f $DIR/rootfs_$FILENAME.gz

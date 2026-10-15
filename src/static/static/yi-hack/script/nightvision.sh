@@ -19,7 +19,22 @@ case "$1" in
         esac
         [ -s "$YI_HACK_PREFIX/lib/nightvision.so" ] || exit 0
         "$YI_HACK_PREFIX/bin/nightvisionctl" --init "$MODE" "$THRESHOLD" >/dev/null || exit 1
-        printf '%s\n' "$YI_HACK_PREFIX/lib/nightvision.so"
+        printf '%s' "$YI_HACK_PREFIX/lib/nightvision.so"
+        if [ "$MODEL" = y623 ] && [ -s "$YI_HACK_PREFIX/lib/motion_map.so" ]; then
+            printf ':%s' "$YI_HACK_PREFIX/lib/motion_map.so"
+        fi
+        if [ "$MODEL" = y28ga ] && [ -s "$YI_HACK_PREFIX/lib/motion_iva.so" ] && \
+           [ "$(md5sum /home/app/locallib/libYiHm_L1.so.4.1.9 2>/dev/null | cut -d ' ' -f1)" = 4f8a5e2b22bfe34b5a55d99bc87512ee ]; then
+            ENABLED=$(get_nv_config MOTION_MASK_ENABLED)
+            [ "$ENABLED" = yes ] || ENABLED=no
+            [ "$(get_nv_config MOTION_DETECTION)" = yes ] || ENABLED=no
+            CELLS=$(get_nv_config MOTION_MASK_CELLS)
+            [ -n "$CELLS" ] || CELLS=$(printf '%0240d' 0)
+            if "$YI_HACK_PREFIX/bin/motion_ivactl" --init "$ENABLED" "$CELLS" >/dev/null; then
+                printf ':%s' "$YI_HACK_PREFIX/lib/motion_iva.so"
+            fi
+        fi
+        printf '\n'
         ;;
     apply)
         "$YI_HACK_PREFIX/bin/nightvisionctl" --set "$MODE" "$THRESHOLD" >/dev/null || exit 1

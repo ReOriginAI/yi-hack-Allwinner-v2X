@@ -1,7 +1,7 @@
 @ECHO OFF
 SETLOCAL EnableDelayedExpansion
 
-FOR /F %%x in ('dir /B /D /A:D *') do (
+FOR %%x IN (y623 y28ga) DO (
     SET DIR=%%x
     FOR /F "tokens=*" %%g IN ('type !DIR!\filename') do (SET FILENAME=%%g)
     IF exist !DIR!/mtdblock2.bin (

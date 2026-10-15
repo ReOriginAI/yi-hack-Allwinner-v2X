@@ -154,6 +154,8 @@ original behavior; the automatic hysteresis and delay remain in place. See
 
 Standard (`RTSP_ALT=standard`) is the recommended camera-side server. Its
 LIVE555 dependency is pinned to `2026.09.23` with a SHA-256 archive check.
+The source archive is bundled under `src/rRTSPServer/vendor/`, because upstream
+removes older releases; a clean build does not download a moving LIVE555 release.
 Camera code and libraries use `-Os`, and the build compiles only the libraries
 needed by `rRTSPServer`. The stripped ARM binary measured 290,092 bytes during
 the y623 validation, compared with the device's previous 452,668-byte binary.

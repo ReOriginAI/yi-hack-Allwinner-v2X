@@ -21,3 +21,6 @@ src/libwolf_*/
 
 # Artifact created by pack_fw.sh
 scripts/yi-hack-Allwinner-v2/
+
+# Local Codex session exports
+/codex-session-*.md

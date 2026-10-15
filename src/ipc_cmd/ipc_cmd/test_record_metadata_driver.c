@@ -12,6 +12,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include "motion_metadata_events.h"
+#include "motion_metadata_levels.h"
 #include "ipc2file.h"
 
 extern void (**ipc_callbacks)(void *);
@@ -38,6 +39,7 @@ int main(int argc, char **argv) {
     assert(n == 0);
     close(input);
     assert(motion_history_start() == 0);
+    assert(motion_levels_start() == 0);
     ipc_callbacks = calloc(IPC_MSG_LAST, sizeof(*ipc_callbacks));
     assert(ipc_callbacks);
     if (!strcmp(argv[3], "events")) {
@@ -58,6 +60,16 @@ int main(int argc, char **argv) {
             usleep(20000);
         }
         mq_close(queue); mq_unlink(queue_name);
+        int64_t wall = motion_wall_ms();
+        struct motion_level_sample raw = {.unix_ms=wall, .scene=2, .move=4,
+            .moving_level=1, .bin_ratio=1, .moving_th=20};
+        motion_levels_tick(0, 1, &raw, 1000); // Idle samples are omitted.
+        raw.unix_ms=wall+1000; raw.bin_ratio=3.25; raw.moving_level=2;
+        motion_levels_tick(1, 1, &raw, 2000);
+        raw.unix_ms=wall+2000;
+        motion_levels_tick(1, 0, &raw, 3000); // Invalid readings are omitted.
+        raw.unix_ms=wall+3000; raw.bin_ratio=8.5; raw.moving_level=3;
+        motion_levels_tick(1, 1, &raw, 4000);
     } else if (!strcmp(argv[3], "no-space")) {
         struct stat st;
         assert(fstat(fd, &st) == 0);

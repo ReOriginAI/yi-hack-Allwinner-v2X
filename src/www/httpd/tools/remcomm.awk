@@ -17,7 +17,10 @@ BEGIN {
 }
 {
    remComm();
-   if ( !m && NF )
-   print
+   if ( !m && NF ) {
+     if ($0 ~ /<pre([ >])/) pre = 1;
+     printf "%s%s", $0, pre ? "\n" : "";
+     if ($0 ~ /<\/pre>/) pre = 0;
+   }
 }
 

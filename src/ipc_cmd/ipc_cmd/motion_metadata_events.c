@@ -19,6 +19,9 @@ struct shared_history {
 };
 static struct shared_history *writer;
 static const struct shared_history *reader;
+static dev_t reader_device;
+static ino_t reader_inode;
+static atomic_flag reader_lock = ATOMIC_FLAG_INIT;
 
 static const char *history_path(void) {
     const char *value = getenv("YI_MOTION_EVENTS");
@@ -96,16 +99,27 @@ void motion_history_observe(int state, int64_t unix_ms) {
     atomic_fetch_add_explicit(&writer->sequence, 1, memory_order_release);
 }
 
-int motion_history_read(struct motion_history *history) {
-    if (!reader) {
-        int fd = open(history_path(), O_RDONLY | O_CLOEXEC);
-        if (fd < 0) return -1;
-        struct stat st;
-        if (fstat(fd, &st) || st.st_size != sizeof(struct shared_history)) { close(fd); return -1; }
-        reader = mmap(NULL, sizeof(*reader), PROT_READ, MAP_SHARED, fd, 0);
-        close(fd);
-        if (reader == MAP_FAILED) { reader = NULL; return -1; }
+static int read_snapshot(struct motion_history *history) {
+    // One small file check per completed clip. If the collector recreates its
+    // file, discard the old inode rather than reporting stale mapped history.
+    int fd = open(history_path(), O_RDONLY | O_CLOEXEC);
+    struct stat st;
+    if (fd < 0 || fstat(fd, &st) || st.st_size != sizeof(struct shared_history)) {
+        if (fd >= 0) close(fd);
+        if (reader) { munmap((void *)reader, sizeof(*reader)); reader = NULL; }
+        return -1;
     }
+    if (reader && (st.st_dev != reader_device || st.st_ino != reader_inode)) {
+        munmap((void *)reader, sizeof(*reader));
+        reader = NULL;
+    }
+    if (!reader) {
+        reader = mmap(NULL, sizeof(*reader), PROT_READ, MAP_SHARED, fd, 0);
+        if (reader == MAP_FAILED) { reader = NULL; close(fd); return -1; }
+        reader_device = st.st_dev;
+        reader_inode = st.st_ino;
+    }
+    close(fd);
     // Bounded snapshot, never block or spin indefinitely during clip closure.
     for (int attempt = 0; attempt < 4; ++attempt) {
         uint32_t before = atomic_load_explicit(&reader->sequence, memory_order_acquire);
@@ -118,4 +132,13 @@ int motion_history_read(struct motion_history *history) {
             return 0;
     }
     return -1;
+}
+
+int motion_history_read(struct motion_history *history) {
+    // Concurrent muxer closes must not unmap another reader's snapshot. Fail
+    // closed on contention rather than blocking a recording thread.
+    if (atomic_flag_test_and_set_explicit(&reader_lock, memory_order_acquire)) return -1;
+    int result = read_snapshot(history);
+    atomic_flag_clear_explicit(&reader_lock, memory_order_release);
+    return result;
 }

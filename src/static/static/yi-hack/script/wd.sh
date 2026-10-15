@@ -286,10 +286,21 @@ check_aux_services()
         return 0
     fi
 
+    if [ "$(get_config REC_WITHOUT_CLOUD)" = yes ] ||
+       [ "$(get_camera_config MOTION_DETECTION)" = yes ] ||
+       [ "$(get_config ONVIF)" = yes ] || [ "$(process_count mp4record)" -gt 0 ]; then
+        if [ "$("$YI_HACK_PREFIX/script/motion_service.sh" events-status)" != started ]; then
+            # Restore only the shared collector. Keep the current recording and
+            # detector running, including when ONVIF is disabled.
+            "$YI_HACK_PREFIX/script/motion_service.sh" events >/dev/null 2>&1
+            refresh_oom_policy
+            return 0
+        fi
+    fi
+
     if [ "$(get_config ONVIF)" = "yes" ]; then
-        if [ "$(process_count onvif_notify_server)" -eq 0 ] || [ "$(process_count ipc2file)" -eq 0 ]; then
-            # ONVIF owns ipc2file as a pair. Recreate the pair cleanly rather
-            # than starting a duplicate survivor.
+        if [ "$(process_count onvif_notify_server)" -eq 0 ]; then
+            # ONVIF notifications share the collector with local recordings.
             $START_STOP_SCRIPT onvif stop >/dev/null 2>&1
             $START_STOP_SCRIPT onvif start >/dev/null 2>&1
             refresh_oom_policy

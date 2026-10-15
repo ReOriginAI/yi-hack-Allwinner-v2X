@@ -125,6 +125,7 @@ APP.configurations = (function($) {
             url: 'cgi-bin/status.json',
             dataType: "json",
             success: function(response) {
+                $('#y623-low-encoder-note').prop('hidden', response.model_suffix !== 'y623');
                 $.each(response, function(key, state) {
                     if (key == "go2rtc" && state == "no") {
                         $("#RTSP_ALT option[value='go2rtc']").remove();

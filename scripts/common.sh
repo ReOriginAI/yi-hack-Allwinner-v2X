@@ -23,8 +23,7 @@
 
 declare -A CAMERAS
 
-# Custom 3.7.x variant: only these two targets are built/supported by default.
-# Other upstream sysroot/sdhack directories remain as reference material.
+# This branch contains and supports only these two camera targets.
 CAMERAS["y623"]="y623"   # Yi Pro 2K Home
 CAMERAS["y28ga"]="y28ga" # Kami 1080p
 

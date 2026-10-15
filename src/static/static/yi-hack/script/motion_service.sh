@@ -6,6 +6,7 @@ SYSTEM_CONF="$YI_HACK_PREFIX/etc/system.conf"
 MOTIOND="$YI_HACK_PREFIX/bin/motiond"
 IPC2FILE="$YI_HACK_PREFIX/bin/ipc2file"
 IPC_EVENT_DIR="/tmp/onvif_notify_server"
+IPC_HISTORY=${YI_MOTION_EVENTS:-/tmp/yi-motion-events}
 PIDFILE="/tmp/motiond.pid"
 LOGFILE="/tmp/motiond.log"
 OWNERFILE="/tmp/motiond.mp4record.owner"
@@ -101,7 +102,13 @@ encoder_arguments()
             --confirm "$(get_camera_config MOTION_START_SAMPLES)" \
             --quiet-ms "$(get_camera_config MOTION_STOP_DELAY)" --require-zero "$ZERO"
     fi
-    # All tokens above are numeric or fixed option names, validated before use.
+    if [ "$(printf '%s\n' "$SETTINGS" | jq -r '.MOTION_MASK_ENABLED')" = yes ]; then
+        [ "$MODEL_SUFFIX" = y623 ] || return 1
+        set -- "$@" --mask "$(printf '%s\n' "$SETTINGS" | jq -r '.MOTION_MASK_CELLS')" \
+            --mask-vector-pixels "$(printf '%s\n' "$SETTINGS" | jq -r '.MOTION_MASK_VECTOR_PIXELS')" \
+            --mask-difference "$(printf '%s\n' "$SETTINGS" | jq -r '.MOTION_MASK_DIFFERENCE')"
+    fi
+    # All tokens are numeric, binary mask strings or fixed option names.
     printf '%s\n' "$@"
 }
 
@@ -142,6 +149,14 @@ set_y28ga_generic_motion_gate()
 configure_y28ga_generic_motion()
 {
     [ "$MODEL_SUFFIX" = "y28ga" ] || return 0
+
+    if [ -x "$YI_HACK_PREFIX/bin/motion_ivactl" ]; then
+        ENABLED=$(get_camera_config MOTION_MASK_ENABLED)
+        [ "$ENABLED" = yes ] || ENABLED=no
+        CELLS=$(get_camera_config MOTION_MASK_CELLS)
+        [ -n "$CELLS" ] || CELLS=$(printf '%0240d' 0)
+        "$YI_HACK_PREFIX/bin/motion_ivactl" --set "$ENABLED" "$CELLS" || return 1
+    fi
 
     disable_y28ga_classifiers || return 1
     LEVEL=$(firmware_motion_sensitivity)
@@ -199,12 +214,27 @@ stop_motiond()
     echo 0 > "$STATEFILE"
 }
 
-ensure_ipc_events()
+ipc_events_ready()
 {
+    [ "$(process_count ipc2file)" -eq 1 ] && [ -s "$IPC_HISTORY" ]
+}
+
+ensure_ipc_events()
+(
+    # Shared by recording, both motion backends and ONVIF. Keep this lock
+    # separate from the motion lifecycle lock, including nested recorder start.
+    # The subshell preserves the caller's EXIT trap.
+    EVENT_LOCK=/tmp/motion_events.lock.d
+    mkdir "$EVENT_LOCK" 2>/dev/null || return 1
+    trap 'rmdir "$EVENT_LOCK" 2>/dev/null' 0
+    trap 'exit 1' HUP INT TERM
+
+    ipc_events_ready && return 0
     COUNT=$(process_count ipc2file)
-    if [ "$COUNT" -gt 1 ]; then
+    if [ "$COUNT" -gt 0 ]; then
         # ipc2file is a singleton queue consumer. Collapse accidental duplicate
-        # instances and create one clean owner instead of running ambiguously.
+        # instances, or recreate a missing history file. A healthy singleton
+        # above keeps its PID and existing history across ONVIF restarts.
         killall ipc2file 2>/dev/null
         sleep 0.3
         if [ "$(process_count ipc2file)" -gt 0 ]; then
@@ -213,11 +243,8 @@ ensure_ipc_events()
         fi
         COUNT=$(process_count ipc2file)
     fi
-    if [ "$COUNT" -eq 1 ]; then
-        return 0
-    fi
-    if [ "$COUNT" -gt 1 ]; then
-        echo "unable to collapse duplicate ipc2file consumers" >&2
+    if [ "$COUNT" -gt 0 ]; then
+        echo "unable to stop unhealthy ipc2file consumers" >&2
         return 1
     fi
 
@@ -230,11 +257,24 @@ ensure_ipc_events()
     "$IPC2FILE" >/dev/null 2>&1
     sleep 0.3
 
-    [ "$(process_count ipc2file)" -eq 1 ] || {
+    ipc_events_ready || {
         echo "unable to start ipc2file event consumer" >&2
         return 1
     }
-}
+)
+
+stop_unused_ipc_events()
+(
+    EVENT_LOCK=/tmp/motion_events.lock.d
+    mkdir "$EVENT_LOCK" 2>/dev/null || return 1
+    trap 'rmdir "$EVENT_LOCK" 2>/dev/null' 0
+    trap 'exit 1' HUP INT TERM
+
+    [ "$(get_camera_config MOTION_DETECTION)" != yes ] || return 0
+    [ "$(get_system_config REC_WITHOUT_CLOUD)" != yes ] || return 0
+    [ "$(process_count mp4record)" -eq 0 ] || return 0
+    killall ipc2file 2>/dev/null || true
+)
 
 ensure_single_mp4record()
 {
@@ -287,6 +327,7 @@ start_encoder_backend()
     fi
 
     ARGS=$(encoder_arguments) || return 1
+    ensure_ipc_events || return 1
     RECORD_OPT=""
 
     if [ "$(get_camera_config SAVE_VIDEO_ON_MOTION)" = "yes" ]; then
@@ -365,6 +406,11 @@ start_motion()
 
 
     if [ "$(get_camera_config MOTION_DETECTION)" != "yes" ]; then
+        if [ "$MODEL_SUFFIX" = y28ga ] && [ -x "$YI_HACK_PREFIX/bin/motion_ivactl" ]; then
+            CELLS=$(get_camera_config MOTION_MASK_CELLS)
+            [ -n "$CELLS" ] || CELLS=$(printf '%0240d' 0)
+            "$YI_HACK_PREFIX/bin/motion_ivactl" --set no "$CELLS" >/dev/null 2>&1 || true
+        fi
         set_y28ga_generic_motion_gate off >/dev/null 2>&1 || true
         rm -f "$IPC_EVENT_DIR/motion_alarm"
         stop_owned_mp4record
@@ -481,8 +527,17 @@ case "$1" in
         ARGS=$(encoder_arguments) || exit 1
         "$MOTIOND" $ARGS --settings
         ;;
+    events)
+        ensure_ipc_events
+        ;;
+    events-status)
+        if ipc_events_ready; then echo started; else echo failed; fi
+        ;;
+    events-stop-if-unused)
+        stop_unused_ipc_events
+        ;;
     *)
-        echo "usage: $0 {start|stop|restart|status|backend|sensitivity|settings}" >&2
+        echo "usage: $0 {start|stop|restart|status|backend|sensitivity|settings|events|events-status|events-stop-if-unused}" >&2
         exit 2
         ;;
 esac

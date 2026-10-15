@@ -19,7 +19,9 @@ class MotionTuningTests(unittest.TestCase):
         cls.temp = tempfile.TemporaryDirectory()
         cls.binary = Path(cls.temp.name) / "motiond"
         subprocess.run(["gcc", "-Wall", "-Wextra", "-Werror", "-O2",
-                        str(ROOT / "src/motiond/motiond/motiond.c"), "-lrt", "-o", str(cls.binary)],
+                        str(ROOT / "src/motiond/motiond/motiond.c"),
+                        str(ROOT / "src/ipc_cmd/ipc_cmd/motion_metadata_levels.c"),
+                        "-lrt", "-o", str(cls.binary)],
                        check=True, capture_output=True)
 
     @classmethod
@@ -84,6 +86,40 @@ esac
                      ("--require-zero", "2"), ("-s", "11")):
             result = subprocess.run([str(self.binary), *args, "--settings"], capture_output=True)
             self.assertEqual(result.returncode, 2, args)
+
+    def test_masks_validate_and_persist(self):
+        for cells in ('', '0'*239, '0'*239+'x', None, True):
+            before=self.config.read_bytes()
+            self.assertTrue(self.call('set_configs.sh', {'MOTION_MASK_CELLS':cells})['error'])
+            self.assertEqual(self.config.read_bytes(),before)
+        for changes in ({'MOTION_MASK_VECTOR_PIXELS':'0'}, {'MOTION_MASK_DIFFERENCE':'256'},
+                        {'MOTION_MASK_ENABLED':True}, {'MOTION_MASK_CELLS':'1;touch /tmp/unsafe'}):
+            before=self.config.read_bytes()
+            self.assertTrue(self.call('set_configs.sh',changes)['error'])
+            self.assertEqual(self.config.read_bytes(),before)
+        cells=('1'*10+'0'*10)*12
+        result=self.call('set_configs.sh', {'MOTION_MASK_ENABLED':'yes','MOTION_MASK_CELLS':cells,
+                                          'MOTION_MASK_VECTOR_PIXELS':'2','MOTION_MASK_DIFFERENCE':'0'})
+        self.assertEqual(result['error'],'false')
+        self.assertIn('MOTION_MASK_CELLS='+cells,self.config.read_text())
+        self.assertIn('restart',self.log.read_text())
+        (self.root/'model_suffix').write_text('y28ga\n')
+        before=self.config.read_bytes()
+        self.assertTrue(self.call('set_configs.sh',{'MOTION_MASK_ENABLED':'yes'})['error'])
+        self.assertEqual(self.config.read_bytes(),before)
+
+    def test_y28ga_mask_requires_hook_then_persists(self):
+        (self.root/'model_suffix').write_text('y28ga\n')
+        controller=self.root/'bin/motion_ivactl'
+        controller.write_text('#!/bin/sh\nprintf \'{"ready":true,"enabled":false,"error":0}\\n\'\n')
+        controller.chmod(0o755)
+        cells=('1'*10+'0'*10)*12
+        result=self.call('set_configs.sh',{'MOTION_MASK_ENABLED':'yes','MOTION_MASK_CELLS':cells})
+        self.assertEqual(result['error'],'false')
+        self.assertIn('MOTION_MASK_CELLS='+cells,self.config.read_text())
+        data=self.call('motion_status.sh')
+        self.assertTrue(data['mask_supported'])
+        self.assertTrue(data['iva_mask']['ready'])
 
     def test_motion_transitions_ignore_background_and_missing_samples(self):
         source = self.root / "sequence.c"
@@ -212,11 +248,13 @@ int main(void) {
     def test_status_reports_backend_and_rejects_stale_samples(self):
         uptime=float(Path('/proc/uptime').read_text().split()[0])*1000
         sample={"monotonic_ms":int(uptime),"active":False,"bin_ratio":1.7,"moving_level":1,
+                "scene":0,"move":1,"moving_th":20,
                 "read_error":0,"effective":self.settings()}
         (self.root / "telemetry").write_text(json.dumps(sample))
         data=self.call("motion_status.sh")
         self.assertTrue(data["custom_supported"])
         self.assertEqual(data["metrics"]["bin_ratio"],1.7)
+        self.assertEqual([data["metrics"][k] for k in ("scene","move","moving_level","moving_th")],[0,1,1,20])
         sample["monotonic_ms"]-=10000
         (self.root / "telemetry").write_text(json.dumps(sample))
         self.assertIsNone(self.call("motion_status.sh")["metrics"])

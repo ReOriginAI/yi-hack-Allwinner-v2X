@@ -138,7 +138,11 @@
                             <span class="switch-description">
                                 Select stream resolution. Changes are applied live when saved.
                                 <br/>
-                                On supported models, selecting High also pauses the unused low hardware encoder; Low or Both resumes it.
+                                On supported models, High can pause the low-resolution encoder when recording does not need it. Low or Both keeps it enabled.
+                            </span>
+                            <span class="switch-description" id="y623-low-encoder-note" hidden>
+                                On y623, the low-resolution encoder stays active in the background while the recorder is running, even with High selected.
+                                Selecting Both adds little encoding work. Viewing the second stream adds network bandwidth and some server overhead.
                             </span>
                         </td>
                     </tr>

@@ -420,3 +420,11 @@ button.icon {
 #img-ad, #img-dl {
     rotate: 180deg;
 }
+#motion-metadata-guide code {
+    white-space: normal;
+    overflow-wrap: anywhere;
+}
+
+#motion-metadata-guide pre > code {
+    white-space: pre-wrap;
+}

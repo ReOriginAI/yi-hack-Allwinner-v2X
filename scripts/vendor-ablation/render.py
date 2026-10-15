@@ -8,11 +8,11 @@ ROOT = Path(__file__).resolve().parents[2]
 FIRMWARE = {'y623': '12.0.51.01_202303091901', 'y28ga': '9.0.20.06_202007061841'}
 RMM = {'y623': 'f8164a1c221ba8c1d4888322a3cf0706', 'y28ga': '46261d809c58dea5b39f3351e322d710'}
 REQUIRED = ('www/onvif/onvif_simple_server', 'script/log_store.sh', 'script/bounded_log.sh', 'script/config_work.sh',
-            'script/restore_config.sh', 'script/motion_log.sh', 'script/motion_settings.sh', 'script/motion_service.sh', 'bin/motiond', 'script/system.sh', 'script/service.sh', 'script/check_conf.sh',
+            'script/restore_config.sh', 'script/motion_log.sh', 'script/motion_settings.sh', 'script/motion_service.sh', 'bin/motiond', 'script/system.sh', 'script/service.sh', 'script/wd.sh', 'script/check_conf.sh',
             'script/configure_wifi.sh', 'script/wifidhcp.sh', 'script/ethdhcp.sh',
             'script/prepare_rmm.sh', 'script/prepare_mp4record.sh', 'script/rtsp_stream_venc.sh', 'script/ensure_y623_ve_kernel.sh',
             'lib/ipc_multiplex.so', 'bin/cloudAPI',
-            'bin/cloudAPI_fake', 'bin/ipc_cmd', 'script/nightvision.sh', 'bin/nightvisionctl', 'lib/nightvision.so',
+            'bin/cloudAPI_fake', 'bin/ipc_cmd', 'script/nightvision.sh', 'bin/nightvisionctl', 'lib/nightvision.so', 'lib/motion_map.so', 'bin/motion_ivactl', 'lib/motion_iva.so',
             'script/time_config.sh', 'script/apply_time.sh', 'script/update_osd_tz.sh', 'bin/set_tz_offset',
             'lib/record_metadata.so', 'bin/ipc2file',
             'lib/record_preroll-y623.bin', 'lib/record_preroll-y28ga.bin')

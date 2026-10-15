@@ -1,4 +1,5 @@
-/* Run: gcc -Wall -Wextra -Werror -O2 test_pressure.c -lrt -o /tmp/test-pressure
+/* Run from repo root: gcc -Wall -Wextra -Werror -O2 src/motiond/tests/test_pressure.c
+ *      src/ipc_cmd/ipc_cmd/motion_metadata_levels.c -lrt -o /tmp/test-pressure
  *      /tmp/test-pressure
  * Fake procfs and time; never opens the real VE node or sends motion IPC.
  */

@@ -6,7 +6,9 @@ motion_read_config()
         MOTION_DETECTION:"no", SAVE_VIDEO_ON_MOTION:"yes", MOTION_SENSITIVITY:"5",
         MOTION_CUSTOM:"no", MOTION_START_THRESHOLD:"3.00", MOTION_STOP_THRESHOLD:"0.30",
         MOTION_START_SAMPLES:"3", MOTION_STOP_DELAY:"2000", MOTION_POLL_INTERVAL:"100",
-        MOTION_STOP_REQUIRE_ZERO:"yes"
+        MOTION_STOP_REQUIRE_ZERO:"yes", MOTION_MASK_ENABLED:"no",
+        MOTION_MASK_CELLS:("0" * 240), MOTION_MASK_VECTOR_PIXELS:"1",
+        MOTION_MASK_DIFFERENCE:"12"
     }; ($line | index("=")) as $n | if $n == null then .
        else . + {($line[:$n]):$line[$n+1:]} end)' < "$YI_HACK_PREFIX/etc/camera.conf"
 }
@@ -21,6 +23,10 @@ motion_validate_json()
         (.SAVE_VIDEO_ON_MOTION == "yes" or .SAVE_VIDEO_ON_MOTION == "no") and
         (.MOTION_CUSTOM == "yes" or .MOTION_CUSTOM == "no") and
         (.MOTION_STOP_REQUIRE_ZERO == "yes" or .MOTION_STOP_REQUIRE_ZERO == "no") and
+        (.MOTION_MASK_ENABLED == "yes" or .MOTION_MASK_ENABLED == "no") and
+        (.MOTION_MASK_CELLS | type == "string" and test("^[01]{240}$")) and
+        number("MOTION_MASK_VECTOR_PIXELS";1;16;"^[0-9]{1,2}$") and
+        number("MOTION_MASK_DIFFERENCE";0;255;"^[0-9]{1,3}$") and
         number("MOTION_SENSITIVITY";1;10;"^([1-9]|10)$") and
         number("MOTION_START_THRESHOLD";0.01;100;"^[0-9]{1,3}(\\.[0-9]{1,2})?$") and
         number("MOTION_STOP_THRESHOLD";0;100;"^[0-9]{1,3}(\\.[0-9]{1,2})?$") and
