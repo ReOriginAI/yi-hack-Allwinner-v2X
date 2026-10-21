@@ -126,8 +126,17 @@ FREE_BACKUP=$(df -k "$BACKUP_ROOT" 2>/dev/null | awk 'NR == 2 {print $4}')
 case "$FREE_BACKUP" in ''|*[!0-9]*) die "unable to determine internal free space" ;; esac
 [ "$FREE_BACKUP" -ge "$MIN_BACKUP_FREE_KIB" ] || die "internal free space is below 128 KiB"
 
-[ ! -e "$ROLLBACK_TREE" ] || die "rollback tree already exists: $ROLLBACK_TREE"
-[ ! -e "$ROLLBACK_INIT" ] || die "rollback bootstrap already exists: $ROLLBACK_INIT"
+# Repeated upgrades from the same firmware version must preserve earlier
+# rollback copies instead of failing when the default backup name is occupied.
+ROLLBACK_BASE_TREE="$ROLLBACK_TREE"
+ROLLBACK_BASE_INIT="$ROLLBACK_INIT"
+ROLLBACK_SLOT=0
+while [ -e "$ROLLBACK_TREE" ] || [ -e "$ROLLBACK_INIT" ]; do
+    ROLLBACK_SLOT=$((ROLLBACK_SLOT + 1))
+    [ "$ROLLBACK_SLOT" -le 99 ] || die "no unused rollback backup slot is available"
+    ROLLBACK_TREE="$ROLLBACK_BASE_TREE.$ROLLBACK_SLOT"
+    ROLLBACK_INIT="$ROLLBACK_BASE_INIT.$ROLLBACK_SLOT"
+done
 
 gzip -t "$LOCAL_FW" >/dev/null 2>&1 || die "uploaded firmware is not a valid gzip archive"
 tar tzf "$LOCAL_FW" > "$LIST_TMP" 2>/dev/null || die "uploaded firmware is not a valid tar archive"
