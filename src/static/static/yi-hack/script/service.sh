@@ -557,20 +557,9 @@ if [ "$ACTION" == "start" ] ; then
         MP4_COUNT=$(mp4record_count)
         if [ "$MP4_COUNT" -eq 0 ]; then
             # Apply the recorder-aware VENC policy before the recorder snapshots
-            # its input tracks. Patched y28ga may keep VENC1 paused; stock builds
-            # are forced to the recording-safe encoder state.
+            # its input tracks. All y28ga video tracks require VENC1 to stay on.
             $YI_HACK_PREFIX/script/rtsp_stream_venc.sh "$(get_config RTSP_STREAM)" >/dev/null 2>&1 || true
             MP4_MD5=$(md5sum /home/app/mp4record | cut -d' ' -f1)
-            MP4_WARM_LOW=no
-            # The main-only muxer still fetches sub/fast codec headers at init.
-            # Supply them briefly when restarting with VENC1 already paused.
-            if { [ "$MODEL_SUFFIX:$MP4_MD5" = "y28ga:0d7a4ca9e73fd75806a6ebb75a8accbc" ] ||
-                 [ "$MODEL_SUFFIX:$MP4_MD5" = "y28ga:c541480baa510ad34944e9e763c6b505" ]; } &&
-               [ "$(md5sum /home/app/rmm | cut -d' ' -f1)" = "14aa4ee21e04fb40a3c321fdcd12eef4" ]; then
-                if "$YI_HACK_PREFIX/bin/ipc_cmd" -V on >/dev/null 2>&1; then
-                    MP4_WARM_LOW=yes
-                fi
-            fi
             cd /home/app
             (
                 # Install metadata inside the recorder only for audited builds.
@@ -578,7 +567,7 @@ if [ "$ACTION" == "start" ] ; then
                 MP4_METADATA="$YI_HACK_PREFIX/lib/record_metadata.so"
                 if [ -r "$MP4_METADATA" ]; then
                     case "$MODEL_SUFFIX:$MP4_MD5" in
-                        y623:c4ee01f6491b26a37db8d92c59605496|y623:06774adfc4368e7dede2ea618a96c2b6|y28ga:d3aff9fb80bc1d61ec78de281e6e9784|y28ga:c541480baa510ad34944e9e763c6b505|y28ga:0d7a4ca9e73fd75806a6ebb75a8accbc)
+                        y623:c4ee01f6491b26a37db8d92c59605496|y623:06774adfc4368e7dede2ea618a96c2b6|y28ga:21e7bd205bf604000793351613a1a426|y28ga:d3aff9fb80bc1d61ec78de281e6e9784|y28ga:c541480baa510ad34944e9e763c6b505|y28ga:0d7a4ca9e73fd75806a6ebb75a8accbc)
                             export YI_RECORD_METADATA_MODEL="$MODEL_SUFFIX"
                             export LD_PRELOAD="$MP4_METADATA${LD_PRELOAD:+:$LD_PRELOAD}"
                             ;;
@@ -589,24 +578,6 @@ if [ "$ACTION" == "start" ] ; then
                 export TZ="$(recording_timezone)"
                 exec ./mp4record
             ) > /dev/null &
-            MP4_PID=$!
-            if [ "$MP4_WARM_LOW" = "yes" ]; then
-                MP4_WAIT=0
-                while [ -r "/proc/$MP4_PID/status" ] && [ "$MP4_WAIT" -lt 100 ]; do
-                    MP4_THREADS=$(awk '/^Threads:/ {print $2}' "/proc/$MP4_PID/status")
-                    if [ "${MP4_THREADS:-0}" -gt 1 ]; then
-                        # record_file fetches the cached codec headers again.
-                        # Allow this pass before restoring the encoder policy;
-                        # waiting for a video file would keep VENC1 on when idle.
-                        sleep 2
-                        $YI_HACK_PREFIX/script/rtsp_stream_venc.sh "$(get_config RTSP_STREAM)" >/dev/null 2>&1 || true
-                        break
-                    fi
-                    sleep 0.1
-                    MP4_WAIT=$((MP4_WAIT+1))
-                done
-                # On timeout leave VENC1 available so init can still finish.
-            fi
         fi
     elif [ "$NAME" == "motion" ]; then
         $YI_HACK_PREFIX/script/motion_service.sh start

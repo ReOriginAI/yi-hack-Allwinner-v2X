@@ -10,6 +10,7 @@ file_md5()
     printf '%s\n' "$1"
 }
 
+PREVIOUS_PREROLL_MD5=
 case "$MODEL_SUFFIX" in
     y623)
         PATCHED_MP4RECORD=${MP4RECORD_PATCHED_PATH:-$YI_HACK_PREFIX/bin/mp4record-y623-preroll}
@@ -20,10 +21,11 @@ case "$MODEL_SUFFIX" in
         BLOB_OFFSET=36864
         ;;
     y28ga)
-        PATCHED_MP4RECORD=${MP4RECORD_PATCHED_PATH:-$YI_HACK_PREFIX/bin/mp4record-y28ga-mainonly}
+        PATCHED_MP4RECORD=${MP4RECORD_PATCHED_PATH:-$YI_HACK_PREFIX/bin/mp4record-y28ga-preroll}
         EXPECTED_STOCK_MD5=d3aff9fb80bc1d61ec78de281e6e9784
         LEGACY_PATCHED_MD5=c541480baa510ad34944e9e763c6b505
-        EXPECTED_PATCHED_MD5=0d7a4ca9e73fd75806a6ebb75a8accbc
+        PREVIOUS_PREROLL_MD5=0d7a4ca9e73fd75806a6ebb75a8accbc
+        EXPECTED_PATCHED_MD5=21e7bd205bf604000793351613a1a426
         EXPECTED_BLOB_MD5=e7abac10b94a944988038d301997ac80
         BLOB_OFFSET=32768
         ;;
@@ -45,7 +47,8 @@ fi
 # Refuse an unknown vendor recorder before consulting a cached patched copy.
 # This prevents a stale patch from an older firmware being reused accidentally.
 if [ "$STOCK_MD5" != "$EXPECTED_STOCK_MD5" ] &&
-   { [ -z "$LEGACY_PATCHED_MD5" ] || [ "$STOCK_MD5" != "$LEGACY_PATCHED_MD5" ]; }; then
+   { [ -z "$LEGACY_PATCHED_MD5" ] || [ "$STOCK_MD5" != "$LEGACY_PATCHED_MD5" ]; } &&
+   { [ -z "$PREVIOUS_PREROLL_MD5" ] || [ "$STOCK_MD5" != "$PREVIOUS_PREROLL_MD5" ]; }; then
     echo "prepare_mp4record: refusing unknown $MODEL_SUFFIX mp4record build" >&2
     exit 1
 fi
@@ -90,9 +93,9 @@ case "$MODEL_SUFFIX" in
         printf '\030\222\000\000\030\222\000\000' | dd of="$TMP_MP4RECORD" bs=1 seek=132 conv=notrunc 2>/dev/null
         ;;
     y28ga)
-        # Keep one main H.264 track plus AAC. Stock's three video tracks create
-        # invalid empty sub/fast track tables when the subencoder is paused.
-        printf '\001' | dd of="$TMP_MP4RECORD" bs=1 seek=11156 conv=notrunc 2>/dev/null
+        # Restore all three vendor video tracks, including for legacy patched inputs.
+        # The writer's out-of-range track path dereferences NULL; keep VENC1 on.
+        printf '\003' | dd of="$TMP_MP4RECORD" bs=1 seek=11156 conv=notrunc 2>/dev/null
         printf '\160\067\001\343' | dd of="$TMP_MP4RECORD" bs=1 seek=10228 conv=notrunc 2>/dev/null
         printf '\003\020\100\200' | dd of="$TMP_MP4RECORD" bs=1 seek=10236 conv=notrunc 2>/dev/null
         printf '\000\000\240\341' | dd of="$TMP_MP4RECORD" bs=1 seek=10244 conv=notrunc 2>/dev/null

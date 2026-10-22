@@ -27,16 +27,17 @@ Each model adds a 536-byte ARM extension to an SD copy of its native recorder,
 with one additional 4 KiB executable mapping page. Original ELF sections and
 addresses stay intact; the read-only vendor filesystem is unchanged. Both
 stock and resulting binary hashes are checked. Unknown firmware keeps its
-stock recorder. y28ga retains the previously audited main-only muxer and its
-bounded subencoder-header warmup.
+stock recorder. y28ga retains all three vendor video tracks and keeps the subencoder active
+while recording. The former main-only muxer patch is reverted (see below).
 
 | Model | Stock recorder MD5 | Current patched recorder MD5 |
 | --- | --- | --- |
 | y623 | `c4ee01f6491b26a37db8d92c59605496` | `06774adfc4368e7dede2ea618a96c2b6` |
-| y28ga | `d3aff9fb80bc1d61ec78de281e6e9784` | `0d7a4ca9e73fd75806a6ebb75a8accbc` |
+| y28ga | `d3aff9fb80bc1d61ec78de281e6e9784` | `21e7bd205bf604000793351613a1a426` |
 
-The earlier y28ga main-only hash `c541480baa510ad34944e9e763c6b505` is also
-accepted as an upgrade input. The extension payloads are built by
+The earlier y28ga main-only hashes `c541480baa510ad34944e9e763c6b505` and
+`0d7a4ca9e73fd75806a6ebb75a8accbc` are accepted as upgrade inputs; their track
+count is restored to three. The extension payloads are built by
 `src/ipc_cmd/compile.ipc_cmd`; installation uses `prepare_mp4record.sh` and
 `check_conf.sh`. Recorder metadata loading and encoder gating recognize the
 new hashes. The persistent bootstrap verifies the updated startup scripts and
@@ -97,3 +98,29 @@ detach the recorder bind mount, restore the previous bootstrap, and reboot.
 The y28ga previous recorder is its main-only build; its original startup helper
 will regenerate or reuse that exact image. Restoring one startup script alone
 would fail the bootstrap integrity check.
+
+## 2026-10-22 recorder crash
+
+A core dump from .199 places SIGSEGV at `0x14cd8`, reading address `0x0c`
+with `r2=0`, after a video-track-2 submission to a muxer declaring one track.
+The vendor out-of-range video writer at `0x14cbc` writes the payload then
+unconditionally dereferences NULL; it does not safely reject extra tracks.
+This invalidates the assumption behind commit `59c2ed4` and the inherited
+one-track edit in `66c40b0`. Restore `mov r1,#3` at file offset `11156` and
+keep VENC1 running to avoid empty-track tables. Six-second preroll and its
+media-clock correction are retained. Earlier validation above is historical.
+
+On .199 the restored three-track recorder completed a 58.048-second native
+test clip, with 1920×1080 H.264, two 640×360 H.264 tracks and AAC; all four
+tracks decoded without errors. Test clips also reached the unchanged
+`yicamBasement` FTP destination. The normal service now uses the repaired
+preroll recorder and metadata preload. The installed bootstrap manifest was
+updated with the four matching startup scripts; all 38 payload checks pass.
+This does not establish that the native detector recognizes rustling leaves:
+foreground activity was still zero during the final status samples.
+
+The pre-fix camera bootstrap is saved as
+`/tmp/sd/yi-hack/.recorder-backup-20261022/init.sh`, with the four old startup
+scripts in `scripts.tgz` beside it. The original main-only binary remains
+untouched. A rollback must restore the archived scripts and bootstrap together,
+then detach the recorder bind mount and restart through the restored setup.

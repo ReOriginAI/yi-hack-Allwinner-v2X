@@ -241,7 +241,7 @@ case "$RMM_MODEL" in
         ;;
 esac
 # Both audited recorders use six-second preroll with the retained media clock.
-# y28ga additionally keeps its main-only muxer so VENC1 can remain paused.
+# y28ga retains all native video tracks and keeps VENC1 on while recording.
 # An unknown build keeps the stock recorder and recording-safe VENC policy.
 if [ "$RMM_MODEL" = "y28ga" ] || [ "$RMM_MODEL" = "y623" ]; then
     MP4_PATCH_LOG=/tmp/mp4record_patch.log

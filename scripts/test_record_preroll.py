@@ -18,7 +18,7 @@ LIB = ROOT / "src/ipc_cmd/_install/lib"
 SCRIPT = ROOT / "src/static/static/yi-hack/script/prepare_mp4record.sh"
 PROFILES = {
     "y623": (0xe0000, "06774adfc4368e7dede2ea618a96c2b6"),
-    "y28ga": (0x100000, "0d7a4ca9e73fd75806a6ebb75a8accbc"),
+    "y28ga": (0x100000, "21e7bd205bf604000793351613a1a426"),
 }
 
 HARNESS = r'''
@@ -106,18 +106,36 @@ def patch_checks(temp, vendor_dir):
         assert rx[0] == 1 and rx[2] == 0x10000 and rx[4] == len(data) and rx[6] == 5
         print("PASS:", model, "audited binary extension, cache, unknown firmware refusal, idempotency")
         if model == "y28ga":
-            # Disabling the subencoder must recognize the image actually bound
-            # to the vendor path, while stock/unknown muxers retain their input.
+            # All vendor tracks must remain available, including after migration
+            # from either crashing main-only image.
             policy = (ROOT / "src/static/static/yi-hack/script/rtsp_stream_venc.sh").read_text()
             policy = policy[:policy.index('# Runtime low-VENC control')]
             harness = '\nmp4record_running() { return 0; }\nrecording_needs_low_venc && printf needed || printf optional\n'
-            legacy = hashlib.md5(stock.read_bytes()).hexdigest() == "c541480baa510ad34944e9e763c6b505"
-            for binary, expected_state in ((path, "optional"), (stock, "optional" if legacy else "needed"),
+            assert struct.unpack_from("<I", data, 11156)[0] == 0xe3a01003
+            # Both deployed main-only generations must regenerate the fixed
+            # image without relying on a previously cached repaired binary.
+            legacy_images = []
+            for original in (stock.read_bytes(), data):
+                old = bytearray(original)
+                old[11156] = 1
+                legacy_images.append(bytes(old))
+            for index, old in enumerate(legacy_images):
+                legacy = prefix / ("legacy-" + str(index))
+                legacy.write_bytes(old)
+                assert hashlib.md5(old).hexdigest() in {
+                    "c541480baa510ad34944e9e763c6b505",
+                    "0d7a4ca9e73fd75806a6ebb75a8accbc"}
+                path.unlink()
+                env["MP4RECORD_STOCK_PATH"] = str(legacy)
+                repaired = Path(run(["busybox", "ash", str(SCRIPT)], env=env).stdout.strip())
+                assert repaired.read_bytes() == data
+            print("PASS: both deployed main-only versions upgrade to the three-track recorder")
+            for binary, expected_state in ((path, "needed"), (stock, "needed"),
                                            (unknown, "needed")):
                 policy_env = {**env, "MP4RECORD_PATH": str(binary)}
                 result = run(["busybox", "ash", "-c", policy + harness], env=policy_env)
                 assert result.stdout == expected_state
-            print("PASS: bound preroll y28ga recorder permits paused subencoder; unknown/stock keep it running")
+            print("PASS: y28ga preserves three video tracks and requires the subencoder")
 
 
 def main():

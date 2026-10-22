@@ -8,8 +8,6 @@ MP4RECORD_PATH=${MP4RECORD_PATH:-/home/app/mp4record}
 SYSTEM_CONF="$YI_HACK_PREFIX/etc/system.conf"
 CAMERA_CONF="$YI_HACK_PREFIX/etc/camera.conf"
 STREAM=${1:-$(grep '^RTSP_STREAM=' "$SYSTEM_CONF" 2>/dev/null | cut -d= -f2-)}
-Y28GA_MAINONLY_MP4_MD5=0d7a4ca9e73fd75806a6ebb75a8accbc
-Y28GA_LEGACY_MAINONLY_MP4_MD5=c541480baa510ad34944e9e763c6b505
 
 get_conf()
 {
@@ -31,15 +29,6 @@ mp4record_running()
 
 recording_needs_low_venc()
 {
-    # The audited y28ga main-only recorder muxes VENC0 + AAC only, so recording
-    # no longer requires VENC1. Check the binary actually bound at /home/app so
-    # a failed/unknown patch automatically falls back to the safe vendor policy.
-    if [ "$MODEL_SUFFIX" = "y28ga" ] &&
-       { [ "$(file_md5 "$MP4RECORD_PATH")" = "$Y28GA_MAINONLY_MP4_MD5" ] ||
-         [ "$(file_md5 "$MP4RECORD_PATH")" = "$Y28GA_LEGACY_MAINONLY_MP4_MD5" ]; }; then
-        return 1
-    fi
-
     # Stock Yi mp4record declares lower-resolution video tracks. If VENC1 is
     # paused, those tracks can be emitted with zero chunks but a live STSC map,
     # producing MP4s that browsers/FFmpeg reject as contradictory STSC/STCO.
