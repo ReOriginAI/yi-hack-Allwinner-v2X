@@ -41,52 +41,55 @@ def probe(path):
     return json.loads(result.stdout)
 
 
-def verify_recorder_warmup(temp):
-    """A paused y28ga subencoder must supply headers through recorder init."""
-    service = (ROOT / "src/static/static/yi-hack/script/service.sh").read_text()
-    start = service.index("                MP4_WAIT=0\n")
-    warmup = service[start:service.index("                # On timeout", start)]
-    prefix = temp / "warmup"
-    (prefix / "script").mkdir(parents=True)
-    policy = prefix / "script/rtsp_stream_venc.sh"
-    policy.write_text('#!/bin/sh\nprintf "policy %s\\n" "$1" >> "$TEST_WARMUP_LOG"\n')
-    policy.chmod(0o755)
+def verify_recorder_encoder_policy(temp):
+    """Recording must retain sub/fast input after restoring three video tracks."""
+    policy = ROOT / "src/static/static/yi-hack/script/rtsp_stream_venc.sh"
+    prefix = temp / "encoder-policy"
+    for sub in ("etc", "mock"):
+        (prefix / sub).mkdir(parents=True)
     log = prefix / "log"
-    harness = '''
-MP4_PID=$$
-TEST_POLLS=0
-sleep() {
-    printf 'sleep %s\n' "$1" >> "$TEST_WARMUP_LOG"
-    [ "$1" != 0.1 ] || TEST_POLLS=$((TEST_POLLS+1))
-    return 0
-}
-awk() {
-    if [ "$TEST_THREAD_MODE" = ready ] && [ "$TEST_POLLS" -ge 3 ]; then
-        printf '2\n'
-    else
-        printf '1\n'
-    fi
-}
-get_config() { printf 'high\n'; }
-'''
-    for mode in ("ready", "stalled"):
-        log.write_text("")
-        env = {**os.environ, "YI_HACK_PREFIX": str(prefix),
-               "TEST_WARMUP_LOG": str(log), "TEST_THREAD_MODE": mode}
-        run(["sh", "-c", harness + warmup], env=env)
-        lines = log.read_text().splitlines()
-        if mode == "ready":
-            # No open video is needed while idle; allow the second header pass.
-            assert lines == ["sleep 0.1"] * 3 + ["sleep 2", "policy high"], lines
-        else:
-            # A stalled init must be bounded and retain its working input.
-            assert lines == ["sleep 0.1"] * 100, lines
-    print("PASS: y28ga idle startup restores encoder policy after init; timeout preserves input")
+    stubs = {
+        "md5sum": '#!/bin/sh\nprintf "%s  %s\\n" "$TEST_RMM_MD5" "$1"\n',
+        "ps": '#!/bin/sh\n[ "$TEST_RECORDER_RUNNING" != yes ] || printf "90 root 100 S ./mp4record\\n"\n',
+        "ipc_cmd": '#!/bin/sh\nprintf "%s\\n" "$*" >> "$TEST_ENCODER_LOG"\n',
+    }
+    for name, body in stubs.items():
+        stub = prefix / "mock" / name
+        stub.write_text(body)
+        stub.chmod(0o755)
+    profiles = {
+        "y623": "eb9d532e71d0d8697d22d0775b744b40",
+        "y28ga": "14aa4ee21e04fb40a3c321fdcd12eef4",
+    }
+    # stream, recorder running, local recording, motion recording, expected VENC1
+    cases = (
+        ("high", "yes", "no", "no", "on"),
+        ("high", "no", "yes", "no", "on"),
+        ("high", "no", "no", "yes", "on"),
+        ("high", "no", "no", "no", "off"),
+        ("low", "no", "no", "no", "on"),
+        ("both", "no", "no", "no", "on"),
+    )
+    for model, digest in profiles.items():
+        for stream, running, local, motion, expected in cases:
+            (prefix / "etc/system.conf").write_text("REC_WITHOUT_CLOUD=" + local + "\n")
+            (prefix / "etc/camera.conf").write_text(
+                "MOTION_DETECTION=" + motion + "\nSAVE_VIDEO_ON_MOTION=" + motion + "\n")
+            log.write_text("")
+            env = {**os.environ, "YI_HACK_PREFIX": str(prefix),
+                   "MODEL_SUFFIX": model, "TEST_RMM_MD5": digest,
+                   "TEST_RECORDER_RUNNING": running, "TEST_ENCODER_LOG": str(log),
+                   "YI_HACK_IPC_CMD": str(prefix / "mock/ipc_cmd"),
+                   "RMM_PATH": str(prefix / "rmm"),
+                   "PATH": str(prefix / "mock") + ":" + os.environ["PATH"]}
+            run(["sh", str(policy), stream], env=env)
+            assert log.read_text().splitlines() == ["-V " + expected], (model, stream, running, local, motion)
+    print("PASS: recording retains subencoder input; idle high-only streaming may pause it")
 
 
 with tempfile.TemporaryDirectory(prefix="yi-record-metadata-") as folder:
     temp = Path(folder)
-    verify_recorder_warmup(temp)
+    verify_recorder_encoder_policy(temp)
     library, driver, unit = temp / "metadata.so", temp / "driver", temp / "unit"
     flags = ["cc", "-std=c11", "-Wall", "-Wextra", "-Werror", "-Os"]
     run(flags + ["-shared", "-fPIC", "-pthread", str(SOURCE / "record_metadata.c"),
