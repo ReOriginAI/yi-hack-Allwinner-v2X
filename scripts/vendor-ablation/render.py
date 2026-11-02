@@ -7,7 +7,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 FIRMWARE = {'y623': '12.0.51.01_202303091901', 'y28ga': '9.0.20.06_202007061841'}
 RMM = {'y623': 'f8164a1c221ba8c1d4888322a3cf0706', 'y28ga': '46261d809c58dea5b39f3351e322d710'}
-REQUIRED = ('www/onvif/onvif_simple_server', 'script/log_store.sh', 'script/bounded_log.sh', 'script/config_work.sh',
+REQUIRED = ('script/hotspot.sh', 'script/service_lock.sh', 'script/operation_timeout.sh', 'script/wifi_recovery.sh', 'script/wifi_failover.sh', 'bin/service_guard', 'bin/busybox', 'www/onvif/onvif_simple_server', 'script/log_store.sh', 'script/bounded_log.sh', 'script/config_work.sh',
             'script/restore_config.sh', 'script/motion_log.sh', 'script/motion_settings.sh', 'script/motion_service.sh', 'bin/motiond', 'script/system.sh', 'script/service.sh', 'script/wd.sh', 'script/check_conf.sh',
             'script/configure_wifi.sh', 'script/wifidhcp.sh', 'script/ethdhcp.sh',
             'script/prepare_rmm.sh', 'script/prepare_mp4record.sh', 'script/rtsp_stream_venc.sh', 'script/ensure_y623_ve_kernel.sh',

@@ -8,3 +8,8 @@ qemu-arm-static -L $LIBMAIN_PATH -E LD_LIBRARY_PATH=./_install/lib/ ./_install/y
 # Missing ash/timeout or an unapplied lock patch must fail the firmware build.
 qemu-arm-static -L "$LIBMAIN_PATH" -E LD_LIBRARY_PATH=./_install/lib/ ./_install/yi-hack/bin/busybox ash -c 'yi_lock build-probe && yi_lock -u build-probe'
 qemu-arm-static -L "$LIBMAIN_PATH" -E LD_LIBRARY_PATH=./_install/lib/ ./_install/yi-hack/bin/busybox timeout -s KILL 1 /bin/true
+
+# The hotspot uses these explicit applets rather than vendor PATH variants.
+for applet in udhcpd od wc kill killall readlink; do
+    qemu-arm-static -L "$LIBMAIN_PATH" -E LD_LIBRARY_PATH=./_install/lib/ ./_install/yi-hack/bin/busybox --list | grep -qx "$applet" || exit 1
+done

@@ -9,9 +9,33 @@
         <hr class="tiny-margin"/>
 
         <p>
-            Configure the normal WiFi network and an optional maintenance hotspot fallback.
+            Configure primary WiFi, a maintenance network, and the camera's own hotspot.
             Changes take effect after reboot.
         </p>
+
+        <h4 class="no-margin">Camera hotspot</h4>
+        <hr class="tiny-margin"/>
+        <p>The camera can provide an open WiFi network with no WiFi password. Camera sign-in stays enabled.
+            Connect to <strong id="hotspot-name"></strong>, then open <strong>http://192.168.10.1</strong>
+            (use your configured web port if different). The hotspot provides local camera access, without Internet sharing.</p>
+        <table class="u-full-width padded-table config-table">
+            <tbody>
+            <tr><td>Hotspot status</td><td id="hotspot-state">Loading...</td></tr>
+            <tr><td>Hotspot name</td><td><input class="u-full-width" type="text" maxlength="32" id="WIFI_HOTSPOT_SSID"/>
+                <span class="switch-description">Leave blank for a name unique to this camera.</span></td></tr>
+            <tr><td>Channel</td><td><input type="number" min="1" max="11" step="1" id="WIFI_HOTSPOT_CHANNEL" value="6"/></td></tr>
+            <tr><td>Start in hotspot mode after reboot</td><td><label><input type="checkbox" id="WIFI_HOTSPOT_BOOT"/> Enable</label></td></tr>
+            <tr><td>Current reset button behavior</td><td id="reset-hotspot-current">Loading...</td></tr>
+            <tr><td>Use rear reset button for hotspot</td><td><label><input type="checkbox" id="WIFI_RESET_HOTSPOT"/> Enable</label>
+                <span class="switch-description" id="reset-hotspot-description">After saving and rebooting, hold the button for five seconds to request an open hotspot instead of a factory reset. Short presses are ignored. Bootloader recovery behavior is unchanged.</span></td></tr>
+            </tbody>
+        </table>
+        <p>Save the hotspot settings before starting it. Starting the hotspot disconnects the camera from its current WiFi.
+            Returning to primary WiFi uses the saved primary credentials. A temporary hotspot ends on reboot unless the boot option is enabled.</p>
+        <input type="button" id="button-hotspot-start" value="Start Open Hotspot"/>
+        <input type="button" id="button-hotspot-stop" value="Return to Primary WiFi"/>
+        <span id="hotspot-request-status"></span>
+        <hr class="tiny-margin"/>
 
         <h4 class="no-margin">Primary WiFi</h4>
         <hr class="tiny-margin"/>

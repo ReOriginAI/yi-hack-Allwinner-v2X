@@ -55,6 +55,9 @@ jobs:
           python3 src/static/tests/test_operation_timeout.py
           python3 src/static/tests/test_ftppush_queue.py
           python3 src/static/tests/test_config_read_error.py
+          python3 src/static/tests/test_hotspot.py
+          python3 src/static/tests/test_hotspot_api.py
+          python3 src/static/tests/test_reset_hotspot.py
 
       - name: Test recorder-local motion metadata
         run: |

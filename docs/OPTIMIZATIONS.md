@@ -659,3 +659,13 @@ keyframe alignment. Sources, hashes, tests and live evidence are documented in
 When adding another optimization, update this file only after the behavior is represented in tracked source/build/install code. Live SSH experiments and proposed changes belong under **Measured findings / not yet implemented** until they become reproducible release behavior.
 
 Further source review and remaining recovery gaps: [LIVENESS_AUDIT.md](LIVENESS_AUDIT.md).
+
+## Open camera hotspot
+
+Both supported models can use the existing AP-capable wpa_supplicant and a
+packaged BusyBox udhcpd for local hotspot access. The opt-in reset-button hook
+uses the existing dispatch preload and audited call-site/hash guards. Transitions
+share WiFi recovery ownership and have deadlines/rollback; no additional
+permanent WiFi daemon is introduced beyond the AP supplicant and DHCP server.
+Details and the distinction between read-only hardware probes, simulated tests
+and outstanding live WiFi/button validation are in [HOTSPOT.md](HOTSPOT.md).

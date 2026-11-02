@@ -346,6 +346,8 @@ soft_wifi_reconnect()
 
 check_wifi()
 {
+    # AP mode is a deliberate local network, not a failed station association.
+    case "$(cat /tmp/yi-hotspot/state 2>/dev/null)" in starting|active|stopping) return 0 ;; esac
     MAINT_STATE=$(cat /tmp/wifi_maintenance_active 2>/dev/null)
 
     # After primary failover, monitor only the maintenance profile. Never poll
@@ -562,6 +564,8 @@ do
         OOM_POLICY_COUNTER=0
         refresh_oom_policy
     fi
+
+    "$YI_HACK_PREFIX/script/hotspot.sh" poll >/dev/null 2>&1
 
     # Preserve the existing Wi-Fi recovery loop when RTSP is active, and keep
     # it available without RTSP when maintenance failover is explicitly used.

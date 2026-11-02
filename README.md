@@ -18,6 +18,15 @@ This project is derived from `yi-hack-Allwinner-v2` and keeps the upstream struc
 
 The model-specific `sysroot/`, `sdhack/`, and `unbrick/` trees contain only `y623` and `y28ga`. Shared services and dependencies support both targets.
 
+## Camera hotspot
+
+Both y623 and y28ga have open-hotspot controls on the WiFi page. The camera uses
+`192.168.10.1`; WiFi has no password and camera sign-in remains unchanged.
+An optional, firmware-gated rear-button override requests hotspot mode after a
+five-second hold, instead of the vendor's physical factory reset. It takes effect
+after saving/rebooting and must show as active in the UI before relying on it.
+See [hotspot behavior, validation and deployment limits](docs/HOTSPOT.md).
+
 ## Supported targets
 
 | Camera family | Build target | Tested firmware family | Main stream | Motion backend |

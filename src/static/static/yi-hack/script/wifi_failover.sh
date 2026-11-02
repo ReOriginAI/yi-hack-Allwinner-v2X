@@ -3,6 +3,7 @@
 YI_HACK_PREFIX=${YI_HACK_PREFIX:-/tmp/sd/yi-hack}
 . "$YI_HACK_PREFIX/script/service_lock.sh" || exit 1
 yi_lock wifi-recovery || exit $?
+case "$(cat /tmp/yi-hotspot/state 2>/dev/null)" in starting|active|stopping) exit 75 ;; esac
 CONF_FILE="$YI_HACK_PREFIX/etc/system.conf"
 ACTIVE_FILE="/tmp/wifi_maintenance_active"
 WPA_CONF="/tmp/wpa_supplicant.maintenance.conf"

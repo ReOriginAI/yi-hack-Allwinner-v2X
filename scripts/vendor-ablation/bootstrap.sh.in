@@ -41,7 +41,7 @@ if [ -e /tmp/sd/Factory/factory_test.sh ]; then
 fi
 
 YI=/tmp/sd/yi-hack
-for required in www/onvif/onvif_simple_server script/log_store.sh script/bounded_log.sh script/config_work.sh script/restore_config.sh script/motion_log.sh script/motion_settings.sh script/motion_service.sh bin/motiond script/system.sh script/service.sh script/wd.sh script/check_conf.sh script/configure_wifi.sh script/wifidhcp.sh script/ethdhcp.sh script/prepare_rmm.sh script/prepare_mp4record.sh script/rtsp_stream_venc.sh lib/ipc_multiplex.so bin/cloudAPI bin/cloudAPI_fake bin/ipc_cmd script/nightvision.sh bin/nightvisionctl lib/nightvision.so lib/motion_map.so script/time_config.sh script/apply_time.sh script/update_osd_tz.sh bin/set_tz_offset lib/record_metadata.so bin/ipc2file lib/record_preroll-y623.bin lib/record_preroll-y28ga.bin; do
+for required in script/hotspot.sh script/service_lock.sh script/operation_timeout.sh script/wifi_recovery.sh script/wifi_failover.sh bin/service_guard bin/busybox www/onvif/onvif_simple_server script/log_store.sh script/bounded_log.sh script/config_work.sh script/restore_config.sh script/motion_log.sh script/motion_settings.sh script/motion_service.sh bin/motiond script/system.sh script/service.sh script/wd.sh script/check_conf.sh script/configure_wifi.sh script/wifidhcp.sh script/ethdhcp.sh script/prepare_rmm.sh script/prepare_mp4record.sh script/rtsp_stream_venc.sh lib/ipc_multiplex.so bin/cloudAPI bin/cloudAPI_fake bin/ipc_cmd script/nightvision.sh bin/nightvisionctl lib/nightvision.so lib/motion_map.so script/time_config.sh script/apply_time.sh script/update_osd_tz.sh bin/set_tz_offset lib/record_metadata.so bin/ipc2file lib/record_preroll-y623.bin lib/record_preroll-y28ga.bin; do
     [ -s "$YI/$required" ] || boot_fail "missing $required"
 done
 [ "$(cat "$YI/model_suffix")" = "$SUFFIX" ] || boot_fail model
@@ -86,7 +86,18 @@ export DEVICE_MEMORY=8000000 CPU_MEMORY=-1
 export PATH=/home/app:/home/app/script:$PATH
 export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/tmp
 cd /home/app || boot_fail app
-LD_PRELOAD="$YI/lib/ipc_multiplex.so" ./dispatch &
+# Optional physical reset override: only the exact audited broker is eligible.
+# Unknown firmware retains its original button behavior.
+rm -f /tmp/yi-reset-hotspot.armed
+RESET_HOTSPOT_MODEL=
+if grep -qx 'WIFI_RESET_HOTSPOT=yes' "$YI/etc/system.conf"; then
+    case "$SUFFIX:$(md5sum /home/app/dispatch | cut -d ' ' -f1)" in
+        y623:033ff9e7091c72ab2209eaac74ad802e|y28ga:c6ae77baf1821023c2138cf46bb793ec)
+            RESET_HOTSPOT_MODEL=$SUFFIX ;;
+        *) echo "yi-hack: reset hotspot override unavailable for this dispatch" > /dev/console ;;
+    esac
+fi
+YI_RESET_HOTSPOT_MODEL="$RESET_HOTSPOT_MODEL" LD_PRELOAD="$YI/lib/ipc_multiplex.so" ./dispatch &
 
 # dispatch normally creates /tmp/wpa_supplicant.conf and launches Wi-Fi. If it
 # creates the config but misses the launcher, recover once without cycling wlan0.

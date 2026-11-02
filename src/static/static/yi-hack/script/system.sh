@@ -395,6 +395,10 @@ if [ -x "$YI_HACK_PREFIX/script/oom_policy.sh" ]; then
     "$YI_HACK_PREFIX/script/oom_policy.sh" >/dev/null 2>&1
 fi
 
+if [ "$(get_config WIFI_HOTSPOT_BOOT)" = yes ]; then
+    "$YI_HACK_PREFIX/script/hotspot.sh" start >/dev/null 2>&1 || log "Hotspot boot request failed"
+fi
+
 WD_COUNT=$(ps | grep wd.sh | grep -v grep | grep -c ^)
 if [ "$WD_COUNT" -eq 0 ]; then
     "$YI_HACK_PREFIX/script/wd.sh" >/dev/null 2>&1 &

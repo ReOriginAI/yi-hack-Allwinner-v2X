@@ -14,8 +14,24 @@ APP.wifi = (function($) {
         $(document).on("click", '#button-save-wifi', function(e) {
             saveWiFi();
         });
+        $(document).on("click", '#button-hotspot-start', function() { requestHotspot("start"); });
+        $(document).on("click", '#button-hotspot-stop', function() { requestHotspot("stop"); });
         $(document).on("change", '#WIFI_ESSID', function(e) {
             toggleESSIDInput();
+        });
+    }
+
+    function requestHotspot(action) {
+        var status = $('#hotspot-request-status');
+        status.text("Sending request...");
+        $.ajax({type: "POST", url: "cgi-bin/wifi.sh?action=hotspot_" + action, dataType: "json",
+            success: function(data) {
+                status.text(data.error == "false" ?
+                    (action == "start" ? "Request queued. Connect to the hotspot when this connection drops." :
+                        "Request queued. Reconnect through your primary WiFi network.") :
+                    "Not started: " + (data.message || "request failed"));
+            },
+            error: function() { status.text("Request failed. Check the camera connection."); }
         });
     }
 
@@ -40,7 +56,7 @@ APP.wifi = (function($) {
 
         saveStatusElem.text("Saving...");
 
-        if (!primarySSID) {
+        if (!primarySSID && primaryPassword) {
             saveStatusElem.text("Not saved, primary SSID is blank.");
             return;
         }
@@ -52,7 +68,7 @@ APP.wifi = (function($) {
             saveStatusElem.text("Not saved, primary password is too long.");
             return;
         }
-        if (primarySSID != currentPrimarySSID && !primaryPassword) {
+        if (primarySSID && primarySSID != currentPrimarySSID && !primaryPassword) {
             saveStatusElem.text("Not saved, enter the primary password when changing SSID.");
             return;
         }
@@ -89,12 +105,21 @@ APP.wifi = (function($) {
             return;
         }
 
-        if (primaryPassword || primarySSID != currentPrimarySSID) {
+        if (primarySSID && (primaryPassword || primarySSID != currentPrimarySSID)) {
             configs["WIFI_ESSID"] = primarySSID;
             configs["WIFI_PASSWORD"] = primaryPassword;
             configs["WIFI_PASSWORD2"] = primaryPassword2;
         }
 
+        var hotspotChannel = Number($('#WIFI_HOTSPOT_CHANNEL').val());
+        if (!Number.isInteger(hotspotChannel) || hotspotChannel < 1 || hotspotChannel > 11) {
+            saveStatusElem.text("Not saved, hotspot channel must be 1-11.");
+            return;
+        }
+        configs["WIFI_HOTSPOT_BOOT"] = $('#WIFI_HOTSPOT_BOOT').prop('checked') ? "yes" : "no";
+        configs["WIFI_HOTSPOT_SSID"] = $('#WIFI_HOTSPOT_SSID').val();
+        configs["WIFI_HOTSPOT_CHANNEL"] = String(hotspotChannel);
+        configs["WIFI_RESET_HOTSPOT"] = $('#WIFI_RESET_HOTSPOT').prop('checked') ? "yes" : "no";
         configs["WIFI_MAINTENANCE_ENABLED"] = maintenanceEnabled ? "yes" : "no";
         configs["WIFI_MAINTENANCE_SSID"] = maintenanceSSID;
         configs["WIFI_MAINTENANCE_GRACE"] = String(grace);
@@ -141,6 +166,16 @@ APP.wifi = (function($) {
             dataType: "json",
             success: function(data) {
                 loadingStatusElem.fadeOut(500);
+                $('#hotspot-state').text(data.hotspot_state || "station");
+                $('#hotspot-name').text(data.hotspot_ssid || "the camera hotspot");
+                $('#WIFI_HOTSPOT_SSID').val(data.hotspot_configured_ssid || "").attr('placeholder', data.hotspot_ssid || "Automatic");
+                $('#WIFI_HOTSPOT_CHANNEL').val(data.hotspot_channel || "6");
+                $('#WIFI_HOTSPOT_BOOT').prop('checked', data.hotspot_boot == "yes");
+                $('#reset-hotspot-current').text(data.reset_hotspot_armed ? 'Hotspot override active: hold five seconds.' : 'Factory reset. An enabled hotspot override takes effect after reboot.');
+                $('#WIFI_RESET_HOTSPOT').prop('checked', data.reset_hotspot_supported && data.reset_hotspot == "yes").prop('disabled', !data.reset_hotspot_supported);
+                if (!data.reset_hotspot_supported) {
+                    $('#reset-hotspot-description').text("The reset button override is unavailable for this firmware. Hotspot controls remain available above.");
+                }
                 currentPrimarySSID = data.current_ssid || "";
                 maintenancePasswordSet = !!data.maintenance_password_set;
 
