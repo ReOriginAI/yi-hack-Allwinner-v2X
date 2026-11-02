@@ -1,4 +1,6 @@
 #!/bin/sh
+. "${YI_HACK_PREFIX:-/tmp/sd/yi-hack}/script/storage.sh" || exit 1
+sd_present || exit 0
 
 if [ $# -ne 1 ]; then
     exit

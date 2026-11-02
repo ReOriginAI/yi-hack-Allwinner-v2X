@@ -62,7 +62,7 @@ init_config()
 
     RTSP_ALT=$(get_config RTSP_ALT)
     case "$RTSP_ALT" in
-        alternative) ;;
+        alternative) [ -x "$YI_HACK_PREFIX/bin/rtsp_server_yi" ] || RTSP_ALT=standard ;;
         go2rtc) [ -x "$YI_HACK_PREFIX/bin/go2rtc" ] || RTSP_ALT=standard ;;
         *) RTSP_ALT=standard ;;
     esac
@@ -470,6 +470,7 @@ start_ftpd()
         FTPD_DAEMON=$1
     fi
 
+    [ "$FTPD_DAEMON" != "pure-ftpd" ] || [ -x "$YI_HACK_PREFIX/sbin/pure-ftpd" ] || FTPD_DAEMON=busybox
     if [[ $FTPD_DAEMON == "busybox" ]] ; then
         [ "$(ps_program tcpsvd)" != started ] || return 0
         tcpsvd -vE 0.0.0.0 21 ftpd -w >/dev/null &
@@ -491,6 +492,7 @@ stop_ftpd()
         FTPD_DAEMON=$1
     fi
 
+    [ "$FTPD_DAEMON" != "pure-ftpd" ] || [ -x "$YI_HACK_PREFIX/sbin/pure-ftpd" ] || FTPD_DAEMON=busybox
     if [[ $FTPD_DAEMON == "busybox" ]] ; then
         killall tcpsvd
     elif [[ $FTPD_DAEMON == "pure-ftpd" ]] ; then
@@ -552,6 +554,7 @@ if [ "$ACTION" == "start" ] ; then
     elif [ "$NAME" == "ftpd" ]; then
         start_ftpd $PARAM1
     elif [ "$NAME" == "mqtt" ]; then
+        [ ! -f "$YI_HACK_PREFIX/flash-core" ] || [ -x "$YI_HACK_PREFIX/bin/mqttv4" ] || exit 0
         # mqttv4 is not internally singleton-safe. Avoid duplicate bridges when
         # a watchdog/manual start races with an already-running instance.
         if [ "$(ps_program mqttv4)" = "stopped" ]; then
@@ -566,10 +569,13 @@ if [ "$ACTION" == "start" ] ; then
             fi
         fi
     elif [ "$NAME" == "mqtt-config" ]; then
+        [ ! -f "$YI_HACK_PREFIX/flash-core" ] || [ -x "$YI_HACK_PREFIX/bin/mqtt-config" ] || exit 0
         if [ "$(ps_program mqtt-config)" = "stopped" ]; then
             mqtt-config > /dev/null &
         fi
     elif [ "$NAME" == "mp4record" ]; then
+        . "$YI_HACK_PREFIX/script/storage.sh" || exit 1
+        sd_present || exit 0
         # Collect motion history before the first recording, independently of
         # ONVIF. Repeated starts also repair a missing event consumer.
         "$YI_HACK_PREFIX/script/motion_service.sh" events || exit 1
@@ -647,7 +653,7 @@ elif [ "$ACTION" == "status" ] ; then
     elif [ "$NAME" == "wsdd" ]; then
         RES=$(ps_program wsd_simple_server)
     elif [ "$NAME" == "ftpd" ]; then
-        if [ "$(get_config BUSYBOX_FTPD)" = yes ]; then
+        if [ "$(get_config BUSYBOX_FTPD)" = yes ] || [ ! -x "$YI_HACK_PREFIX/sbin/pure-ftpd" ]; then
             RES=$(ps_program tcpsvd)
         else
             RES=$(ps_program pure-ftpd)
@@ -672,7 +678,7 @@ case "$NAME" in
     onvif) TARGET_PROCESS=onvif_notify_server ;;
     wsdd) TARGET_PROCESS=wsd_simple_server ;;
     ftpd)
-        if [ "$PARAM1" = busybox ] || { [ "$PARAM1" = null ] && [ "$(get_config BUSYBOX_FTPD)" = yes ]; }; then
+        if [ ! -x "$YI_HACK_PREFIX/sbin/pure-ftpd" ] || [ "$PARAM1" = busybox ] || { [ "$PARAM1" = null ] && [ "$(get_config BUSYBOX_FTPD)" = yes ]; }; then
             TARGET_PROCESS=tcpsvd
         else
             TARGET_PROCESS=pure-ftpd

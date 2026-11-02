@@ -20,7 +20,11 @@ class OperationTimeoutTests(unittest.TestCase):
         self.root = Path(self.tmp.name)
         (self.root / 'bin').mkdir()
         (self.root / 'bin/busybox').symlink_to(shutil.which('busybox'))
-        self.env = dict(os.environ, YI_HACK_PREFIX=str(self.root), ROOT=str(self.root))
+        (self.root / 'script').mkdir()
+        shutil.copyfile(SCRIPTS / 'storage.sh', self.root / 'script/storage.sh')
+        mounts = self.root / 'mounts'
+        mounts.write_text('/dev/mmcblk0p1 /tmp/sd vfat rw 0 0\n')
+        self.env = dict(os.environ, YI_HACK_PREFIX=str(self.root), ROOT=str(self.root), YI_STORAGE_MOUNTS=str(mounts))
 
     def run_shell(self, body, stdin=None):
         return subprocess.run(['busybox', 'ash', '-c',

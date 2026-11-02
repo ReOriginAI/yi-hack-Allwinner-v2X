@@ -61,3 +61,7 @@ echo "#!/tmp/sd/yi-hack/bin/busybox" > ../../build/yi-hack/usr/sbin/ntpd
 chmod 0755 ../../build/yi-hack/usr/sbin/ntpd
 echo "#!/tmp/sd/yi-hack/bin/busybox" > ../../build/yi-hack/usr/bin/time
 chmod 0755 ../../build/yi-hack/usr/bin/time
+for applet in tar cmp wc tcpsvd ftpd; do
+    printf '#!/tmp/sd/yi-hack/bin/busybox\n' > "../../build/yi-hack/usr/bin/$applet"
+    chmod 0755 "../../build/yi-hack/usr/bin/$applet"
+done

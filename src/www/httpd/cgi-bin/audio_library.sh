@@ -70,7 +70,8 @@ if ! $(validateNumber "$VOLDB"); then
     json_error "Invalid volume"
 fi
 
-mount | grep " /tmp/sd " >/dev/null || json_error "SD card is not mounted"
+. "$YI_HACK_PREFIX/script/storage.sh"
+sd_present || json_error "SD card is not mounted"
 mkdir -p "$AUDIO_DIR" || json_error "Unable to create audio library"
 
 if [ "$ACTION" = "list" ]; then

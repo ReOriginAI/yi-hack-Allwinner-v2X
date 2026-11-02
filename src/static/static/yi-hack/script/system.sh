@@ -4,6 +4,7 @@ CONF_FILE="etc/system.conf"
 
 YI_PREFIX="/home/app"
 YI_HACK_PREFIX="/tmp/sd/yi-hack"
+. "$YI_HACK_PREFIX/script/storage.sh" || exit 1
 START_STOP_SCRIPT=$YI_HACK_PREFIX/script/service.sh
 
 YI_HACK_VER=$(cat /tmp/sd/yi-hack/version)
@@ -45,6 +46,7 @@ log()
 }
 
 DEBUG_LOG=$(get_config DEBUG_LOG)
+sd_present || DEBUG_LOG=no
 rm -f /tmp/sd/hack_debug.log
 
 log "Starting system.sh"
@@ -202,9 +204,11 @@ export TZ=$TZ_TMP
 
 if [[ $(get_config HTTPD) == "yes" ]] ; then
     log "Starting http"
-    mkdir -p /tmp/sd/record
-    mkdir -p /tmp/sd/yi-hack/www/record
-    mount --bind /tmp/sd/record /tmp/sd/yi-hack/www/record
+    if sd_present; then
+        mkdir -p /tmp/sd/record
+        mkdir -p /tmp/sd/yi-hack/www/record
+        mount --bind /tmp/sd/record /tmp/sd/yi-hack/www/record
+    fi
     httpd -p $HTTPD_PORT -h $YI_HACK_PREFIX/www/ -c /tmp/httpd.conf
 fi
 

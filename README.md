@@ -1,267 +1,140 @@
-# yi-hack-Allwinner-v2X 3.8.0
+# yi-hack-Allwinner-v2X
 
-Custom local-first yi-hack variant focused on **Yi Pro 2K (`y623`)** and **Kami 1080p (`y28ga`)**.
+Local RTSP/ONVIF streaming, two-way audio, offline text-to-speech, and motion
+detection for **Yi Pro 2K (y623)** and **Kami 1080p (y28ga)**, without the vendor cloud.
 
-This project is derived from `yi-hack-Allwinner-v2` and keeps the upstream structure and attribution, but the 3.8.x branch intentionally narrows the supported build/release targets to the two camera families that have been tested directly. The focus is low RAM usage, local RTSP/ONVIF operation, two-way audio, local text-to-speech, and local motion detection without the vendor cloud/AI stack.
+## Install on a stock camera
 
-## Divergent Features for Stability
+Use the archive matching your camera model and installed vendor firmware:
 
-* In the original `yi-hack-Allwinner-v2` the Yi cams especially Yi Pro 2k (`y623`) are highly unstable and frequently crash due to RAM Out-of-memory and it requires a modern good quality SD card with `Swap File` enabled to mitigate that. An old or bad quality SD card would degrade the performance or make crashes more frequent.    
-
-* This variant was built to work without `Swap File` enabled, thus performance is maintained independent of SD card (performance may be better if quality of SD card is high and `Swap File` is enabled as well).  
-
-* In the original `yi-hack-Allwinner-v2`, Out-of-memory crashes were silent and unrecoverable since the video stream encoders were permanently lost yet the web server and SSH server remained and the only recovery path was through reboot.
-
-* This variant uses the kernel's priority based degradation and watchdog automatic recovery which preserves essential processes like the video stream encoder while ablating non-essential processes to free up memory then restarts the non-essential processes. This means Out-of-memory crashes self-recovers functionality without needing a reboot.
-
-* Standard (`rRTSPServer`, based on LIVE555) is the default and recommended camera-side RTSP server. go2rtc remains an optional alternative.
-
-The model-specific `sysroot/`, `sdhack/`, and `unbrick/` trees contain only `y623` and `y28ga`. Shared services and dependencies support both targets.
-
-## Camera hotspot
-
-Both y623 and y28ga have open-hotspot controls on the WiFi page. The camera uses
-`192.168.10.1`; WiFi has no password and camera sign-in remains unchanged.
-An optional, firmware-gated rear-button override requests hotspot mode after a
-five-second hold, instead of the vendor's physical factory reset. It takes effect
-after saving/rebooting and must show as active in the UI before relying on it.
-See [hotspot behavior, validation and deployment limits](docs/HOTSPOT.md).
-
-## Supported targets
-
-| Camera family | Build target | Tested firmware family | Main stream | Motion backend |
-| --- | --- | --- | --- | --- |
-| Yi Pro 2K Home | `y623` | 12.0.51-class | 2304x1296 H.264 | Low-RAM encoder-statistics `motiond` |
-| Kami 1080p | `y28ga` | 9.0.20-class / older y28ga layout | 1920x1080 H.264 | Generic firmware IVA motion with AI classifiers removed |
-
-**Do not rename firmware files to force installation on another model.**
-
-## Hardware notes
-
-The two targets are unusually close internally, which is why most of the local-first optimizations can be shared.
-
-### Common hardware characteristics
-
-Both tested families use:
-
-- Allwinner `sun8iw19` platform
-- ARM Cortex-A7 CPU
-- about 60 MB of physical RAM (`60912 kB` reported on the tested cameras)
-- Allwinner VIN/V4L2 capture stack
-- Cedar hardware video encoder path
-- `/dev/video0` through `/dev/video3` style video devices
-- hardware-produced high- and low-resolution H.264 streams
-
-### Yi Pro 2K — `y623`
-
-The tested Yi Pro 2K hardware uses a `gc3003_mipi` sensor path and produces a 2304x1296 main stream plus a 640x360 low stream.
-
-Its firmware exposes encoder motion statistics under `/sys/kernel/debug/mpp/ve`. The 3.8.x build uses those statistics for the low-RAM `motiond` service, so the raw VI2 analysis path and vendor AI/YUV analysis work can be removed more aggressively.
-
-The y623 `rmm` optimization is generated from the known vendor binary only after a strict MD5 check. It disables the Pilot AI frame path, reduces the unused virtual-channel allocation, removes the raw VI2 analysis setup, and makes the unused `vi_get_yuv_data` feeder return immediately. The verified copy is bind-mounted for the boot; the stock flash binary is never overwritten.
-
-The no-YUV patch generates MD5 `4b7dd522614a92979b795575fd064986`. Previous live testing reported roughly 3–5 CPU percentage points saved while retaining high/low H.264, AAC, local motion, recording, and snapshots. Snapshot comparisons used swap to accommodate their transient memory demand. The generated binary matches that tested artifact; final clean-boot validation of this script integration remains pending. This additional patch applies only to y623.
-
-### Kami 1080p — `y28ga`
-
-The tested Kami 1080p hardware uses a `sp2305_mipi` sensor path and produces a 1920x1080 main stream plus a 640x360 low stream.
-
-The older y28ga firmware does **not** expose the same `mpp/ve` encoder-statistics interface. Instead, 3.8.x keeps the firmware's lightweight 640x360 VI2 analysis feed and generic `ivaDetectMotion()` path while disabling the expensive human/vehicle/animal classifier, face/NNA processing, and PTZ tracking work.
-
-The y28ga `rmm` optimization is generated from the camera's own known stock binary and is hash-checked before use. The stock flash binary is not overwritten; the verified optimized copy is bind-mounted for the current boot. Unknown `rmm` builds are refused and fall back to stock.
-
-On the tested Kami 1080p unit this reduced `rmm` from roughly **32.6 MB RSS to 28.7 MB RSS**, with an additional small ION reduction, while retaining RTSP, audio, VI2, and generic motion.
-
-## What is different in this custom variant
-
-Version 3.8.0 includes the model-specific work developed for these two platforms:
-
-- vendor cloud/P2P execution disabled for the local-only configuration
-- `dispatch` is retained as the audited local IPC, Wi-Fi, SD-state and hardware broker; its SD-supplied telnet/factory execution hooks are blocked by the internal local-only bootstrap
-- WebUI cloud controls replaced by local-only/disabled behavior
-- human, vehicle, animal, face/NNA, and motion-tracking AI paths disabled where applicable
-- model-aware local motion service
-  - `y623`: encoder-statistics `motiond`
-  - `y28ga`: lightweight firmware IVA motion events
-- duplicate motion/IPC/recording processes prevented
-- motion timestamps embedded during SD MP4 finalization, with no video remux or extra daemon ([format and extraction](docs/MOTION_METADATA.md))
-- six-second SD recording lookback using retained frame timestamps, with no extra video buffer ([limits and validation](docs/RECORDING_PREROLL.md))
-- common timezone presets, local video time overlays and SD filename time selection ([behavior and validation](docs/LOCAL_TIME.md))
-- manual night vision and an adjustable automatic light threshold ([controls and compatibility](docs/NIGHTVISION.md))
-- `mqttv4` is not started when `MQTT=no`
-- Standard (LIVE555) RTSP and ONVIF Profile T audio-backchannel support; optional camera-side go2rtc
-- local speaker serialization so HTTP playback and RTSP/ONVIF talkback do not write the speaker simultaneously
-- offline NanoTTS
-- persistent SD-card Audio Library
-- `rsync`
-- current WebUI motion status (`idle`, `motion`, `disabled`, `unavailable`)
-
-## Installation
-
-Installation remains SD-card based. Make a backup of the original camera firmware first.
-
-1. Download the GitHub Actions firmware artifact or release bundle.
-2. The bundle contains one `.tgz` for **Yi Pro 2K (`y623`)** and one `.tgz` for **Kami 1080p (`y28ga`)**.
-3. Select the archive for the **exact** camera target.
-4. Extract that target archive to a FAT32 microSD card as required by the yi-hack SD-card layout.
-5. If provisioning or recovering Wi-Fi, copy/rename `Factory/configure_wifi.cfg.ori` to `Factory/configure_wifi.cfg`, then edit `wifi_ssid=` and `wifi_psk=`. Save it as UTF-8/plain text. Unix LF, Windows CRLF, classic CR, and an optional UTF-8 BOM are accepted. UTF-16/NUL-encoded files and common invisible Unicode formatting characters are rejected before flash is modified.
-6. Insert the card and reboot the camera.
-7. Open `http://IP-CAM/` after the camera returns online.
-8. Keep the microSD card installed; this hack uses it as part of the runtime filesystem.
-
-A complete release extracted to SD is a **complete install or upgrade request**. The persistent bootstrap gives `Factory/` priority before checking the currently installed payload manifest. The installer validates the exact model and firmware, validates the generated `Factory/local_init.sh` and its MD5-bound startup payload, preserves MTD plus the previous `/backup/init.sh` on the SD card, optionally applies `Factory/configure_wifi.cfg`, installs the matching new `/backup/init.sh`, renames `Factory/` to `Factory.done/`, syncs, and reboots. This same path works for a first install and for reinstalling/upgrading an existing ReOriginAI camera from a freshly prepared SD card.
-
-For ReOriginAI bootstrap versions released before Factory-first installation, the shipped `yi-hack/startup.sh` provides a one-generation compatibility handoff: the older bootstrap can validate the compatible payload, then the startup hook runs the new Factory installer and reboots into the matching bootstrap.
-
-`Factory/configure_wifi.cfg` remains a deliberate recovery/provisioning input. The verified `yi-hack/script/configure_wifi.sh` parser backs up MTD7 before the first write and rejects malformed or ambiguous input; a successfully applied request is renamed to `configure_wifi.cfg.applied`.
-
-Formatting the SD card alone does **not** restore the camera to stock because `/backup/init.sh` and Wi-Fi credentials in MTD persist internally. Conversely, extracting a complete matching release including `Factory/` deliberately updates the persistent bootstrap as part of that release. The WebUI remains the easiest path for routine upgrades.
-
-This project is derived from the upstream installation model documented by `roleoroleo/yi-hack-Allwinner-v2`.
-
-## WebUI
-
-Both supported targets use the same current WebUI. Model-specific differences are handled below the UI rather than by maintaining separate pages.
-
-The shared interface includes:
-
-- local motion enable/disable
-- motion sensitivity
-- fine y623 motion thresholds, confirmation, quiet time and sampling interval, with live readings and a chart ([tuning guide](docs/MOTION_TUNING.md))
-- actual low/medium/high firmware sensitivity choices on y28ga
-- live motion backend/runtime state polling
-- local SD motion recording control
-- Audio Library upload/list/play/delete controls
-- per-clip playback gain
-- offline TTS controls
-- RTSP/ONVIF configuration
-- status information identifying this custom variant
-
-The motion backend shown by the UI differs by model:
-
-| Model | WebUI motion backend |
-| --- | --- |
-| Yi Pro 2K `y623` | `H264 encoder statistics` |
-| Kami 1080p `y28ga` | `Generic firmware IVA motion` |
-
-### WiFi configuration and maintenance fallback
-
-The **WiFi Configuration** page manages the normal boot network and an optional maintenance network. Primary WiFi is written through the camera's vendor WiFi configuration mechanism; the maintenance profile is stored in `system.conf` and is only activated after the primary network has remained unavailable for the configured grace period. All WiFi changes take effect after reboot.
-
-The maintenance settings are:
-
-| Setting | Recommended value | Purpose |
+| Camera | Archive target | Supported vendor firmware |
 | --- | --- | --- |
-| `WIFI_MAINTENANCE_ENABLED` | `no` normally; `yes` when remote recovery is useful | Enables one-way failover from the normal network to a recovery network |
-| `WIFI_MAINTENANCE_SSID` | Separate recovery SSID | A phone hotspot or other network that is not dependent on the primary AP is ideal |
-| `WIFI_MAINTENANCE_PASSWORD` | WPA/WPA2 password, 8-63 characters | Credentials for the maintenance network |
-| `WIFI_MAINTENANCE_GRACE` | `180` | Seconds the primary network may be unavailable before failover; accepted range is 30-3600 seconds |
+| Yi Pro 2K Home | `y623` | `12.0.51.01_202303091901` |
+| Kami 1080p | `y28ga` | `9.0.20.06_202007061841` |
 
-`180` seconds is a good default because it tolerates an ordinary AP/router reboot without immediately abandoning the primary network. Use roughly 60-120 seconds when fast field recovery matters more, or 300-600 seconds on networks where AP/controller maintenance commonly takes several minutes.
+1. Download a [firmware release](https://github.com/ReOriginAI/yi-hack-Allwinner-v2X/releases)
+   or [GitHub Actions firmware artifact](https://github.com/ReOriginAI/yi-hack-Allwinner-v2X/actions).
+   If the download
+   is a ZIP containing two `.tgz` files, unzip it first.
+2. Extract **only your model's** `.tgz` / `.tar.gz` onto a **FAT32** microSD card.
+   Copy the contents, not the archive or its enclosing folder.
+3. For a fresh Wi-Fi setup, create `Factory/configure_wifi.cfg` as shown below.
+   Skip this if the camera already has working Wi-Fi.
+4. Power off the camera, insert the card, and power it on. Allow installation and
+   its automatic reboot to finish before removing power.
+5. Find the camera's address in your router's DHCP/client list and open `http://IP-CAM/`.
+6. Set the camera login and SSH password in the WebUI. Save the card's `backup/`
+   directory somewhere safe; installation preserves recovery copies there.
 
-Once maintenance takeover succeeds, the camera intentionally stays on the maintenance profile and does **not** poll or retry the primary SSID until the next reboot. The maintenance profile uses DHCP even if the normal network uses a static address, so a DHCP reservation is usually the least surprising way to give the camera a predictable address. If maintenance WiFi itself fails six consecutive recovery attempts, the camera reboots and starts again from the normal primary profile.
-
-## Core services
-
-### RTSP
-
-| Endpoint | Description |
-| --- | --- |
-| `rtsp://IP-CAM/ch0_0.h264` | High-resolution H.264; AAC camera audio when enabled |
-| `rtsp://IP-CAM/ch0_1.h264` | Low-resolution H.264 |
-| `rtsp://IP-CAM/ch0_2.h264` | Audio-only stream where supported by the selected RTSP implementation |
-| `rtsp://IP-CAM/ch0_0.h264?backchannel=1` | Compatibility URL that explicitly requests speaker backchannel |
-| `rtsp://IP-CAM/ch0_1.h264?backchannel=1` | Low-resolution compatibility backchannel URL |
-
-**Standard (LIVE555)** is selected by default with `RTSP_ALT=standard`. It reads the hardware-produced H.264/H.265 and AAC buffers directly, provides an audio-only endpoint, and supports G.711 speaker talkback. The build pins [LIVE555 2026.09.23](https://download.live555.com/changelog.txt) using a [bundled, checksum-verified source archive](src/rRTSPServer/vendor/README.md), with size optimization.
-
-With Standard or optional camera-side **go2rtc**, `SPEAKER_AUDIO=yes`, and `RTSP_BACKCHANNEL=G711`, ONVIF-aware clients use the normal query-free RTSP URI and send:
+Before installation, the card root should contain:
 
 ```text
-Require: www.onvif.org/ver20/backchannel
+SD card/
+├── Factory/
+│   ├── config.sh
+│   ├── local_init.sh
+│   └── configure_wifi.cfg   # optional; create from the .ori template
+└── yi-hack/
+    ├── bin/
+    ├── etc/
+    └── ...
 ```
 
-The camera then exposes a `PCMU/8000` `sendonly` backchannel for that RTSP session. Normal viewers that do not request backchannel continue to receive only the camera-facing media tracks.
+**Keep the SD card installed during normal use.** Successful installation writes
+`hack_result.txt` and renames `Factory/` to `Factory.done/`. Check `hack_result.txt`
+if installation fails. Do not rename another model's firmware to force installation.
 
-The backchannel is an RTSP feature and works with `ONVIF=no`. Configure it under **Configurations → RTSP speaker backchannel**, alongside the stream and audio settings. ONVIF only advertises that capability when enabled; `ONVIF_AUDIO_BC` is retained as a compatibility mirror. Standard opens the speaker FIFO only when talkback packets arrive and shares the speaker lock with TTS and stored clips. The home page lists enabled stream/backchannel URLs, the audio-only URL where supported, the TTS POST endpoint, and the audio library/page links. Server, stream, audio, and backchannel changes apply when saved without a reboot.
+The experimental [flash-core profile](docs/FLASH_CORE.md) is a separate build for
+operation without SD. Its raw image candidates are not a drag-and-drop installer
+and still require hardware validation.
 
-See [Standard RTSP validation](docs/STANDARD_RTSP_VALIDATION.md) for live-camera checks, installed endpoints and rollback details.
+## Wi-Fi configuration file
 
-#### Recommended camera-side settings for Frigate / ONVIF
-
-For a camera primarily used with Frigate, Home Assistant, or another local NVR, the following is a reasonable starting point:
+Copy `Factory/configure_wifi.cfg.ori` to `Factory/configure_wifi.cfg`, then edit:
 
 ```ini
-RTSP=yes
-RTSP_ALT=standard
-RTSP_STREAM=high
-RTSP_AUDIO=aac
-RTSP_BACKCHANNEL=G711
-RTSP_STI=yes
-RTSP_PORT=554
+wifi_ssid=My AP 2.4GHz
+wifi_psk=MyWifiPassword
+```
+
+- Use a 2.4 GHz network and UTF-8/plain text.
+- Keep the key names exactly as shown, without spaces around `=` or quotes around
+  values. Spaces inside the SSID or password are preserved.
+- Follow the template's restrictions: avoid backslashes and double quotes.
+- Unix LF, Windows CRLF, classic CR line endings, and an optional UTF-8 BOM are
+  accepted. UTF-16 and invisible formatting characters are rejected.
+
+After installation, change networks or configure a maintenance network on the
+**WiFi Configuration** page; Wi-Fi changes take effect after reboot. The file
+also works for recovery; a successfully applied request is renamed to
+`configure_wifi.cfg.applied`.
+
+Both cameras support an open hotspot at `192.168.10.1`, controlled from that
+page. The optional rear-reset-button override must be enabled and confirmed
+active before using a five-second hold to enter hotspot mode. Hotspot Wi-Fi has
+no password; the camera login still applies. See [hotspot setup](docs/HOTSPOT.md).
+
+## RTSP video and camera audio
+
+Replace `IP-CAM` with the camera's address. These URLs use port `554`; add `:PORT`
+if you change it. Select **Standard (LIVE555)** in the WebUI.
+
+| URL | Stream |
+| --- | --- |
+| `rtsp://IP-CAM/ch0_0.h264` | High-resolution video with camera audio when enabled |
+| `rtsp://IP-CAM/ch0_1.h264` | Low-resolution video with camera audio when enabled |
+| `rtsp://IP-CAM/ch0_2.h264` | Camera audio only, with Standard RTSP |
+
+Enable RTSP, choose `RTSP_AUDIO=aac`, and select `RTSP_STREAM=both` if you need
+both video URLs. The fresh-install setting is `high`, so enable the low stream
+before using its URL. Standard is the default; go2rtc is optional.
+
+With authentication enabled, use `rtsp://USER:PASS@IP-CAM/ch0_0.h264`.
+URL-encode reserved characters in credentials.
+
+## Talk through the camera speaker
+
+In **Configurations**, enable speaker audio and set **RTSP speaker backchannel**
+to **G711**:
+
+```ini
 SPEAKER_AUDIO=yes
-
-ONVIF=yes
-ONVIF_WSDD=yes
-ONVIF_PROFILE=high
-ONVIF_NETIF=wlan0
-ONVIF_WM_SNAPSHOT=no
-ONVIF_ENABLE_MEDIA2=no
-ONVIF_FAULT_IF_UNKNOWN=no
-ONVIF_FAULT_IF_SET=no
-ONVIF_SYNOLOGY_NVR=no
+RTSP_BACKCHANNEL=G711
 ```
 
-The important choices are:
+Backchannel is disabled by default (`NONE`). A compatible RTSP/ONVIF client must
+send microphone audio; opening a URL in an ordinary player does not add a talk button.
 
-- **`RTSP_ALT=standard`** uses the native LIVE555 server with direct buffer capture and no separate grabber processes. `RTSP_STREAM=high` lets supported models pause the unused low encoder. Select `both` when an NVR needs the low detection endpoint as well.
-- **`RTSP_AUDIO=aac`** uses camera-native AAC without an audio transcode. Standard shares it across the selected video streams and the audio-only endpoint. Optional camera-side go2rtc attaches AAC only to high when exporting both streams.
-- **`ONVIF_PROFILE=high`** advertises the high stream for discovery and talkback. Use `both` when a client needs both enabled streams advertised.
-- **`SPEAKER_AUDIO=yes` + `RTSP_BACKCHANNEL=G711`** enables the Profile T backchannel as `PCMU/8000` (`G.711 u-law`), independently of the ONVIF service.
-- **`ONVIF_WSDD=yes`** is useful for discovery. If every client is configured manually by IP, WSDD can be disabled without affecting RTSP itself.
-- **`ONVIF_ENABLE_MEDIA2=no`** and the advanced fault/Synology compatibility switches should stay off unless a specific NVR needs them.
-- **`ONVIF_WM_SNAPSHOT=no`** keeps ONVIF snapshots clean and avoids the optional software snapshot timestamp/watermark pass. The live H.264 timestamp OSD is separate.
+| URL | Talkback session |
+| --- | --- |
+| `rtsp://IP-CAM/ch0_0.h264?backchannel=1` | High stream with speaker backchannel |
+| `rtsp://IP-CAM/ch0_1.h264?backchannel=1` | Low stream with speaker backchannel |
 
-If two-way audio is not needed, set `RTSP_BACKCHANNEL=NONE` (the fresh-install default). Local TTS and stored speaker clips remain available.
+The speaker track uses **G.711 μ-law / PCMU, 8 kHz**. ONVIF-aware clients can use
+the normal query-free RTSP URLs and request it with
+`Require: www.onvif.org/ver20/backchannel`. Backchannel also works with ONVIF
+disabled. TTS, stored clips, and talkback share the speaker.
 
-### Snapshot
+## Service URLs and HTTP API
 
-```text
-GET /cgi-bin/snapshot.sh
-GET /cgi-bin/snapshot.sh?res=low&watermark=yes
-```
+HTTP examples use port `80`; add your configured port if different. With camera
+authentication enabled, add `-u 'USER:PASS'` to the `curl` examples.
 
-`res` can select the available high/low stream and `watermark` controls the firmware watermark where supported.
-
-## HTTP API
-
-The WebUI uses the same CGI endpoints documented below. Keep the camera HTTP interface on a trusted LAN/VPN; these endpoints are not intended to be exposed directly to the public internet.
+| Service | URL / endpoint |
+| --- | --- |
+| WebUI | `http://IP-CAM/` |
+| Audio Library and TTS controls | `http://IP-CAM/?page=audio` |
+| ONVIF device service | `http://IP-CAM/onvif/device_service` |
+| Snapshot | `GET http://IP-CAM/cgi-bin/snapshot.sh?res=high` |
+| Low-resolution snapshot | `GET http://IP-CAM/cgi-bin/snapshot.sh?res=low` |
+| Camera/service status | `GET http://IP-CAM/cgi-bin/status.json` |
+| Motion status | `GET http://IP-CAM/cgi-bin/motion_status.sh` |
+| SSH | `ssh root@IP-CAM` (port 22, when enabled) |
+| FTP | `ftp://IP-CAM/` (port 21, when enabled) |
 
 ### Text-to-speech
 
-Canonical endpoint:
-
-```text
-POST /cgi-bin/tts.sh?voice=en-US&speed=1.0&pitch=1.0&volume=1.0
-Content-Type: text/plain; charset=UTF-8
-
-Text to speak
-```
-
-NanoTTS runs completely on the camera and sends PCM16LE/16 kHz/mono audio through the same serialized speaker path used by stored clips and two-way audio.
-
-Supported values:
-
-| Parameter | Values |
-| --- | --- |
-| `voice` | `en-US`, `en-GB`, `de-DE`, `es-ES`, `fr-FR`, `it-IT` |
-| `speed` | `0.2` through `5.0` |
-| `pitch` | `0.5` through `2.0` |
-| `volume` | `0.0` through `5.0` |
-
-The spoken text is limited to 1024 characters. The CGI request-body limit is 4096 bytes.
-
-Example:
+Send the text as the POST body. Speech runs locally on the camera:
 
 ```sh
 curl -H 'Content-Type: text/plain; charset=UTF-8' \
@@ -269,365 +142,62 @@ curl -H 'Content-Type: text/plain; charset=UTF-8' \
   'http://IP-CAM/cgi-bin/tts.sh?voice=en-US&speed=1.0&pitch=1.0&volume=1.0'
 ```
 
-Success response:
+| Parameter | Accepted values |
+| --- | --- |
+| `voice` | `en-US`, `en-GB`, `de-DE`, `es-ES`, `fr-FR`, `it-IT` |
+| `speed` | `0.2`–`5.0` |
+| `pitch` | `0.5`–`2.0` |
+| `volume` | `0.0`–`5.0` |
 
-```json
-{"error":false,"description":"Spoken"}
-```
+Text is limited to 1024 characters and the body to 4096 bytes. The selected voice
+data must be installed. Success returns `{"error":false,"description":"Spoken"}`;
+check the JSON `error` field for failures.
 
-The endpoint also accepts an `application/x-www-form-urlencoded` browser fallback with `text`, `voice`, `speed`, `pitch`, and `volume` fields.
+### Upload and play audio clips
 
-`/cgi-bin/speak.sh` remains only as a legacy compatibility endpoint. New integrations should use `/cgi-bin/tts.sh`.
-
-### Audio Library
-
-The WebUI Audio page is:
-
-```text
-http://IP-CAM/?page=audio
-```
-
-Stored audio lives in `/tmp/sd/audio/` and survives camera reboots. Supported formats are:
-
-- raw signed PCM16LE, 16 kHz, 16-bit, mono (`.pcm`)
-- uncompressed PCM WAV, 16 kHz, 16-bit, mono (`.wav`)
-
-Uploads are limited to 8 MiB. MP3/AAC decoding is intentionally not included in the on-camera playback path.
-
-| Method | Endpoint | Request body | Description |
-| --- | --- | --- | --- |
-| `GET` | `/cgi-bin/audio_library.sh?action=list` | none | List stored clips and sizes |
-| `POST` | `/cgi-bin/audio_library.sh?action=upload` | one `multipart/form-data` file | Validate and store `.pcm`/`.wav` on the SD card |
-| `POST` | `/cgi-bin/audio_library.sh?action=play&voldb=0` | clip basename as plain text | Synchronously play a stored clip |
-| `POST` | `/cgi-bin/audio_library.sh?action=delete` | clip basename as plain text | Delete a stored clip |
-
-Examples:
+Use **PCM WAV or raw PCM: signed 16-bit little-endian, 16 kHz, mono**. Clips are
+stored on SD; MP3/AAC playback is not supported. The upload request limit is
+8 MiB, including multipart overhead.
 
 ```sh
+# Upload a clip.
 curl -F 'file=@doorbell.wav' \
   'http://IP-CAM/cgi-bin/audio_library.sh?action=upload'
 
+# List stored clips.
 curl 'http://IP-CAM/cgi-bin/audio_library.sh?action=list'
 
-curl -X POST --data-binary 'doorbell.wav' \
-  'http://IP-CAM/cgi-bin/audio_library.sh?action=play&voldb=6'
+# Play a clip; voldb is gain in decibels.
+curl --data-binary 'doorbell.wav' \
+  'http://IP-CAM/cgi-bin/audio_library.sh?action=play&voldb=0'
 
-curl -X POST --data-binary 'doorbell.wav' \
+# Delete a clip.
+curl --data-binary 'doorbell.wav' \
   'http://IP-CAM/cgi-bin/audio_library.sh?action=delete'
 ```
 
-Typical responses:
-
-```json
-{"error":false,"description":"Uploaded","name":"doorbell.wav","size":96044}
-```
-
-```json
-{"error":false,"files":[{"name":"doorbell.wav","size":96044}]}
-```
-
-```json
-{"error":false,"description":"Played","name":"doorbell.wav"}
-```
-
-Stored playback includes trailing PCM silence so the camera's speaker path drains before the hardware amplifier is switched off; this avoids clipping the end of clips on the tested hardware.
-
-### Immediate speaker playback
-
-```text
-POST /cgi-bin/speaker.sh?voldb=0
-```
-
-The request body may be raw PCM/WAV data or a multipart file upload. `speaker.sh` accepts `voldb=<dB>` and the legacy `vol=<multiplier>` parameter.
-
-When SD storage is available this compatibility endpoint queues playback asynchronously and normally returns:
-
-```json
-{"error":false,"description":"Queued"}
-```
-
-For automation that requires a definitive completion result, upload to the Audio Library and use `audio_library.sh?action=play` instead.
-
-Legacy stored-file compatibility endpoint:
-
-```text
-POST /cgi-bin/speaker_file.sh?voldb=0
-```
-
-with the stored clip basename as the plain-text body.
-
-### Motion status
-
-```text
-GET /cgi-bin/motion_status.sh
-```
-
-Example Kami 1080p response:
-
-```json
-{"error":false,"model":"y28ga","backend":"ipc-events","backend_label":"Generic firmware IVA motion","status":"started","state":"idle","sensitivity":5,"sensitivity_supported":true,"sd_backup":"yes"}
-```
-
-The important fields are:
-
-- `backend`: model-specific detector implementation
-- `status`: service process/runtime status
-- `state`: `idle`, `motion`, `disabled`, or `unavailable`
-- `sensitivity`: configured 1-10 value
-- `sd_backup`: whether local motion recording is enabled
-- `custom_supported`: whether separate thresholds and timing controls are available
-- `effective`: settings used by the detector, including custom mode and the stop rule
-- `metrics`: recent change ratio, motion level, quiet countdown and sample age; `null` when unavailable
-
-For `y623`, the backend uses H.264 encoder statistics. For `y28ga`, only the generic firmware IVA `motion_alarm` event is consumed; legacy human/vehicle/animal classifier files are not treated as motion.
-
-### Configuration/runtime endpoints
-
-These are primarily WebUI endpoints and should be used carefully by automation clients:
-
-| Endpoint | Purpose |
-| --- | --- |
-| `/cgi-bin/get_configs.sh` | Read configuration groups |
-| `/cgi-bin/set_configs.sh` | Persist configuration changes |
-| `/cgi-bin/camera_settings.sh` | Apply camera settings/runtime changes after configuration is saved |
-| `/cgi-bin/status.json` | General camera/service status JSON |
-| `/cgi-bin/ptz.sh` | PTZ controls on hardware that exposes PTZ |
-| `/cgi-bin/preset.sh` | PTZ preset operations |
-| `/cgi-bin/record.sh` | Recording control |
-| `/cgi-bin/service.sh` | Service control used by the WebUI |
-| `/cgi-bin/reboot.sh` | Reboot camera |
-
-The Camera Settings WebUI intentionally persists configuration through `set_configs.sh` first and then applies runtime state through `camera_settings.sh`.
-
-## Motion detection architecture
-
-### `y623` Yi Pro 2K
-
-The Yi Pro firmware exposes motion-related encoder statistics. `motiond` reads those statistics rather than running the vendor AI stack. This allows the more aggressive Yi Pro `rmm`/VI optimizations and avoids retaining the raw AI analysis pipeline solely for motion detection.
-
-### `y28ga` Kami 1080p
-
-The older y28ga firmware needs the VI2 640x360 raw analysis path for generic `ivaDetectMotion()`. Version 3.8.0 therefore keeps that lightweight path but removes/stubs the expensive classifier and tracking work.
-
-The old firmware names its publication gate "AI Motion Detection" internally. Testing showed that this same gate must be enabled for **generic IVA motion publication** even after the AI classifiers have been removed. The 3.8.x `motion_service.sh` owns that gate; it is enabled only while local motion is enabled and all human/vehicle/animal/face/tracking controls remain forced off.
-
-## Audio serialization
-
-Local playback paths share the same speaker pipeline:
-
-```text
-NanoTTS / WAV / PCM / RTSP backchannel
-                |
-                v
-        speaker stream pcm
-                |
-                v
-       /tmp/audio_in_fifo
-                |
-                v
-          camera speaker
-```
-
-The `speaker` helper uses a semaphore so TTS, stored clips, immediate HTTP playback, Frigate talk, and direct ONVIF/RTSP talkback do not write the FIFO concurrently.
-
-## Home Assistant example
-
-Use the canonical TTS endpoint:
-
-```yaml
-rest_command:
-  camera_announce:
-    url: "http://IP-CAM/cgi-bin/tts.sh?voice=en-US&speed=1.0&pitch=1.0&volume=1.0"
-    method: POST
-    content_type: "text/plain; charset=UTF-8"
-    payload: "{{ message }}"
-```
-
-Then call it with:
-
-```yaml
-service: rest_command.camera_announce
-data:
-  message: "Motion detected at the front door"
-```
-
-## Frigate / go2rtc
-
-Frigate bundles its own go2rtc on the NVR host, which works with the recommended **Standard (LIVE555)** camera server. Camera-side go2rtc remains optional through `RTSP_ALT=go2rtc`. Frigate should normally open each required camera stream once and share that local restream with recording, detection, live view, Home Assistant, and audio detection. Set `RTSP_STREAM=both` for the main/sub example below; high-only setups can use the main stream for both recording and detection.
-
-For these cameras, a good division of work is:
-
-| Stream | Camera endpoint | Frigate use |
-| --- | --- | --- |
-| Main | `ch0_0.h264` | High-quality recording, live view, AAC audio, optional audio events |
-| Sub | `ch0_1.h264` | Object/motion detection at 640x360 |
-| Talk | `ch0_0.h264` without source modifiers | On-demand WebRTC/two-way talk only |
-
-Permanent recording/detection sources should include `#backchannel=0`. Otherwise go2rtc may reserve the camera speaker as soon as it opens the RTSP source. Keep a separate talk source with **no `#` modifiers on its bare `rtsp://` URL** so the backchannel remains available when Frigate actually needs it.
-
-A practical Frigate configuration is:
-
-```yaml
-go2rtc:
-  streams:
-    yi_camera:
-      # H.264 + camera-native AAC; no speaker reservation.
-      - "rtsp://USER:PASS@IP-CAM/ch0_0.h264#backchannel=0"
-      # Optional Opus producer for WebRTC clients. Runs on the Frigate host.
-      - "ffmpeg:yi_camera#audio=opus"
-
-    yi_camera_sub:
-      - "rtsp://USER:PASS@IP-CAM/ch0_1.h264#backchannel=0"
-
-    yi_camera_twoway:
-      # Deliberately no # options here: this is the on-demand talkback source.
-      - "rtsp://USER:PASS@IP-CAM/ch0_0.h264"
-      - "ffmpeg:yi_camera_twoway#audio=opus"
-
-cameras:
-  yi_camera:
-    ffmpeg:
-      output_args:
-        record: preset-record-generic-audio-copy
-      inputs:
-        - path: rtsp://127.0.0.1:8554/yi_camera
-          input_args: preset-rtsp-restream
-          roles:
-            - record
-            # Add this only if Frigate audio-event detection is enabled.
-            - audio
-
-        - path: rtsp://127.0.0.1:8554/yi_camera_sub
-          input_args: preset-rtsp-restream
-          roles:
-            - detect
-
-    detect:
-      width: 640
-      height: 360
-      fps: 5
-
-    record:
-      enabled: true
-
-    live:
-      streams:
-        Main: yi_camera
-        Sub: yi_camera_sub
-        Talk: yi_camera_twoway
-```
-
-If Frigate audio-event detection is not being used, remove the `audio` role; that avoids an extra FFmpeg audio-analysis process. AAC should still remain enabled on the camera because it is useful for recordings and MSE live playback. The optional `ffmpeg:...#audio=opus` entries run on the Frigate host and are only there for WebRTC/browser compatibility; they do not make the camera transcode audio.
-
-If RTSP authentication is disabled on the camera, remove `USER:PASS@`. If credentials contain reserved URL characters, URL-encode them before placing them in an RTSP URL.
-
-Frigate's current setup wizard can also discover the camera through ONVIF. The explicit YAML above is useful when you want predictable stream roles and the dedicated no-backchannel/talkback split. For two-way talk in a browser, Frigate must be served from a secure context (HTTPS/authenticated UI) and WebRTC must be reachable; in a normal Frigate deployment that means making the Frigate host go2rtc WebRTC listener on port 8555 reachable over TCP and UDP.
-
-The camera already provides encoded H.264. `h264grabber` reads the shared encoded buffers; neither Frigate nor each RTSP client causes a new software video encoder to be started on the camera.
-
-## Building
-
-### Default local build
-
-The common firmware payload is compiled once:
+For immediate playback without adding a library entry:
 
 ```sh
-./scripts/compile.sh
+curl --data-binary @doorbell.wav \
+  'http://IP-CAM/cgi-bin/speaker.sh?voldb=0'
 ```
 
-Then package both supported targets:
+Immediate playback can return a queued result before playback finishes. Use the
+Audio Library's `play` endpoint when you need a completion result.
 
-```sh
-sudo ./scripts/pack_fw.all.sh
-```
+## Updates, recovery, and further documentation
 
-`pack_fw.all.sh` intentionally packages only:
+Use the WebUI firmware maintenance page for routine upgrades, or prepare a fresh
+card with the complete matching release as above. Formatting the card does not
+restore stock firmware; internal bootstrap changes remain. Keep recovery backups
+and follow the [recovery instructions](unbrick/README.md) when needed.
 
-```text
-y623   # Yi Pro 2K
-y28ga  # Kami 1080p
-```
+- [Detailed API, Home Assistant / Frigate examples, hardware, and build reference](docs/REFERENCE.md)
+- [Standard RTSP validation](docs/STANDARD_RTSP_VALIDATION.md)
+- [Motion tuning](docs/MOTION_TUNING.md), [recording lookback](docs/RECORDING_PREROLL.md), and [event metadata](docs/MOTION_METADATA.md)
+- [Night vision](docs/NIGHTVISION.md) and [time settings](docs/LOCAL_TIME.md)
+- [Experimental flash core](docs/FLASH_CORE.md)
 
-To package one target explicitly:
-
-```sh
-sudo ./scripts/pack_fw.sh y623
-sudo ./scripts/pack_fw.sh y28ga
-```
-
-Other model names are rejected by `scripts/common.sh`; their firmware and recovery trees are not included in this branch.
-
-### GitHub Actions
-
-`.github/workflows/build.yaml` uses **one build job** for both supported targets.
-
-The job:
-
-1. checks out the repository and submodules
-2. installs the ARM build dependencies/toolchain
-3. runs `scripts/compile.sh` **once** to build the shared payload
-4. runs `scripts/pack_fw.all.sh` to produce both target archives
-5. verifies there is exactly one `.tgz` for `y623` and exactly one `.tgz` for `y28ga`
-6. uploads both `.tgz` files in **one GitHub Actions artifact** named `yi-hack-Allwinner-v2X-firmware`
-
-GitHub Actions artifact downloads are ZIP files, so downloading that single artifact produces one ZIP containing the two target `.tgz` files:
-
-```text
-yi-hack-Allwinner-v2X-firmware.zip
-├── <Yi Pro y623 firmware>.tgz
-└── <Kami 1080p y28ga firmware>.tgz
-```
-
-The `.tgz` files stay independently installable; select the one matching the camera model.
-
-The WebUI firmware maintenance page supports both **Upload & Upgrade** and **Online firmware upgrade**. Online upgrades resolve only the latest model-matching release asset from `ReOriginAI/yi-hack-Allwinner-v2X`; downloaded firmware is passed through the same archive/model/bootstrap validation as a manual upload. Hardened packages bind the SD payload to a matching internal bootstrap, so both are switched together before a single reboot.
-
-The workflow can be started manually and also runs for `3.*` version tags.
-
-## Versioning
-
-The current custom-variant version is:
-
-```text
-3.8.0
-```
-
-`VERSION` is embedded in packaged firmware by `scripts/pack_fw.sh`. Non-tagged local builds append the current short Git commit hash; a release tagged exactly `3.8.0` is packaged as `3.8.0` without the development suffix.
-
-## Safety and rollback
-
-### IPC resource optimizations
-
-The IPC mirror now uses queue 2 for normal `ipc2file` operation. Diagnostic
-`ipc_read` / `ipc_notify` users can enable the former nine queues by exporting
-`IPC_MULTIPLEX_ALL=1` before `dispatch` starts. The same preload library serves
-the audited y28ga SD-CID `popen()` command with a direct local file read,
-removing its shell/`cat` process pair without changing the polling state machine.
-
-These changes are validated after controlled clean boot on both tested targets
-(y623 and y28ga); the earlier y623 stall occurred only when the vendor broker
-was hot-restarted, which is no longer used as an activation method. The vendor
-`dispatch` binary and its routing IDs remain unchanged. See the
-[performance test results](docs/vendor-ablation/performance.md) for the exact
-clean-boot checks, JFFS2 deployment safeguards, and recovery evidence.
-
-This firmware runs from the SD-card-based yi-hack layout. The y28ga optimized `rmm` mechanism additionally preserves the stock `/home/app/rmm` binary and uses a verified bind-mounted copy at runtime. If the known stock hash is not recognized, the patch is refused rather than modifying an unknown binary.
-
-Always keep a backup and use firmware for the exact target only.
-
-## Upstream attribution
-
-This custom variant is based on the work in:
-
-- `roleoroleo/yi-hack-Allwinner-v2`
-- related yi-hack projects including `yi-hack-MStar` and `yi-hack-v4`
-
-See the repository history and source headers for original authorship and licensing details.
-
-## License
-
-See [LICENSE](LICENSE).
-
-## Disclaimer
-
-Use at your own risk. Camera firmware modification can make a device temporarily unavailable and may require SD-card recovery or restoration of the original firmware.
+Based on `roleoroleo/yi-hack-Allwinner-v2` and related yi-hack projects. Original
+authorship is retained in source headers and repository history. See [LICENSE](LICENSE).

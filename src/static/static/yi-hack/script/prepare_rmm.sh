@@ -32,6 +32,11 @@ if [ ! -r "$STOCK_RMM" ]; then
     exit 1
 fi
 
+if [ "$(file_md5 "$STOCK_RMM")" = "$EXPECTED_PATCHED_MD5" ]; then
+    printf '%s\n' "$STOCK_RMM"
+    exit 0
+fi
+
 if [ -r "$PATCHED_RMM" ] && [ "$(file_md5 "$PATCHED_RMM")" = "$EXPECTED_PATCHED_MD5" ]; then
     chmod 755 "$PATCHED_RMM" 2>/dev/null
     printf '%s\n' "$PATCHED_RMM"

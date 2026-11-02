@@ -230,6 +230,9 @@ check_motion()
 
 check_mqtt()
 {
+    if [ -f "$YI_HACK_PREFIX/flash-core" ]; then
+        [ -x "$YI_HACK_PREFIX/bin/mqttv4" ] && [ -x "$YI_HACK_PREFIX/bin/mqtt-config" ] || return 0
+    fi
     # Never resurrect MQTT when it is disabled. This was the source of the
     # stray mqttv4 instances observed on y623.
     if [ "$(get_config MQTT)" != "yes" ]; then
@@ -270,7 +273,8 @@ check_aux_services()
         return 0
     fi
 
-    if [ "$(get_config REC_WITHOUT_CLOUD)" = "yes" ] && [ "$(process_count mp4record)" -eq 0 ]; then
+    if [ "$(get_config REC_WITHOUT_CLOUD)" = "yes" ] && [ "$(process_count mp4record)" -eq 0 ] &&
+       ( . "$YI_HACK_PREFIX/script/storage.sh" && sd_present ); then
         $START_STOP_SCRIPT mp4record start >/dev/null 2>&1
         refresh_oom_policy
         return 0
@@ -317,7 +321,7 @@ check_aux_services()
     fi
 
     if [ "$(get_config FTPD)" = "yes" ]; then
-        if [ "$(get_config BUSYBOX_FTPD)" = "yes" ]; then
+        if [ "$(get_config BUSYBOX_FTPD)" = "yes" ] || [ ! -x "$YI_HACK_PREFIX/sbin/pure-ftpd" ]; then
             FTP_COUNT=$(process_count tcpsvd)
         else
             FTP_COUNT=$(process_count pure-ftpd)
@@ -540,6 +544,10 @@ do
     RTSP_ENABLED=$(get_config RTSP)
     if [ "$RTSP_ENABLED" = "yes" ]; then
         RTSP_ALT=$(get_config RTSP_ALT)
+        case "$RTSP_ALT" in
+            go2rtc) [ -x "$YI_HACK_PREFIX/bin/go2rtc" ] || RTSP_ALT=standard ;;
+            alternative) [ -x "$YI_HACK_PREFIX/bin/rtsp_server_yi" ] || RTSP_ALT=standard ;;
+        esac
         if [ "$RTSP_ALT" = "standard" ]; then
             check_rtsp
         elif [ "$RTSP_ALT" = "alternative" ]; then
@@ -557,6 +565,9 @@ do
     if [ "$AUX_COUNTER" -ge "$AUX_CHECK_EVERY" ]; then
         AUX_COUNTER=0
         check_aux_services
+        if [ -f "$YI_HACK_PREFIX/flash-core" ]; then
+            "$YI_HACK_PREFIX/bin/service_guard" 5 "$YI_HACK_PREFIX/script/flash_config_sync.sh" >/dev/null 2>&1 &
+        fi
     fi
 
     OOM_POLICY_COUNTER=$((OOM_POLICY_COUNTER + 1))

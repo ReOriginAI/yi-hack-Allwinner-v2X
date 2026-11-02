@@ -284,6 +284,8 @@ stop_unused_ipc_events()
 
 ensure_single_mp4record()
 {
+    . "$YI_HACK_PREFIX/script/storage.sh" || return 1
+    sd_present || return 0
     COUNT=$(process_count mp4record)
 
     if [ "$COUNT" -gt 1 ]; then

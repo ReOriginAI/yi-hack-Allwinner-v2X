@@ -49,8 +49,8 @@ case "$CONTENT_LENGTH" in
     ''|*[!0-9]*) CONTENT_LENGTH=0 ;;
 esac
 
-mount | grep /tmp/sd >/dev/null
-if [ $? -eq 0 ]; then
+. "$YI_HACK_PREFIX/script/storage.sh"
+if sd_present; then
     TMP_BASE="/tmp/sd/speaker.$$"
     MAX_UPLOAD=8388608
     ASYNC=1

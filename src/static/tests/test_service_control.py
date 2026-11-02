@@ -102,6 +102,22 @@ killall() { : > "$TEST_STATE"; }
         self.assertEqual(self.call('mqtt', 'start').returncode, 0)
         self.assertEqual(self.call('mqtt', 'status').stdout.strip(), 'started')
 
+    def test_missing_pure_ftpd_uses_busybox_for_start_status_and_stop(self):
+        with (self.prefix / 'etc/system.conf').open('a') as config:
+            config.write('BUSYBOX_FTPD=no\n')
+        source = self.script.read_text().replace('NAME="null"', '''
+tcpsvd() {
+    echo ftp >> "$TEST_CALLS"
+    echo '22 root 100 S tcpsvd' > "$TEST_STATE"
+}
+NAME="null"''', 1)
+        self.script.write_text(source)
+        self.assertEqual(self.call('ftpd', 'start').returncode, 0)
+        self.assertEqual(self.call('ftpd', 'status').stdout.strip(), 'started')
+        self.assertEqual(self.calls.read_text().splitlines(), ['ftp'])
+        self.assertEqual(self.call('ftpd', 'stop').returncode, 0)
+        self.assertEqual(self.call('ftpd', 'status').stdout.strip(), 'stopped')
+
     def test_wifi_recovery_is_nonblocking_serialized_and_retryable(self):
         worker = self.prefix / 'script/wifi_recovery.sh'
         worker.write_text(f'#!{self.prefix}/bin/busybox ash\n'

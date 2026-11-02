@@ -1,10 +1,13 @@
 #!/bin/sh
-# Source from config CGIs. Serialize requests and stage only on the SD card.
+# Source from config CGIs. Flash profiles use bounded request staging in /tmp.
 config_work_begin()
 {
-    awk '$2=="/tmp/sd" && $3!="tmpfs" {found=1} END {exit !found}' /proc/mounts || return 1
+    if [ ! -f "$YI_HACK_PREFIX/flash-core" ]; then
+        awk '$2=="/tmp/sd" && $3!="tmpfs" {found=1} END {exit !found}' /proc/mounts || return 1
+    fi
     CONFIG_LOCK=/tmp/yi-config-work.lock.d
     CONFIG_ROOT="$YI_HACK_PREFIX/.config-work"
+    [ ! -f "$YI_HACK_PREFIX/flash-core" ] || CONFIG_ROOT=/tmp/yi-config-work
     if ! mkdir "$CONFIG_LOCK" 2>/dev/null; then
         OWNER=$(cat "$CONFIG_LOCK/pid" 2>/dev/null)
         case "$OWNER" in ''|*[!0-9]*) return 1 ;; esac

@@ -1,4 +1,6 @@
 #!/tmp/sd/yi-hack/bin/busybox ash
+. "${YI_HACK_PREFIX:-/tmp/sd/yi-hack}/script/storage.sh" || exit 1
+sd_present || exit 0
 #
 # Command line:
 # 	ash "/tmp/sd/yi-hack/script/thumb.sh" cron
