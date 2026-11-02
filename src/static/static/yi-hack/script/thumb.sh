@@ -1,4 +1,4 @@
-#!/bin/ash
+#!/tmp/sd/yi-hack/bin/busybox ash
 #
 # Command line:
 # 	ash "/tmp/sd/yi-hack/script/thumb.sh" cron
@@ -8,12 +8,15 @@
 CONF_FILE="etc/system.conf"
 
 YI_HACK_PREFIX="/tmp/sd/yi-hack"
+. "$YI_HACK_PREFIX/script/service_lock.sh" || exit 1
 
 get_config()
 {
     key=$1
     grep -w $1 $YI_HACK_PREFIX/$CONF_FILE | cut -d "=" -f2-
 }
+. "$YI_HACK_PREFIX/script/operation_timeout.sh" || exit 1
+
 # Setup env.
 export PATH=/usr/bin:/usr/sbin:/bin:/sbin:/home/base/tools:/home/app/localbin:/home/base:/tmp/sd/yi-hack/bin:/tmp/sd/yi-hack/sbin:/tmp/sd/yi-hack/usr/bin:/tmp/sd/yi-hack/usr/sbin
 export LD_LIBRARY_PATH=/lib:/usr/lib:/home/lib:/home/qigan/lib:/home/app/locallib:/tmp/sd:/tmp/sd/gdb:/tmp/sd/yi-hack/lib
@@ -29,6 +32,7 @@ SCRIPT_FULLFN="thumb.sh"
 SCRIPT_NAME="thumb"
 LOGFILE="/tmp/${SCRIPT_NAME}.log"
 LOG_MAX_LINES="200"
+STOPFILE="/tmp/yi-hack-thumb.stop"
 
 
 #
@@ -84,19 +88,21 @@ checkFiles ()
 	fi
 	#
 	echo "${L_FILE_LIST}" | while read file; do
+		[ ! -e "$STOPFILE" ] || break
 		BASE_NAME=$(lbasename "$file")
 		if [ ! -f $BASE_NAME.jpg ]; then
-			minimp4_yi -t 1 $file $BASE_NAME.h26x
+			runWithTimeout 30 minimp4_yi -t 1 "$file" "$BASE_NAME.h26x"
 			if [ $? -ne 0 ]; then
 				logAdd "[ERROR] checkFiles: demux mp4 FAILED - [${file}]."
-				rm -f $BASE_NAME.h26x
+				rm -f "$BASE_NAME.h26x"
+				continue
 			fi
 			if [ "${#file}" == "44" ]; then
 				TIME_STAMP="${file:15:4}-${file:20:2}-${file:23:2} ${file:26:2}:${file:32:2}:${file:35:2}"
 			else
 				TIME_STAMP="${file:15:4}-${file:20:2}-${file:23:2} ${file:26:2}:${file:30:2}:${file:33:2}"
 			fi
-			imggrabber -f $BASE_NAME.h26x -r low -w -t "$TIME_STAMP" > $BASE_NAME.jpg
+			runWithTimeout 30 imggrabber -f "$BASE_NAME.h26x" -r low -w -t "$TIME_STAMP" > "$BASE_NAME.jpg"
 			if [ $? -ne 0 ]; then
 				logAdd "[ERROR] checkFiles: create jpg FAILED - [${file}]. Using fallback.jpg."
 				rm -f $BASE_NAME.h26x
@@ -131,6 +137,7 @@ serviceMain ()
 	logAdd "[INFO] === SERVICE START ==="
 	# sleep 10
 	while (true); do
+		[ ! -e "$STOPFILE" ] || break
 		# Check if folder exists.
 		if [ ! -d "${FOLDER_TO_WATCH}" ]; then
 			mkdir -p "${FOLDER_TO_WATCH}"
@@ -144,6 +151,7 @@ serviceMain ()
 		#
 		checkFiles
 		#
+		[ ! -e "$STOPFILE" ] || break
 		if [ "${1}" = "--one-shot" ]; then
 			break
 		fi
@@ -158,40 +166,48 @@ serviceMain ()
 #
 # set +m
 trap "" SIGHUP
+# Serialize stop requests with acquisition/clearing of a new worker's state.
+case "$1" in
+    cron|start|stop) yi_lock thumb-control || exit $? ;;
+esac
 #
 if [ "${1}" = "cron" ]; then
-	RUNNING=$(ps ww | grep $SCRIPT_FULLFN | grep -v grep | grep /bin/sh | awk 'END { print NR }')
-	if [ $RUNNING -gt 1 ]; then
+	yi_lock thumb
+	LOCK_STATUS=$?
+	if [ "$LOCK_STATUS" -ne 0 ]; then
+		[ "$LOCK_STATUS" -eq 75 ] || exit "$LOCK_STATUS"
 		logAdd "[INFO] === SERVICE ALREADY RUNNING ==="
 		exit 0
 	fi
+	rm -f "$STOPFILE"
+	yi_lock -u thumb-control || exit 1
 	serviceMain --one-shot
 	logAdd "[INFO] === SERVICE STOPPED ==="
 	exit 0
 elif [ "${1}" = "start" ]; then
-	RUNNING=$(ps ww | grep $SCRIPT_FULLFN | grep -v grep | grep /bin/sh | awk 'END { print NR }')
-	if [ $RUNNING -gt 1 ]; then
+	yi_lock thumb
+	LOCK_STATUS=$?
+	if [ "$LOCK_STATUS" -ne 0 ]; then
+		[ "$LOCK_STATUS" -eq 75 ] || exit "$LOCK_STATUS"
 		logAdd "[INFO] === SERVICE ALREADY RUNNING ==="
 		exit 0
 	fi
-	serviceMain &
-	#
-	# Wait for kill -INT.
-	wait
+	rm -f "$STOPFILE"
+	yi_lock -u thumb-control || exit 1
+	serviceMain
 	exit 0
 elif [ "${1}" = "stop" ]; then
-	ps ww | grep -v grep | grep "ash ${0}" | sed 's/ \+/|/g' | sed 's/^|//' | cut -d '|' -f 1 | grep -v "^$$" | while read pidhandle; do
-		echo "[INFO] Terminating old service instance [${pidhandle}] ..."
-		kill -9 "${pidhandle}"
-	done
-	#
-	# Check if parts of the service are still running.
-	if [ "$(ps ww | grep -v grep | grep "ash ${0}" | sed 's/ \+/|/g' | sed 's/^|//' | cut -d '|' -f 1 | grep -v "^$$" | grep -c "^")" -gt 1 ]; then
-		logAdd "[ERROR] === SERVICE FAILED TO STOP ==="
-		exit 99
-	fi
-	logAdd "[INFO] === SERVICE STOPPED ==="
-	exit 0
+    # Keep ownership while finishing/aborting the current bounded operation.
+    # Killing only a parent shell could orphan a transfer and permit overlap.
+    : > "$STOPFILE" || exit 1
+    yi_lock thumb
+    LOCK_STATUS=$?
+    case "$LOCK_STATUS" in
+        0) logAdd "[INFO] === SERVICE STOPPED ===" ;;
+        75) logAdd "[INFO] Stop requested; current bounded work must finish before restart." ;;
+        *) exit "$LOCK_STATUS" ;;
+    esac
+    exit 0
 fi
 #
 logAdd "[ERROR] Parameter #1 missing."

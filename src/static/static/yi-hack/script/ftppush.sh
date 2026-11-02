@@ -1,4 +1,4 @@
-#!/bin/ash
+#!/tmp/sd/yi-hack/bin/busybox ash
 #
 # Command line:
 # 	ash "/tmp/sd/yi-hack/script/ftppush.sh" cron
@@ -8,6 +8,7 @@
 CONF_FILE="etc/system.conf"
 
 YI_HACK_PREFIX="/tmp/sd/yi-hack"
+. "$YI_HACK_PREFIX/script/service_lock.sh" || exit 1
 
 HOMEVER=$(cat /home/homever)
 HV=${HOMEVER:0:2}
@@ -17,6 +18,8 @@ get_config()
     key=$1
     grep -w $1 $YI_HACK_PREFIX/$CONF_FILE | cut -d "=" -f2-
 }
+. "$YI_HACK_PREFIX/script/operation_timeout.sh" || exit 1
+
 # Setup env.
 export PATH=/usr/bin:/usr/sbin:/bin:/sbin:/home/base/tools:/home/app/localbin:/home/base:/tmp/sd/yi-hack/bin:/tmp/sd/yi-hack/sbin:/tmp/sd/yi-hack/usr/bin:/tmp/sd/yi-hack/usr/sbin
 export LD_LIBRARY_PATH=/lib:/usr/lib:/home/lib:/home/qigan/lib:/home/app/locallib:/tmp/sd:/tmp/sd/gdb:/tmp/sd/yi-hack/lib
@@ -33,6 +36,7 @@ SCRIPT_FULLFN="ftppush.sh"
 SCRIPT_NAME="ftppush"
 LOGFILE="/tmp/${SCRIPT_NAME}.log"
 LOG_MAX_LINES="200"
+STOPFILE="/tmp/yi-hack-ftppush.stop"
 
 #
 # -----------------------------------------------------
@@ -121,7 +125,8 @@ uploadToFtp ()
 	#
 	# Variables.
 	UTF_FULLFN="${2}"
-	FTP_DIR_HOUR="$(lparentdir ${UTF_FULLFN})"
+	FTP_DIR_HOUR=${UTF_FULLFN%/*}
+	FTP_DIR_HOUR=${FTP_DIR_HOUR##*/}
 	#
 	if [ "${SKIP_UPLOAD_TO_FTP}" = "1" ]; then
 		logAdd "[INFO] uploadToFtp skipped due to SKIP_UPLOAD_TO_FTP == 1."
@@ -130,14 +135,14 @@ uploadToFtp ()
 	#
 	if [ ! -z "${FTP_DIR}" ]; then
 		# Create directory on FTP server
-		echo -e "USER ${FTP_USERNAME}\r\nPASS ${FTP_PASSWORD}\r\nmkd ${FTP_DIR}\r\nquit\r\n" | nc -w 5 ${FTP_HOST} 21 | grep "${FTP_DIR}"
+		echo -e "USER ${FTP_USERNAME}\r\nPASS ${FTP_PASSWORD}\r\nmkd ${FTP_DIR}\r\nquit\r\n" | runWithTimeout 15 nc -w 5 "${FTP_HOST}" 21 | grep "${FTP_DIR}"
 		FTP_DIR="${FTP_DIR}/"
 	fi
 	#
 	if [ "${FTP_DIR_TREE}" == "yes" ]; then
 		if [ ! -z "${FTP_DIR_HOUR}" ]; then
 			# Create hour directory on FTP server
-			echo -e "USER ${FTP_USERNAME}\r\nPASS ${FTP_PASSWORD}\r\nmkd ${FTP_DIR}/${FTP_DIR_HOUR}\r\nquit\r\n" | nc -w 5 ${FTP_HOST} 21 | grep "${FTP_DIR_HOUR}"
+			echo -e "USER ${FTP_USERNAME}\r\nPASS ${FTP_PASSWORD}\r\nmkd ${FTP_DIR}/${FTP_DIR_HOUR}\r\nquit\r\n" | runWithTimeout 15 nc -w 5 "${FTP_HOST}" 21 | grep "${FTP_DIR_HOUR}"
 			FTP_DIR_HOUR="${FTP_DIR_HOUR}/"
 		fi
 	fi
@@ -148,12 +153,12 @@ uploadToFtp ()
 	fi
 	#
 	if [ "${FTP_DIR_TREE}" == "yes" ]; then
-		if ( ! ftpput -u "${FTP_USERNAME}" -p "${FTP_PASSWORD}" "${FTP_HOST}" "${FTP_DIR}${FTP_DIR_HOUR}$(lbasename "${UTF_FULLFN}")" "${UTF_FULLFN}" ); then
+		if ( ! runWithTimeout 300 ftpput -u "${FTP_USERNAME}" -p "${FTP_PASSWORD}" "${FTP_HOST}" "${FTP_DIR}${FTP_DIR_HOUR}$(lbasename "${UTF_FULLFN}")" "${UTF_FULLFN}" ); then
 			logAdd "[ERROR] uploadToFtp: ftpput FAILED."
 			return 1
 		fi
 	else
-		if ( ! ftpput -u "${FTP_USERNAME}" -p "${FTP_PASSWORD}" "${FTP_HOST}" "${FTP_DIR}$(lbasename "${UTF_FULLFN}")" "${UTF_FULLFN}" ); then
+		if ( ! runWithTimeout 300 ftpput -u "${FTP_USERNAME}" -p "${FTP_PASSWORD}" "${FTP_HOST}" "${FTP_DIR}$(lbasename "${UTF_FULLFN}")" "${UTF_FULLFN}" ); then
 			logAdd "[ERROR] uploadToFtp: ftpput FAILED."
 			return 1
 		fi
@@ -173,6 +178,7 @@ serviceMain ()
 	logAdd "[INFO] === SERVICE START ==="
 	# sleep 10
 	while (true); do
+		[ ! -e "$STOPFILE" ] || break
 		# Check if folder exists.
 		if [ ! -d "${FOLDER_TO_WATCH}" ]; then 
 			mkdir -p "${FOLDER_TO_WATCH}"
@@ -188,6 +194,7 @@ serviceMain ()
 			checkFiles
 		fi
 		#
+		[ ! -e "$STOPFILE" ] || break
 		if [ "${1}" = "--one-shot" ]; then
 			break
 		fi
@@ -205,40 +212,48 @@ serviceMain ()
 
 # set +m
 trap "" SIGHUP
+# Serialize stop requests with acquisition/clearing of a new worker's state.
+case "$1" in
+    cron|start|stop) yi_lock ftppush-control || exit $? ;;
+esac
 #
 if [ "${1}" = "cron" ]; then
-	RUNNING=$(ps ww | grep $SCRIPT_FULLFN | grep -v grep | grep /bin/sh | awk 'END { print NR }')
-	if [ $RUNNING -gt 1 ]; then
+	yi_lock ftppush
+	LOCK_STATUS=$?
+	if [ "$LOCK_STATUS" -ne 0 ]; then
+		[ "$LOCK_STATUS" -eq 75 ] || exit "$LOCK_STATUS"
 		logAdd "[INFO] === SERVICE ALREADY RUNNING ==="
 		exit 0
 	fi
+	rm -f "$STOPFILE"
+	yi_lock -u ftppush-control || exit 1
 	serviceMain --one-shot
 	logAdd "[INFO] === SERVICE STOPPED ==="
 	exit 0
 elif [ "${1}" = "start" ]; then
-	RUNNING=$(ps ww | grep $SCRIPT_FULLFN | grep -v grep | grep /bin/sh | awk 'END { print NR }')
-	if [ $RUNNING -gt 1 ]; then
+	yi_lock ftppush
+	LOCK_STATUS=$?
+	if [ "$LOCK_STATUS" -ne 0 ]; then
+		[ "$LOCK_STATUS" -eq 75 ] || exit "$LOCK_STATUS"
 		logAdd "[INFO] === SERVICE ALREADY RUNNING ==="
 		exit 0
 	fi
-	serviceMain &
-	#
-	# Wait for kill -INT.
-	wait
+	rm -f "$STOPFILE"
+	yi_lock -u ftppush-control || exit 1
+	serviceMain
 	exit 0
 elif [ "${1}" = "stop" ]; then
-	ps ww | grep -v grep | grep "ash ${0}" | sed 's/ \+/|/g' | sed 's/^|//' | cut -d '|' -f 1 | grep -v "^$$" | while read pidhandle; do
-		echo "[INFO] Terminating old service instance [${pidhandle}] ..."
-		kill -9 "${pidhandle}"
-	done
-	#
-	# Check if parts of the service are still running.
-	if [ "$(ps ww | grep -v grep | grep "ash ${0}" | sed 's/ \+/|/g' | sed 's/^|//' | cut -d '|' -f 1 | grep -v "^$$" | grep -c "^")" -gt 1 ]; then
-		logAdd "[ERROR] === SERVICE FAILED TO STOP ==="
-		exit 99
-	fi
-	logAdd "[INFO] === SERVICE STOPPED ==="
-	exit 0
+    # Keep ownership while finishing/aborting the current bounded operation.
+    # Killing only a parent shell could orphan a transfer and permit overlap.
+    : > "$STOPFILE" || exit 1
+    yi_lock ftppush
+    LOCK_STATUS=$?
+    case "$LOCK_STATUS" in
+        0) logAdd "[INFO] === SERVICE STOPPED ===" ;;
+        75) logAdd "[INFO] Stop requested; current bounded work must finish before restart." ;;
+        *) exit "$LOCK_STATUS" ;;
+    esac
+    exit 0
 fi
 #
 logAdd "[ERROR] Parameter #1 missing."

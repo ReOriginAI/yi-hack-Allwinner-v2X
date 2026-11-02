@@ -45,6 +45,17 @@ jobs:
           gcc -Wall -Wextra -Werror -O2 src/motiond/tests/test_pressure.c src/ipc_cmd/ipc_cmd/motion_metadata_levels.c -lrt -o /tmp/test-motiond-pressure
           /tmp/test-motiond-pressure
 
+      - name: Build and test kernel-owned service locks
+        run: |
+          bash scripts/build_test_busybox.sh /tmp/yi-host-busybox
+          export YI_TEST_BUSYBOX=/tmp/yi-host-busybox/busybox-1.36.1/busybox
+          echo "YI_TEST_BUSYBOX=$YI_TEST_BUSYBOX" >> "$GITHUB_ENV"
+          python3 src/static/tests/test_service_serialization.py
+          python3 src/static/tests/test_service_control.py
+          python3 src/static/tests/test_operation_timeout.py
+          python3 src/static/tests/test_ftppush_queue.py
+          python3 src/static/tests/test_config_read_error.py
+
       - name: Test recorder-local motion metadata
         run: |
           python3 scripts/test_record_metadata.py

@@ -31,6 +31,7 @@ cd "${BUILD_FOLDER}"
 patch -p1 < ../gzdef.patch
 patch -p1 < ../onvif.patch
 patch -p1 < ../auth.patch
+patch -p1 < ../yi-lock.patch || exit 1
 
 cp ../.config ./ || exit 1
 

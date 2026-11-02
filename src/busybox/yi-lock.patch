@@ -1,0 +1,166 @@
+--- a/shell/ash.c
++++ b/shell/ash.c
+@@ -264,6 +264,8 @@
+ # include <glob.h>
+ #endif
+ 
++#include <sys/un.h>
++#include <stddef.h>
+ #include "unicode.h"
+ #include "shell_common.h"
+ #if ENABLE_FEATURE_SH_MATH
+@@ -5174,6 +5176,8 @@
+ static void closescript(void);
+ 
+ /* Called after fork(), in child */
++static void yi_drop_locks(void);
++
+ /* jp and n are NULL when called by openhere() for heredoc support */
+ static NOINLINE void
+ forkchild(struct job *jp, union node *n, int mode)
+@@ -5350,6 +5354,7 @@
+ 	}
+ 	if (pid == 0) {
+ 		CLEAR_RANDOM_T(&random_gen); /* or else $RANDOM repeats in child */
++		if (mode == FORK_BG) yi_drop_locks();
+ 		forkchild(jp, n, mode);
+ 	} else {
+ 		forkparent(jp, n, mode, pid);
+@@ -5471,6 +5476,22 @@
+ #undef EMPTY
+ #undef CLOSED
+ #define EMPTY -2                /* marks an unused slot in redirtab */
++struct yi_lock_fd {
++ struct yi_lock_fd *next;
++ int fd;
++ char name[64];
++};
++static struct yi_lock_fd *yi_locks;
++static void yi_drop_locks(void)
++{
++ struct yi_lock_fd *lock;
++ while ((lock = yi_locks) != NULL) {
++  yi_locks = lock->next;
++  close(lock->fd);
++  free(lock);
++ }
++}
++
+ #define CLOSED -1               /* marks a slot of previously-closed fd */
+ 
+ /*
+@@ -5714,9 +5735,17 @@
+ save_fd_on_redirect(int fd, int avoid_fd, struct redirtab *sq)
+ {
+ 	int i, new_fd;
++ struct yi_lock_fd *lock;
+ 
+ 	if (avoid_fd < 9) /* the important case here is that it can be -1 */
+ 		avoid_fd = 9;
++
++ for (lock = yi_locks; lock; lock = lock->next) {
++  if (lock->fd == fd) {
++   lock->fd = xdup_CLOEXEC_and_close(fd, avoid_fd);
++   return 1;
++  }
++ }
+ 
+ #if JOBS
+ 	if (fd == ttyfd) {
+@@ -5795,6 +5824,9 @@
+ internally_opened_fd(int fd, struct redirtab *sq)
+ {
+ 	int i;
++ struct yi_lock_fd *lock;
++ for (lock = yi_locks; lock; lock = lock->next)
++  if (fd == lock->fd) return 1;
+ #if JOBS
+ 	if (fd == ttyfd)
+ 		return 1;
+@@ -10118,6 +10150,69 @@
+ 	return status;
+ }
+ 
++/* Kernel-owned abstract socket; descriptor remains private to ash. */
++static int FAST_FUNC yi_lockcmd(int argc, char **argv)
++{
++    struct sockaddr_un addr;
++    struct yi_lock_fd *lock, **link;
++    const char *name;
++    int fd, copy, err, release = argc == 3 && strcmp(argv[1], "-u") == 0;
++    size_t len;
++    if ((!release && argc != 2) || (release && argc != 3)) return 2;
++    name = argv[release ? 2 : 1];
++    len = strlen(name);
++    if (!len || len >= sizeof(lock->name) || strspn(name, "abcdefghijklmnopqrstuvwxyz0123456789-.") != len)
++        return 2;
++    INT_OFF;
++    for (link = &yi_locks; (lock = *link) != NULL; link = &lock->next) {
++        if (strcmp(lock->name, name) == 0) {
++            if (!release) { INT_ON; return 75; }
++            *link = lock->next;
++            close(lock->fd);
++            free(lock);
++            INT_ON;
++            return 0;
++        }
++    }
++    if (release) { INT_ON; return 2; }
++    memset(&addr, 0, sizeof(addr));
++    addr.sun_family = AF_UNIX;
++    memcpy(addr.sun_path + 1, "yi-hack.v1.", 11);
++    memcpy(addr.sun_path + 12, name, len);
++    fd = socket(AF_UNIX, SOCK_DGRAM, 0);
++    if (fd < 0) goto error;
++    copy = fcntl(fd, F_DUPFD, 10);
++    err = errno;
++    close(fd);
++    errno = err;
++    fd = copy;
++    if (fd < 0) goto error;
++    if (fcntl(fd, F_SETFD, FD_CLOEXEC) < 0) goto close_error;
++    if (bind(fd, (struct sockaddr *)&addr,
++             offsetof(struct sockaddr_un, sun_path) + 12 + len) < 0) {
++        err = errno;
++        close(fd);
++        if (err == EADDRINUSE) { INT_ON; return 75; }
++        errno = err;
++        goto error;
++    }
++    lock = xzalloc(sizeof(*lock));
++    lock->fd = fd;
++    strcpy(lock->name, name);
++    lock->next = yi_locks;
++    yi_locks = lock;
++    INT_ON;
++    return 0;
++ close_error:
++    err = errno;
++    close(fd);
++    errno = err;
++ error:
++    bb_perror_msg("yi_lock %s", name);
++    INT_ON;
++    return 1;
++}
++
+ /* Forward declarations for builtintab[] */
+ static int breakcmd(int, char **) FAST_FUNC;
+ static int dotcmd(int, char **) FAST_FUNC;
+@@ -10249,6 +10344,7 @@
+ #endif
+ 	{ BUILTIN_SPEC_REG      "unset"   , unsetcmd   },
+ 	{ BUILTIN_REGULAR       "wait"    , waitcmd    },
++	{ BUILTIN_REGULAR       "yi_lock" , yi_lockcmd },
+ };
+ 
+ /* Should match the above table! */
+@@ -10567,7 +10663,7 @@
+ 		 * in a script or a subshell does not need forking,
+ 		 * we can just exec it.
+ 		 */
+-		if (!(flags & EV_EXIT) || may_have_traps) {
++		if (!(flags & EV_EXIT) || may_have_traps || yi_locks) {
+ 			/* No, forking off a child is necessary */
+ 			INT_OFF;
+ 			get_tty_state();

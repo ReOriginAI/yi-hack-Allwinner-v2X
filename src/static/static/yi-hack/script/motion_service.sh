@@ -1,6 +1,18 @@
-#!/bin/sh
+#!/tmp/sd/yi-hack/bin/busybox ash
 
 YI_HACK_PREFIX=${YI_HACK_PREFIX:-/tmp/sd/yi-hack}
+. "$YI_HACK_PREFIX/script/service_lock.sh" || exit 1
+
+# The marker is consumed here, never inherited by nested lifecycle calls.
+case "$1" in
+    __yi_guarded) shift ;;
+    *)
+        case "$1" in
+            start|restart|stop|events|events-stop-if-unused)
+                exec "$YI_HACK_PREFIX/bin/service_guard" 20 "$YI_HACK_PREFIX/bin/busybox" ash "$0" __yi_guarded "$@" ;;
+        esac
+        ;;
+esac
 CAMERA_CONF="$YI_HACK_PREFIX/etc/camera.conf"
 SYSTEM_CONF="$YI_HACK_PREFIX/etc/system.conf"
 MOTIOND="$YI_HACK_PREFIX/bin/motiond"
@@ -224,10 +236,7 @@ ensure_ipc_events()
     # Shared by recording, both motion backends and ONVIF. Keep this lock
     # separate from the motion lifecycle lock, including nested recorder start.
     # The subshell preserves the caller's EXIT trap.
-    EVENT_LOCK=/tmp/motion_events.lock.d
-    mkdir "$EVENT_LOCK" 2>/dev/null || return 1
-    trap 'rmdir "$EVENT_LOCK" 2>/dev/null' 0
-    trap 'exit 1' HUP INT TERM
+    yi_lock motion-events || return $?
 
     ipc_events_ready && return 0
     COUNT=$(process_count ipc2file)
@@ -265,10 +274,7 @@ ensure_ipc_events()
 
 stop_unused_ipc_events()
 (
-    EVENT_LOCK=/tmp/motion_events.lock.d
-    mkdir "$EVENT_LOCK" 2>/dev/null || return 1
-    trap 'rmdir "$EVENT_LOCK" 2>/dev/null' 0
-    trap 'exit 1' HUP INT TERM
+    yi_lock motion-events || return $?
 
     [ "$(get_camera_config MOTION_DETECTION)" != yes ] || return 0
     [ "$(get_system_config REC_WITHOUT_CLOUD)" != yes ] || return 0
@@ -491,20 +497,10 @@ status_motion()
     esac
 }
 
-# Serialize y623 lifecycle operations from watchdog and configuration callers.
-# This kernel returns ENOSYS for flock. An atomic mkdir works without it.
-# Fail closed on contention; watchdog retries later. /tmp clears on reboot.
-# SIGKILL of this service shell (not motiond) requires removing a stale lock.
-if [ "$MODEL_SUFFIX" = "y623" ]; then
-    case "$1" in
-        start|restart|stop)
-            LOCKDIR=/tmp/motion_service.lock.d
-            mkdir "$LOCKDIR" 2>/dev/null || exit 1
-            trap 'rmdir "$LOCKDIR" 2>/dev/null' 0
-            trap 'exit 1' HUP INT TERM
-            ;;
-    esac
-fi
+# Both models share lifecycle ownership; status remains nonblocking.
+case "$1" in
+    start|restart|stop) yi_lock motion || exit $? ;;
+esac
 
 case "$1" in
     start|restart)

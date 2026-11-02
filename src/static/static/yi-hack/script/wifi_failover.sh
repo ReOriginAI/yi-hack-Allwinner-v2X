@@ -1,8 +1,9 @@
-#!/bin/sh
+#!/tmp/sd/yi-hack/bin/busybox ash
 
 YI_HACK_PREFIX=${YI_HACK_PREFIX:-/tmp/sd/yi-hack}
+. "$YI_HACK_PREFIX/script/service_lock.sh" || exit 1
+yi_lock wifi-recovery || exit $?
 CONF_FILE="$YI_HACK_PREFIX/etc/system.conf"
-LOCKDIR="/tmp/wifi_failover.lock.d"
 ACTIVE_FILE="/tmp/wifi_maintenance_active"
 WPA_CONF="/tmp/wpa_supplicant.maintenance.conf"
 LOG_FILE="/tmp/sd/hack_wififailsafe.log"
@@ -28,26 +29,6 @@ log()
     echo "$(date): $*" >> "$LOG_FILE"
 }
 
-cleanup()
-{
-    rm -f "$LOCKDIR/pid" 2>/dev/null
-    rmdir "$LOCKDIR" 2>/dev/null
-}
-trap cleanup EXIT
-trap 'exit 0' HUP INT TERM
-
-if ! mkdir "$LOCKDIR" 2>/dev/null; then
-    if [ -f "$LOCKDIR/pid" ]; then
-        OLD_PID=$(cat "$LOCKDIR/pid" 2>/dev/null)
-        case "$OLD_PID" in ''|*[!0-9]*) OLD_PID=0 ;; esac
-        if [ "$OLD_PID" -gt 1 ] && [ -d "/proc/$OLD_PID" ]; then
-            exit 1
-        fi
-    fi
-    rm -rf "$LOCKDIR" 2>/dev/null
-    mkdir "$LOCKDIR" 2>/dev/null || exit 1
-fi
-echo $$ > "$LOCKDIR/pid"
 
 echo -650 > "/proc/$$/oom_score_adj" 2>/dev/null
 

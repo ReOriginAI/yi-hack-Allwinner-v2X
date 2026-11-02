@@ -11,6 +11,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 CGI = ROOT / "src/www/httpd/cgi-bin"
 STATIC = ROOT / "src/static/static/yi-hack"
+LOCK_SHELL = os.environ.get("YI_TEST_BUSYBOX", "busybox")
 
 
 class MotionTuningTests(unittest.TestCase):
@@ -204,13 +205,15 @@ int main(void) {
         script=script.replace("/sys/kernel/debug/mpp/ve",str(ve))
         service=self.root / "script/motion_service.sh"
         service.write_text(script)
+        shutil.copy(STATIC / "script/service_lock.sh", self.root / "script")
+        (self.root / "bin/busybox").symlink_to(shutil.which(LOCK_SHELL))
         shutil.copy(self.binary,self.root / "bin/motiond")
         self.config.write_text(self.config.read_text().replace("MOTION_CUSTOM=no","MOTION_CUSTOM=yes")
                                .replace("MOTION_START_THRESHOLD=3.00","MOTION_START_THRESHOLD=3.25")
                                .replace("MOTION_STOP_THRESHOLD=0.30","MOTION_STOP_THRESHOLD=2.10")
                                .replace("MOTION_STOP_REQUIRE_ZERO=yes","MOTION_STOP_REQUIRE_ZERO=no")
                                .replace("MOTION_POLL_INTERVAL=100","MOTION_POLL_INTERVAL=250"))
-        result=subprocess.check_output(["busybox","ash",str(service),"settings"],env=self.env,text=True)
+        result=subprocess.check_output([LOCK_SHELL,"ash",str(service),"settings"],env=self.env,text=True)
         settings=json.loads(result)
         self.assertEqual(settings["trigger"],3.25)
         self.assertEqual(settings["release"],2.1)
@@ -218,7 +221,7 @@ int main(void) {
         self.assertFalse(settings["require_zero"])
         self.config.write_text(self.config.read_text().replace("MOTION_CUSTOM=yes","MOTION_CUSTOM=no")
                                .replace("MOTION_SENSITIVITY=5","MOTION_SENSITIVITY=8"))
-        result=subprocess.check_output(["busybox","ash",str(service),"settings"],env=self.env,text=True)
+        result=subprocess.check_output([LOCK_SHELL,"ash",str(service),"settings"],env=self.env,text=True)
         self.assertEqual(json.loads(result)["trigger"],0.8)
         self.assertFalse(json.loads(result)["custom"])
 

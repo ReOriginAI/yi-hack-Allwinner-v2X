@@ -3,12 +3,14 @@
 import os
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "src/static/static/yi-hack/script"
+BUSYBOX = os.environ.get("YI_TEST_BUSYBOX", "busybox")
 
 
 def function(script, name):
@@ -23,6 +25,10 @@ class HistoryServiceTests(unittest.TestCase):
         self.prefix = Path(self.temp.name)
         for sub in ("etc", "bin", "script", "mock"):
             (self.prefix / sub).mkdir()
+        shutil.copyfile(SCRIPTS / "service_lock.sh", self.prefix / "script/service_lock.sh")
+        (self.prefix / "bin/busybox").symlink_to(shutil.which(BUSYBOX))
+        (self.prefix / "bin/service_guard").write_text('#!/bin/sh\nshift\nexec "$@"\n')
+        (self.prefix / "bin/service_guard").chmod(0o755)
         (self.prefix / "model_suffix").write_text("y623\n")
         self.camera = self.prefix / "etc/camera.conf"
         self.system = self.prefix / "etc/system.conf"
@@ -69,11 +75,11 @@ case "$*" in *ipc2file*) printf '0\n' > "$TEST_COUNT" ;; esac
                     "PATH": str(self.prefix / "mock") + ":" + os.environ["PATH"]}
 
     def call(self, action):
-        return subprocess.check_output(["busybox", "ash", str(self.service), action],
+        return subprocess.check_output([BUSYBOX, "ash", str(self.service), action],
                                        env=self.env, text=True).strip()
 
     def shell(self, body):
-        return subprocess.check_output(["busybox", "ash", "-c", self.mocks + body],
+        return subprocess.check_output([BUSYBOX, "ash", "-c", self.mocks + body],
                                        env=self.env, text=True)
 
     def test_recording_without_onvif_starts_history_and_reuses_it(self):
@@ -134,7 +140,7 @@ process_count() { case "$1" in mp4record) echo "$TEST_MP4_COUNT" ;; *) echo 0 ;;
         self.assertEqual(self.log.read_text(), "start\n")
 
     def test_collector_lock_does_not_remove_callers_trap(self):
-        script = self.service.read_text().split("# Serialize y623 lifecycle operations", 1)[0]
+        script = self.service.read_text().split("# Both models share lifecycle ownership", 1)[0]
         harness = f'''{script}
 trap 'echo outer >> "$TEST_LOG"' 0
 ensure_ipc_events

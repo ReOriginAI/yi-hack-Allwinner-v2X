@@ -600,7 +600,41 @@ the corresponding existing remote filename. Transfer protocol, remote naming, UT
 hour directories, scheduling and bounded logging remain unchanged. Retained clips
 are checksummed on each scan, so keeping many local videos adds SD read/CPU work.
 
-Regression tests: `python3 src/static/tests/test_ftppush_queue.py -v` (BusyBox ash).
+FTP operations now have hard wall-clock deadlines on both y623 and y28ga:
+300 seconds for each upload and 15 seconds for each directory control connection,
+matching the hotfix inspected on the y28ga at `192.168.1.199`. `nc -w` alone
+cannot reliably bound a connected session. The shared `operation_timeout.sh`
+uses the packaged BusyBox `timeout -s KILL`, with `CONFIG_TIMEOUT=y`; scripts
+must be shipped with the rebuilt BusyBox, not copied alone onto older firmware
+without that applet. Command failures/timeouts are logged without arguments or
+credentials. Failed transfers remain pending; later clips can proceed.
+
+Atomic socket ownership in the packaged BusyBox ash now replaces the uploader,
+thumbnail, timelapse, watchdog, motion and service lifecycle guards. It works on
+both y623 and y28ga without flock or stale PID-directory recovery. Lifecycle
+commands have 20-second guards and Wi-Fi reconnect uses a separate 35-second
+worker. Details, native camera validation and limits are documented in
+[SERVICE_SERIALIZATION.md](SERVICE_SERIALIZATION.md).
+
+The related stall review also found unbounded `imggrabber` waits for shared
+frames/semaphores and thumbnail demuxing. Timelapse capture, thumbnail capture,
+and thumbnail demux now have 30-second deadlines. A failed/partial timelapse
+capture is removed before any FTP call. Failed demuxing skips that file rather
+than trying to capture from incomplete data. Recording cleanup now stops when
+removal fails, avoiding infinite retries on a read-only or damaged SD filesystem.
+
+Limits: these are per-operation deadlines, not a maximum queue-scan duration.
+A large offline backlog can still take a long time while each failed file gets
+its own attempt. Slow successful transfers exceeding 300 seconds will also be
+retried. Timelapse FTP failures keep the local image but have no automatic backlog
+retry; same-name mode may replace it on the next capture. SD traversal, checksums,
+and `sync` still depend on the kernel/filesystem; processes in uninterruptible
+I/O cannot be forcibly recovered by a userspace timeout. No camera scripts were
+changed during this repository update, and no new firmware was deployed.
+
+Regression tests (host BusyBox ash):
+`python3 src/static/tests/test_ftppush_queue.py -v` and
+`python3 src/static/tests/test_operation_timeout.py -v`.
 
 ## SD recording preroll
 
@@ -623,3 +657,5 @@ keyframe alignment. Sources, hashes, tests and live evidence are documented in
 ## Maintenance rule
 
 When adding another optimization, update this file only after the behavior is represented in tracked source/build/install code. Live SSH experiments and proposed changes belong under **Measured findings / not yet implemented** until they become reproducible release behavior.
+
+Further source review and remaining recovery gaps: [LIVENESS_AUDIT.md](LIVENESS_AUDIT.md).

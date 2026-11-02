@@ -1,8 +1,20 @@
-#!/bin/sh
+#!/tmp/sd/yi-hack/bin/busybox ash
 
 CONF_FILE="etc/system.conf"
 
 YI_HACK_PREFIX="/tmp/sd/yi-hack"
+. "$YI_HACK_PREFIX/script/service_lock.sh" || exit 1
+
+# The marker is consumed here, never inherited by nested lifecycle calls.
+case "$1" in
+    __yi_guarded) shift ;;
+    *)
+        case "$1:$2" in
+            all:*|motion:*) ;;
+            *:start|*:stop) exec "$YI_HACK_PREFIX/bin/service_guard" 20 "$YI_HACK_PREFIX/bin/busybox" ash "$0" __yi_guarded "$@" ;;
+        esac
+        ;;
+esac
 . "$YI_HACK_PREFIX/script/time_config.sh"
 
 HOMEVER=$(cat /home/homever)
@@ -170,10 +182,6 @@ ensure_rtsp_watchdog()
 
 start_rtsp()
 {
-    RTSP_LOCKDIR=/tmp/rtsp_service.lock.d
-    mkdir "$RTSP_LOCKDIR" 2>/dev/null || return 0
-    trap 'rmdir /tmp/rtsp_service.lock.d 2>/dev/null' 0
-
     RTSP_COUNT=$(ps | awk -v daemon="$RTSP_DAEMON" '$5 == daemon { n++ } END { print n+0 }')
     if [ "$RTSP_ALT" != "go2rtc" ] && [ "$RTSP_COUNT" -gt 0 ]; then
         ensure_rtsp_watchdog
@@ -293,6 +301,7 @@ stop_rtsp()
 
 start_onvif()
 {
+    [ "$(ps_program onvif_notify_server)" != started ] || return 0
     "$YI_HACK_PREFIX/script/log_store.sh" || return 1
     # If "null" use default
 
@@ -439,6 +448,7 @@ stop_onvif()
 
 start_wsdd()
 {
+    [ "$(ps_program wsd_simple_server)" != started ] || return 0
     "$YI_HACK_PREFIX/script/log_store.sh" || return 1
     wsd_simple_server --pid_file /var/run/wsd_simple_server.pid --if_name $ONVIF_NETIF --xaddr "http://%s$D_HTTPD_PORT/onvif/device_service" -m `hostname` -n Yi
 }
@@ -461,8 +471,10 @@ start_ftpd()
     fi
 
     if [[ $FTPD_DAEMON == "busybox" ]] ; then
+        [ "$(ps_program tcpsvd)" != started ] || return 0
         tcpsvd -vE 0.0.0.0 21 ftpd -w >/dev/null &
     elif [[ $FTPD_DAEMON == "pure-ftpd" ]] ; then
+        [ "$(ps_program pure-ftpd)" != started ] || return 0
         pure-ftpd -B
     fi
 }
@@ -493,12 +505,13 @@ mp4record_count()
 
 ps_program()
 {
-    PS_PROGRAM=$(ps | grep $1 | grep -v grep | grep -c ^)
-    if [ $PS_PROGRAM -gt 0 ]; then
-        echo "started"
-    else
-        echo "stopped"
-    fi
+    # Match the executable field, never this service script's arguments.
+    ps | awk -v program="$1" '{
+        name=$5
+        sub(/^.*\//, "", name)
+        gsub(/^[{]|[}]$/, "", name)
+        if (name == program) n++
+    } END { print (n > 0 ? "started" : "stopped") }'
 }
 
 NAME="null"
@@ -520,6 +533,13 @@ if [ $# -eq 4 ]; then
     PARAM2=$4
 fi
 
+# all delegates through these same resource locks; never hold a global lock
+# while entering a child lifecycle operation.
+case "$ACTION:$NAME" in
+    start:rtsp|stop:rtsp|start:onvif|stop:onvif|start:wsdd|stop:wsdd|start:ftpd|stop:ftpd|start:mqtt|stop:mqtt|start:mqtt-config|stop:mqtt-config|start:mp4record|stop:mp4record)
+        yi_lock "service-$NAME" || exit $?
+        ;;
+esac
 init_config
 
 if [ "$ACTION" == "start" ] ; then
@@ -582,18 +602,16 @@ if [ "$ACTION" == "start" ] ; then
     elif [ "$NAME" == "motion" ]; then
         $YI_HACK_PREFIX/script/motion_service.sh start
     elif [ "$NAME" == "all" ]; then
-        start_rtsp
-        start_onvif
-        start_wsdd
-        start_ftpd
-        if [ "$HV" == "11" ] || [ "$HV" == "12" ]; then
-            mqttv4 -t local > /dev/null &
-        else
-            mqttv4 > /dev/null &
+        for CHILD_SERVICE in rtsp onvif wsdd ftpd; do
+            "$0" "$CHILD_SERVICE" start || exit $?
+        done
+        if [ "$(get_config MQTT)" = yes ]; then
+            "$0" mqtt start || exit $?
+            "$0" mqtt-config start || exit $?
         fi
-        mqtt-config > /dev/null &
-        $YI_HACK_PREFIX/script/service.sh mp4record start
-        $YI_HACK_PREFIX/script/motion_service.sh start
+        "$0" mp4record start || exit $?
+        "$YI_HACK_PREFIX/script/motion_service.sh" start
+
     fi
 elif [ "$ACTION" == "stop" ] ; then
     if [ "$NAME" == "rtsp" ]; then
@@ -615,16 +633,11 @@ elif [ "$ACTION" == "stop" ] ; then
     elif [ "$NAME" == "motion" ]; then
         $YI_HACK_PREFIX/script/motion_service.sh stop
     elif [ "$NAME" == "all" ]; then
-        stop_rtsp
-        stop_onvif
-        stop_wsdd
-        stop_ftpd
-        killall mqtt-config
-        killall mqttv4
-        $YI_HACK_PREFIX/script/motion_service.sh stop
-        if [ $(mp4record_count) -gt 0 ]; then
-            killall mp4record
-        fi
+        "$YI_HACK_PREFIX/script/motion_service.sh" stop || exit $?
+        for CHILD_SERVICE in rtsp onvif wsdd ftpd mqtt-config mqtt mp4record; do
+            "$0" "$CHILD_SERVICE" stop || exit $?
+        done
+
     fi
 elif [ "$ACTION" == "status" ] ; then
     if [ "$NAME" == "rtsp" ]; then
@@ -634,7 +647,11 @@ elif [ "$ACTION" == "status" ] ; then
     elif [ "$NAME" == "wsdd" ]; then
         RES=$(ps_program wsd_simple_server)
     elif [ "$NAME" == "ftpd" ]; then
-        RES=$(ps_program ftpd)
+        if [ "$(get_config BUSYBOX_FTPD)" = yes ]; then
+            RES=$(ps_program tcpsvd)
+        else
+            RES=$(ps_program pure-ftpd)
+        fi
     elif [ "$NAME" == "mqtt" ]; then
         RES=$(ps_program mqttv4)
     elif [ "$NAME" == "mqtt-config" ]; then
@@ -646,6 +663,33 @@ elif [ "$ACTION" == "status" ] ; then
     elif [ "$NAME" == "all" ]; then
         RES=$(ps_program rRTSPServer)
     fi
+fi
+
+# Hold ownership until asynchronous exec/start or graceful exit is observed.
+# A new caller cannot slip between spawning a child and its visible daemon.
+case "$NAME" in
+    rtsp) TARGET_PROCESS=$RTSP_DAEMON ;;
+    onvif) TARGET_PROCESS=onvif_notify_server ;;
+    wsdd) TARGET_PROCESS=wsd_simple_server ;;
+    ftpd)
+        if [ "$PARAM1" = busybox ] || { [ "$PARAM1" = null ] && [ "$(get_config BUSYBOX_FTPD)" = yes ]; }; then
+            TARGET_PROCESS=tcpsvd
+        else
+            TARGET_PROCESS=pure-ftpd
+        fi ;;
+    mqtt) TARGET_PROCESS=mqttv4 ;;
+    mqtt-config) TARGET_PROCESS=mqtt-config ;;
+    mp4record) TARGET_PROCESS=mp4record ;;
+    *) TARGET_PROCESS= ;;
+esac
+if [ -n "$TARGET_PROCESS" ] && { [ "$ACTION" = start ] || [ "$ACTION" = stop ]; }; then
+    EXPECTED_STATUS=started
+    [ "$ACTION" != stop ] || EXPECTED_STATUS=stopped
+    for STATUS_WAIT in 1 2 3 4 5 6 7 8 9 10; do
+        [ "$(ps_program "$TARGET_PROCESS")" != "$EXPECTED_STATUS" ] || break
+        sleep 0.2
+    done
+    [ "$(ps_program "$TARGET_PROCESS")" = "$EXPECTED_STATUS" ] || exit 1
 fi
 
 if [ ! -z $RES ]; then

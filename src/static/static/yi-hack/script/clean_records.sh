@@ -27,7 +27,10 @@ if [ -d /tmp/sd/record/timelapse ]; then
         OLD_FILE=`ls -lr | grep .avi | awk 'END{print}' | awk '{print $9}'`
         if [ ! -z "$OLD_FILE" ]; then
             echo "Deleting file $OLD_FILE"
-            rm -f $OLD_FILE
+            if [ ! -e "$OLD_FILE" ] || ! rm -f "$OLD_FILE" || [ -e "$OLD_FILE" ]; then
+                echo "Unable to delete $OLD_FILE; stopping cleanup." >&2
+                break
+            fi
             AVI_NUMBER=`ls -lr | grep .avi | awk 'END{print NR}'`
         else
             break
@@ -48,7 +51,10 @@ if [ -d /tmp/sd/record ]; then
         OLD_DIR=`ls -lr | grep -v tmp | grep -v timelapse | awk 'END{print}' | awk '{print $9}'`
         if [ ! -z "$OLD_DIR" ]; then
             echo "Deleting dir $OLD_DIR"
-            rm -rf $OLD_DIR
+            if [ ! -e "$OLD_DIR" ] || ! rm -rf "$OLD_DIR" || [ -e "$OLD_DIR" ]; then
+                echo "Unable to delete $OLD_DIR; stopping cleanup." >&2
+                break
+            fi
         else
             break
         fi

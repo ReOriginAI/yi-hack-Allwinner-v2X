@@ -37,8 +37,8 @@ void config_parse(FILE *fp)
     if (fp == NULL)
         return;
 
-    while (!feof(fp)) {
-        fgets(buf, MAX_LINE_LENGTH, fp);
+    /* Stop on EOF or read error; ferror does not set feof. */
+    while (fgets(buf, sizeof(buf), fp) != NULL) {
         if (buf[0]!='#') // ignore the comments
         {
             parsed=sscanf(buf, "%[^=] = %s", key, value);

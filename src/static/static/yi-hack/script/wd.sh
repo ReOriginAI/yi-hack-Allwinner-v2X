@@ -1,29 +1,19 @@
-#!/bin/sh
+#!/tmp/sd/yi-hack/bin/busybox ash
 
 CONF_FILE="etc/system.conf"
 CAMERA_CONF_FILE="etc/camera.conf"
 
 YI_HACK_PREFIX="/tmp/sd/yi-hack"
+. "$YI_HACK_PREFIX/script/service_lock.sh" || exit 1
 MODEL_SUFFIX=$(cat /tmp/sd/yi-hack/model_suffix)
 
 START_STOP_SCRIPT=$YI_HACK_PREFIX/script/service.sh
 
-# Singleton supervisor. service.sh may have a delayed watchdog launch pending
-# while another path starts wd.sh immediately; only one may survive.
-WD_LOCKDIR=/tmp/yi_hack_wd.lock.d
-if ! mkdir "$WD_LOCKDIR" 2>/dev/null; then
-    OLD_PID=$(cat "$WD_LOCKDIR/pid" 2>/dev/null)
-    case "$OLD_PID" in ''|*[!0-9]*) OLD_PID=0 ;; esac
-    if [ "$OLD_PID" -gt 0 ] && [ -d "/proc/$OLD_PID" ]; then
-        exit 0
-    fi
-    rm -rf "$WD_LOCKDIR" 2>/dev/null
-    mkdir "$WD_LOCKDIR" 2>/dev/null || exit 0
-fi
-echo $$ > "$WD_LOCKDIR/pid"
-cleanup_wd_lock() { rm -rf "$WD_LOCKDIR" 2>/dev/null; }
-trap 'cleanup_wd_lock' 0
-trap 'cleanup_wd_lock; exit 0' HUP INT TERM
+# Ownership is released by the kernel even after SIGKILL/OOM.
+yi_lock watchdog
+LOCK_STATUS=$?
+[ "$LOCK_STATUS" -ne 75 ] || exit 0
+[ "$LOCK_STATUS" -eq 0 ] || exit "$LOCK_STATUS"
 
 #LOG_FILE="/tmp/sd/wd.log"
 LOG_FILE="/dev/null"
@@ -348,20 +338,10 @@ check_aux_services()
 
 soft_wifi_reconnect()
 {
-    # Do not bounce wlan0; y623 can wedge its SDIO Wi-Fi path after down/up cycling.
-    if ! ps 2>/dev/null | grep '[w]pa_supplicant' >/dev/null 2>&1; then
-        if [ -s /tmp/wpa_supplicant.conf ] && [ -x /home/app/script/wificonnect.sh ]; then
-            /home/app/script/wificonnect.sh >/dev/null 2>&1
-            sleep 2
-        fi
-    elif [ -x /home/base/tools/wpa_cli ]; then
-        (sleep 2 && killall -9 wpa_cli 2>/dev/null) &
-        KILLER_PID=$!
-        /home/base/tools/wpa_cli -i wlan0 reconfigure >/dev/null 2>&1
-        kill $KILLER_PID 2>/dev/null
-        wait $KILLER_PID 2>/dev/null
-    fi
-    "$YI_HACK_PREFIX/script/wifidhcp.sh" >/dev/null 2>&1
+    # Bounded private worker: association or a DHCP hook cannot stop the
+    # watchdog from checking media or escalating repeated connection failures.
+    "$YI_HACK_PREFIX/bin/service_guard" 35 "$YI_HACK_PREFIX/script/wifi_recovery.sh" >/dev/null 2>&1 &
+
 }
 
 check_wifi()
@@ -378,12 +358,8 @@ check_wifi()
         WPA_STATUS_VALID=0
 
         if [ -x /home/base/tools/wpa_cli ]; then
-            (sleep 2 && killall -9 wpa_cli 2>/dev/null) &
-            KILLER_PID=$!
-            WPA_OUTPUT=$(/home/base/tools/wpa_cli -i wlan0 status 2>/dev/null)
+            WPA_OUTPUT=$("$YI_HACK_PREFIX/bin/busybox" timeout -s KILL 2 /home/base/tools/wpa_cli -i wlan0 status 2>/dev/null)
             WPA_EXIT=$?
-            kill $KILLER_PID 2>/dev/null
-            wait $KILLER_PID 2>/dev/null
             if [ $WPA_EXIT -eq 0 ] && echo "$WPA_OUTPUT" | grep -q "wpa_state="; then
                 WPA_STATUS_VALID=1
                 if echo "$WPA_OUTPUT" | grep -q "wpa_state=COMPLETED"; then
@@ -433,7 +409,7 @@ check_wifi()
         fi
 
         echo -e "$(date): Retrying maintenance WiFi only" >> "$LOGWIFI_FILE"
-        "$YI_HACK_PREFIX/script/wifi_failover.sh" >/dev/null 2>&1
+        "$YI_HACK_PREFIX/bin/service_guard" 35 "$YI_HACK_PREFIX/script/wifi_failover.sh" >/dev/null 2>&1
         return 0
     fi
 
@@ -441,12 +417,8 @@ check_wifi()
 
     # Method 1: Try wpa_cli if available and working.
     if [ -x /home/base/tools/wpa_cli ]; then
-        (sleep 2 && killall -9 wpa_cli 2>/dev/null) &
-        KILLER_PID=$!
-        WPA_OUTPUT=$(/home/base/tools/wpa_cli -i wlan0 status 2>/dev/null)
+        WPA_OUTPUT=$("$YI_HACK_PREFIX/bin/busybox" timeout -s KILL 2 /home/base/tools/wpa_cli -i wlan0 status 2>/dev/null)
         WPA_EXIT=$?
-        kill $KILLER_PID 2>/dev/null
-        wait $KILLER_PID 2>/dev/null
 
         if [ $WPA_EXIT -eq 0 ] && echo "$WPA_OUTPUT" | grep -q "wpa_state=COMPLETED"; then
             WIFI_CONNECTED=1
@@ -500,7 +472,11 @@ check_wifi()
 
             if [ "$WIFI_LOST_SECONDS" -ge "$WIFI_GRACE" ] && [ "$WIFI_FAILSAFE_COUNTER" -ge 6 ]; then
                 echo -e "$(date): Grace period expired; switching to maintenance WiFi" >> "$LOGWIFI_FILE"
-                if "$YI_HACK_PREFIX/script/wifi_failover.sh" >/dev/null 2>&1; then
+                "$YI_HACK_PREFIX/bin/service_guard" 35 "$YI_HACK_PREFIX/script/wifi_failover.sh" >/dev/null 2>&1
+                HANDOFF_STATUS=$?
+                # An existing primary-recovery worker must finish first.
+                [ "$HANDOFF_STATUS" -ne 75 ] || return 0
+                if [ "$HANDOFF_STATUS" -eq 0 ]; then
                     WIFI_FAILSAFE_COUNTER=0
                     WIFI_FAILSAFE_STARTED=0
                     WIFI_MAINTENANCE_FAILSAFE_COUNTER=0

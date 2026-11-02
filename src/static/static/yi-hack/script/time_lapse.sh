@@ -1,7 +1,8 @@
-#!/bin/ash
+#!/tmp/sd/yi-hack/bin/busybox ash
 CONF_FILE="etc/system.conf"
 
 YI_HACK_PREFIX="/tmp/sd/yi-hack"
+. "$YI_HACK_PREFIX/script/service_lock.sh" || exit 1
 
 MODEL_SUFFIX=$(cat $YI_HACK_PREFIX/model_suffix)
 HOMEVER=$(cat /home/homever)
@@ -12,6 +13,8 @@ get_config()
     key=$1
     grep -w $1 $YI_HACK_PREFIX/$CONF_FILE | cut -d "=" -f2-
 }
+. "$YI_HACK_PREFIX/script/operation_timeout.sh" || exit 1
+
 # Setup env.
 export PATH=/usr/bin:/usr/sbin:/bin:/sbin:/home/base/tools:/home/app/localbin:/home/base:/tmp/sd/yi-hack/bin:/tmp/sd/yi-hack/sbin:/tmp/sd/yi-hack/usr/bin:/tmp/sd/yi-hack/usr/sbin
 export LD_LIBRARY_PATH=/lib:/usr/lib:/home/lib:/home/qigan/lib:/home/app/locallib:/tmp/sd:/tmp/sd/gdb:/tmp/sd/yi-hack/lib
@@ -67,13 +70,13 @@ uploadToFtp ()
     UTF_FULLFN="${2}"
     if [ ! -z "${FTP_DIR}" ]; then
         # Create directory on FTP server
-        echo -e "USER ${FTP_USERNAME}\r\nPASS ${FTP_PASSWORD}\r\nmkd ${FTP_DIR}\r\nquit\r\n" | nc -w 5 ${FTP_HOST} 21 | grep "${FTP_DIR}"
+        echo -e "USER ${FTP_USERNAME}\r\nPASS ${FTP_PASSWORD}\r\nmkd ${FTP_DIR}\r\nquit\r\n" | runWithTimeout 15 nc -w 5 "${FTP_HOST}" 21 | grep "${FTP_DIR}"
         FTP_DIR="${FTP_DIR}/timelapse"
-        echo -e "USER ${FTP_USERNAME}\r\nPASS ${FTP_PASSWORD}\r\nmkd ${FTP_DIR}\r\nquit\r\n" | nc -w 5 ${FTP_HOST} 21 | grep "${FTP_DIR}"
+        echo -e "USER ${FTP_USERNAME}\r\nPASS ${FTP_PASSWORD}\r\nmkd ${FTP_DIR}\r\nquit\r\n" | runWithTimeout 15 nc -w 5 "${FTP_HOST}" 21 | grep "${FTP_DIR}"
         FTP_DIR="${FTP_DIR}/"
     fi
     #
-    if ( ! ftpput -u "${FTP_USERNAME}" -p "${FTP_PASSWORD}" "${FTP_HOST}" "${FTP_DIR}$(lbasename "${UTF_FULLFN}")" "${UTF_FULLFN}" ); then
+    if ( ! runWithTimeout 300 ftpput -u "${FTP_USERNAME}" -p "${FTP_PASSWORD}" "${FTP_HOST}" "${FTP_DIR}$(lbasename "${UTF_FULLFN}")" "${UTF_FULLFN}" ); then
         logAdd "[ERROR] uploadToFtp: ftpput FAILED."
         return 1
     fi
@@ -86,6 +89,11 @@ uploadToFtp ()
 # -------------- END OF FUNCTION BLOCK --------------
 # ---------------------------------------------------
 #
+
+yi_lock timelapse
+LOCK_STATUS=$?
+[ "$LOCK_STATUS" -ne 75 ] || exit 0
+[ "$LOCK_STATUS" -eq 0 ] || exit "$LOCK_STATUS"
 
 logAdd "[INFO] === STARTING TIME_LAPSE.SH ==="
 
@@ -118,7 +126,11 @@ fi
 
 logAdd "[INFO] starting capture."
 mkdir -p $FOLDER_TO_SAVE
-imggrabber -m $MODEL_SUFFIX -r $RES -w > $FOLDER_TO_SAVE/$DATE_LOCAL.jpg
+if ! runWithTimeout 30 imggrabber -m "$MODEL_SUFFIX" -r "$RES" -w > "$FOLDER_TO_SAVE/$DATE_LOCAL.jpg"; then
+    rm -f "$FOLDER_TO_SAVE/$DATE_LOCAL.jpg"
+    logAdd "[ERROR] capture failed or timed out."
+    exit 1
+fi
 
 if [ -s $FOLDER_TO_SAVE/$DATE_LOCAL.jpg ]; then
     logAdd "[INFO] capture completed."

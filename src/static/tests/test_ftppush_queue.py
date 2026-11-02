@@ -23,6 +23,7 @@ get_config() {
 }
 uploadToFtp() {
     printf '%s\n' "$2" >> "$ROOT/attempts"
+    [ "$STOP_AFTER" != yes ] || : > "$STOPFILE"
     [ "$2" != "$FAIL" ] || return 1
     [ "$2" != "$CHANGE" ] || echo changed >> "$2"
     return 0
@@ -46,9 +47,11 @@ class FtpQueueTests(unittest.TestCase):
         p.write_text(content)
         return p
 
-    def scan(self, delete="no", dest="server-a", fail="", change=""):
+    def scan(self, delete="no", dest="server-a", fail="", change="", stop_after="no"):
+        (self.root / "stop").unlink(missing_ok=True)
         env = dict(os.environ, ROOT=str(self.root), DELETE=delete, DEST=dest,
-                   FAIL=str(fail), CHANGE=str(change))
+                   FAIL=str(fail), CHANGE=str(change), STOP_AFTER=stop_after,
+                   STOPFILE=str(self.root / "stop"))
         subprocess.run(["busybox", "ash", "-c", HARNESS, "test", str(QUEUE)],
                        env=env, check=True, capture_output=True, text=True)
 
@@ -93,6 +96,17 @@ class FtpQueueTests(unittest.TestCase):
         self.assertFalse(a.exists())
         self.assertEqual(self.attempts().count(str(b)), 1)
         self.assertEqual(self.attempts().count(str(a)), 2)
+
+    def test_stop_request_finishes_current_file_and_defers_remaining_queue(self):
+        a = self.clip("hour/first.mp4")
+        b = self.clip("hour/second.mp4")
+        self.scan(delete="yes", stop_after="yes")
+        self.assertEqual(len(self.attempts()), 1)
+        self.assertEqual(sum(p.exists() for p in [a, b]), 1)
+        self.scan(delete="yes")
+        self.assertCountEqual(self.attempts(), [str(a), str(b)])
+        self.assertFalse(a.exists())
+        self.assertFalse(b.exists())
 
     def test_changed_contents_reupload_even_same_name_and_size(self):
         a = self.clip("hour/clip.mp4", "aaaa")

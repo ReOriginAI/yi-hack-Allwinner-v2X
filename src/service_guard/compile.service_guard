@@ -1,0 +1,6 @@
+#!/bin/bash
+set -e
+cd "$(dirname "$0")"
+export PATH="$PATH:/opt/yi/toolchain-sunxi-musl/toolchain/bin"
+arm-openwrt-linux-gcc -std=c99 -Os -Wall -Wextra -mcpu=cortex-a7 -mfpu=neon-vfpv4 service_guard.c -o _install/bin/service_guard
+arm-openwrt-linux-strip _install/bin/service_guard

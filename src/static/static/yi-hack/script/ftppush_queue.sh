@@ -29,6 +29,7 @@ checkFiles ()
     find "$FOLDER_TO_WATCH" -mindepth "$FOLDER_MINDEPTH" -type f \
         -name "$FILE_WATCH_PATTERN" |
     while IFS= read -r file; do
+        [ -z "$STOPFILE" ] || [ ! -e "$STOPFILE" ] || break
         FILE_SUM=$(md5sum "$file" 2>/dev/null) || continue
         RECEIPT="$file.ftp-uploaded"
         EXPECTED_RECEIPT="$FTP_DESTINATION $FILE_SUM"
