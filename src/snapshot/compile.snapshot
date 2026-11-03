@@ -28,6 +28,7 @@ mkdir -p ../_install/bin || exit 1
 mkdir -p ../_install/etc/wm_res || exit 1
 
 cp ./imggrabber ../_install/bin || exit 1
+cp ./imggrabber-grid ../_install/bin || exit 1
 cp -r ./wm_res/* ../_install/etc/wm_res || exit 1
 
 ${STRIP} ../_install/bin/* || exit 1

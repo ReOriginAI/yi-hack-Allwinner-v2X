@@ -196,7 +196,7 @@ check() {
         spec = importlib.util.spec_from_file_location('render', ROOT / 'scripts/vendor-ablation/render.py')
         renderer = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(renderer)
-        for name in renderer.REQUIRED + ('script/flash_storage.sh', 'script/flash_config_sync.sh', 'script/flash_mount_sd.sh', 'script/flash_dispatch.sh'):
+        for name in renderer.REQUIRED + ('script/flash_storage.sh', 'script/flash_config_sync.sh', 'script/flash_mount_sd.sh', 'script/flash_dispatch.sh', 'bin/imggrabber', 'bin/imggrabber-grid'):
             path = self.root / 'payload' / name
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text('fixture')

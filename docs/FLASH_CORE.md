@@ -13,9 +13,19 @@ path and the complete release test matrix remain unvalidated.
 | Available without SD | Requires optional SD payload or data |
 | --- | --- |
 | Vendor capture/encoder with the existing audited local-motion patches | go2rtc and alternate RTSP server |
-| Standard RTSP, audio, snapshots, ONVIF/discovery | Recording, thumbnails, time lapse, FTP upload |
+| Standard RTSP, audio, low-resolution motion-grid snapshots, ONVIF/discovery | Recording, thumbnails, time lapse, FTP upload, full-resolution/watermarked snapshots |
 | SSH, HTTP configuration UI, BusyBox FTP | MQTT programs, Python, rsync, proxychains |
 | Local motion events, night vision, hotspot/reset controls | NanoTTS, its voice data, saved audio files |
+
+The internal snapshot decoder handles low-resolution H.264 reference images for
+the motion-mask grid. The full snapshot decoder, including HEVC and watermarks,
+is stored under `yi-hack-optional/bin/imggrabber` on SD, together with its watermark
+assets. Normal SD firmware retains the full snapshot program. Low-resolution
+requests temporarily enable the low video encoder if needed and restore the
+configured stream/recording policy after capture, including decoder failures.
+Capture has a ten-second process deadline. No snapshot daemon runs continuously.
+The build tests real H.264-to-JPEG decoding and the camera frame-buffer layout
+for both models under QEMU; the internal grid image works without SD.
 
 The existing hotspot firmware/driver restrictions still apply. This profile does
 not change them. The rear-button hotspot override defaults to enabled on audited firmware.
@@ -81,14 +91,15 @@ it remove the unused AI model. Required vendor libraries remain in place.
 The FIFO-compatible ALSA library replaces the existing rootfs ALSA file instead
 of occupying flash twice. Both vendor and replacement ALSA hashes are checked.
 
-Measured candidates with the optimized hostapd on 2026-11-02:
+Local candidates with the compact motion-grid snapshot decoder on 2026-11-03:
 
 | Model | Rootfs image / spare | Home image / spare | Backup estimate / spare |
 | --- | --- | --- | --- |
-| y623 | 1,110,016 / 69,632 B | 3,313,664 / 94,208 B | 1,106,028 / 139,156 B |
-| y28ga | 1,110,016 / 69,632 B | 3,289,088 / 118,784 B | 916,568 / 328,616 B |
+| y623 | 1,110,016 / 69,632 B | 3,203,072 / 204,800 B | 1,107,996 / 137,188 B |
+| y28ga | 1,110,016 / 69,632 B | 3,178,496 / 229,376 B | 916,728 / 328,456 B |
 
-`report.json` gives exact bytes and SHA-256 for each build. The builder refuses
+Sizes can vary with the compiled payload and build tools. `report.json` gives
+exact bytes and SHA-256 for each build. The builder refuses
 over-budget images and reserves at least 128 KiB in backup before runtime
 configuration updates. Free SquashFS space cannot be used as writable storage. hostapd resides in
 backup/tools on y623, with a manifest-checked link from the core; y28ga has

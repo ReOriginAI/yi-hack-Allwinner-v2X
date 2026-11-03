@@ -1,0 +1,7 @@
+#!/bin/bash
+set -euo pipefail
+SNAPSHOT_MODULE=$(cd "$(dirname "$0")" && pwd)
+python3 "$SNAPSHOT_MODULE/../../scripts/test_grid_snapshot.py" \
+    --decoder "$SNAPSHOT_MODULE/snapshot/imggrabber-grid" \
+    --full-decoder "$SNAPSHOT_MODULE/snapshot/imggrabber" \
+    --qemu "$(command -v qemu-arm-static)"

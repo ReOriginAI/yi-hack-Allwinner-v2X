@@ -66,12 +66,15 @@ def check(candidate, qemu):
     for name in ['rmm', 'dispatch', 'mp4record']:
         target(['/lib/ld-musl-armhf.so.1', '--list', '/home/app/' + name])
     programs = ['hostapd', 'hostapd_cli', 'rRTSPServer', 'dropbearmulti', 'motiond', 'jq', 'ipc_cmd',
-                'onvif_notify_server', 'wsd_simple_server', 'imggrabber', 'service_guard']
+                'onvif_notify_server', 'wsd_simple_server', 'imggrabber-grid', 'service_guard']
     for name in programs:
         target(['/lib/ld-musl-armhf.so.1', '--list', '/home/yi-hack/bin/' + name])
     assert 'hostapd v2.11' in target(['/home/yi-hack/bin/hostapd', '-v'], expected=(0, 1))
     assert 'hostapd_cli v2.11' in target(['/home/yi-hack/bin/hostapd_cli', '-v'])
     target(['/lib/ld-musl-armhf.so.1', '--list', '/home/yi-hack/www/onvif/onvif_simple_server'])
+    subprocess.run(['python3', str(Path(__file__).with_name('test_grid_snapshot.py')),
+                    '--decoder', str(trees / 'home/yi-hack/bin/imggrabber-grid'),
+                    '--rootfs', str(trees / 'rootfs'), '--qemu', str(qemu), '--ring'], check=True)
     print(f"PASS: {report['model']} hashes, ARM applets, shell syntax, locks, defaults and loaders without SD")
 
 

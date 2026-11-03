@@ -21,7 +21,7 @@ REQUIRED = ('bin/hostapd', 'bin/hostapd_cli', 'script/storage.sh', 'script/hotsp
 def render(model, noop, sd, flash=False):
     text = (Path(__file__).with_name('bootstrap.sh.in')).read_text()
     api = (ROOT / 'src/static/static/yi-hack/bin/cloudAPI_fake').read_text().rstrip()
-    required = REQUIRED + (('script/flash_storage.sh', 'script/flash_config_sync.sh', 'script/flash_mount_sd.sh', 'script/flash_dispatch.sh') if flash else ())
+    required = REQUIRED + (('script/flash_storage.sh', 'script/flash_config_sync.sh', 'script/flash_mount_sd.sh', 'script/flash_dispatch.sh', 'bin/imggrabber', 'bin/imggrabber-grid') if flash else ())
     manifest = ''.join(hashlib.md5((sd / f).read_bytes()).hexdigest() + '  ' + f + '\n' for f in required)
     hw = ''
     if model == 'y623':

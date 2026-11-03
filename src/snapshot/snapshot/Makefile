@@ -3,6 +3,8 @@ FFMPEG = ffmpeg-8.1.1
 FFMPEG_DIR = ./$(FFMPEG)
 INC_FF = -I$(FFMPEG_DIR)
 LIB_FF = $(FFMPEG_DIR)/libavcodec/libavcodec.a $(FFMPEG_DIR)/libavutil/libavutil.a -lpthread -lm
+GRID_FFMPEG_DIR = ./$(FFMPEG)-grid
+LIB_GRID_FF = $(GRID_FFMPEG_DIR)/libavcodec/libavcodec.a $(GRID_FFMPEG_DIR)/libavutil/libavutil.a -lm
 JPEGLIB_VERSION = 3.1.4.1
 JPEGLIB = libjpeg-turbo-$(JPEGLIB_VERSION)
 JPEGLIB_DIR = ./$(JPEGLIB)
@@ -14,6 +16,23 @@ OPTS = -Os -ffunction-sections -fdata-sections
 all:
 	$(MAKE) libs
 	$(MAKE) imggrabber
+	$(MAKE) grid
+
+# The flash profile needs only the low H.264 reference image for the motion grid.
+# Build separately so the full SD snapshot program retains all its capabilities.
+grid:
+	$(MAKE) grid-libs
+	$(MAKE) imggrabber-grid
+
+grid-libs:
+	@$(build_grid_ffmpeg)
+
+imggrabber-grid.o: imggrabber.c $(HEADERS)
+	$(CC) -c $< $(OPTS) -DYI_SNAPSHOT_GRID $(INC_J) -I$(GRID_FFMPEG_DIR) -fPIC -o $@
+
+imggrabber-grid: imggrabber-grid.o convert2jpg.o
+	$(CC) -Os -Wl,--gc-sections $^ $(LIB_J) $(LIB_GRID_FF) -fPIC -o $@
+	$(STRIP) $@
 
 libs: 
 	@$(build_ffmpeg)
@@ -35,12 +54,15 @@ imggrabber: $(OBJECTS)
 	$(CC) -Os -Wl,--gc-sections $(OBJECTS) $(LIB_J) $(LIB_FF) -fPIC -o $@
 	$(STRIP) $@
 
-.PHONY: clean
+.PHONY: all libs grid grid-libs clean distclean
 
 clean:
 	rm -f imggrabber
+	rm -f imggrabber-grid
+	rm -f imggrabber-grid.o
 	rm -f $(OBJECTS)
 	rm -rf $(FFMPEG)
+	rm -rf $(GRID_FFMPEG_DIR)
 	rm -rf $(JPEGLIB)
 
 distclean: clean
@@ -66,6 +88,23 @@ define build_ffmpeg
         ./configure --enable-cross-compile --cross-prefix=$(CROSSPREFIX) --arch=armhf --target-os=linux --prefix=$(CROSSPATH) --enable-thumb --enable-small --disable-ffplay --disable-ffprobe --disable-doc  --disable-decoders --enable-decoder=h264 --enable-decoder=hevc --disable-encoders --disable-demuxers --enable-demuxer=h264 --enable-demuxer=hevc --disable-muxers --disable-protocols --disable-parsers --enable-parser=h264 --enable-parser=hevc --disable-filters --disable-bsfs --disable-indevs --disable-outdevs --extra-cflags="-Os -ffunction-sections -fdata-sections" && \
          $(MAKE); \
          cd ..;\
+    fi
+endef
+
+define build_grid_ffmpeg
+    if [ ! -f $(GRID_FFMPEG_DIR)/configure ]; then \
+        mkdir -p $(GRID_FFMPEG_DIR); \
+        tar jxf SDK/ffmpeg.tar.bz2 --strip-components=1 -C $(GRID_FFMPEG_DIR); \
+    fi
+    if [ ! -f $(GRID_FFMPEG_DIR)/libavcodec/libavcodec.a ] || [ ! -f $(GRID_FFMPEG_DIR)/libavutil/libavutil.a ]; then \
+        cd $(GRID_FFMPEG_DIR); \
+        ./configure --enable-cross-compile --cross-prefix=$(CROSSPREFIX) --arch=armhf --target-os=linux \
+            --enable-thumb --enable-small --disable-everything --disable-autodetect \
+            --disable-programs --disable-doc --disable-network --disable-pthreads \
+            --disable-avformat --disable-avdevice --disable-avfilter \
+            --disable-swresample --disable-swscale --enable-decoder=h264 \
+            --extra-cflags="-Os -ffunction-sections -fdata-sections" && \
+        $(MAKE); \
     fi
 endef
 

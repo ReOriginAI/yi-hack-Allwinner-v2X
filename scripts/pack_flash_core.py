@@ -18,7 +18,7 @@ import struct
 
 ROOT = Path(__file__).resolve().parents[1]
 STOCK_RMM = {'y623':'f8164a1c221ba8c1d4888322a3cf0706','y28ga':'46261d809c58dea5b39f3351e322d710'}
-OPTIONAL_BIN = {'go2rtc','python3','rsync','rtsp_server_yi','mqttv4','mqtt-config','mqtt-pub','mqtt-sub','proxychains4','nanotts','tts'}
+OPTIONAL_BIN = {'go2rtc','python3','rsync','rtsp_server_yi','mqttv4','mqtt-config','mqtt-pub','mqtt-sub','proxychains4','nanotts','tts','imggrabber'}
 OPTIONAL_LIB = {'libffi.so','libffi.so.8','libffi.so.8.2.0','libwolfmqtt.so.20','libwolfssl.so.45','libproxychains4.so'}
 DISABLED = ['cloud','p2p_tnp','oss','oss_fast','oss_lapse','rtmp','recbackup','watch_process','cloudAPI']
 LIMITS = {'rootfs':0x120000,'home':0x340000,'backup':0x130000}
@@ -148,6 +148,15 @@ def build(a):
         if p.name in OPTIONAL_BIN:
             copy(p,optional/'bin'/p.name);p.unlink();p.symlink_to('/tmp/sd/yi-hack-optional/bin/'+p.name)
         elif p.name.startswith(('rmm-','mp4record-','h264grabber_')):p.unlink()
+    if not (core/'bin/imggrabber-grid').is_file():
+        raise ValueError('missing compact motion-grid snapshot binary; rebuild the shared snapshot module')
+    # Keep only low-resolution H.264 snapshots in internal flash. Full decoder
+    # and watermark resources remain available as optional SD functionality.
+    (core/'bin/imggrabber').unlink()
+    copy(ROOT/'scripts/flash-core/grid_snapshot.sh',core/'bin/imggrabber')
+    (core/'bin/imggrabber').chmod(0o755)
+    if (a.payload/'etc/wm_res').is_dir():
+        shutil.copytree(a.payload/'etc/wm_res',optional/'etc/wm_res',symlinks=True)
     for p in list((core/'lib').iterdir()):
         if p.name in OPTIONAL_LIB:
             # Resolve every build-time alias before moving its real target.

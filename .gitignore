@@ -15,6 +15,7 @@ INIT_SUBMODULES.md
 src/h264grabber/h264grabber/h264grabber
 src/ipc_cmd/ipc_cmd/ipc_cmd
 src/snapshot/snapshot/imggrabber
+src/snapshot/snapshot/imggrabber-grid
 
 # Downloaded/extracted dependency sources (not submodules)
 src/libwolf_*/

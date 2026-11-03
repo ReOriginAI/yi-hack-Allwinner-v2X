@@ -29,6 +29,9 @@
 #include <sys/time.h>
 #include <sys/resource.h>
 #include <getopt.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <time.h>
 
 #ifdef HAVE_AV_CONFIG_H
 #undef HAVE_AV_CONFIG_H
@@ -38,7 +41,9 @@
 #include "libavcodec/version.h"
 
 #include "convert2jpg.h"
+#ifndef YI_SNAPSHOT_GRID
 #include "add_water.h"
+#endif
 
 //#define USE_SEMAPHORE 1
 #ifdef USE_SEMAPHORE
@@ -129,7 +134,7 @@
 #define BUFFER_SHM "fshare_frame_buf"
 #define READ_LOCK_FILE "fshare_read_lock"
 #define WRITE_LOCK_FILE "fshare_write_lock"
-#define FF_INPUT_BUFFER_PADDING_SIZE 32
+#define FF_INPUT_BUFFER_PADDING_SIZE AV_INPUT_BUFFER_PADDING_SIZE
 
 #define RESOLUTION_LOW  360
 #define RESOLUTION_HIGH 1080
@@ -385,11 +390,17 @@ int frame_decode(unsigned char *outbuffer, unsigned char *p, int length, int h26
             return -2;
         }
     } else {
+#ifdef YI_SNAPSHOT_GRID
+        av_packet_free(&avpkt);
+        fprintf(stderr, "Grid snapshots require H.264\n");
+        return -2;
+#else
         codec = avcodec_find_decoder(AV_CODEC_ID_HEVC);
         if (!codec) {
             if (debug) fprintf(stderr, "Codec hevc not found\n");
             return -2;
         }
+#endif
     }
 
     c = avcodec_alloc_context3(codec);
@@ -467,13 +478,19 @@ int frame_decode(unsigned char *outbuffer, unsigned char *p, int length, int h26
     return 0;
 }
 
+#ifndef YI_SNAPSHOT_GRID
 int add_watermark(unsigned char *buffer, int w_res, int h_res, struct tm *watermark_tm)
 {
     char path_res[1024];
     FILE *fBuf;
     WaterMarkInfo WM_info;
 
-    if (w_res != W_LOW) {
+    const char *wm_root = getenv("YI_SNAPSHOT_WM_ROOT");
+    if (wm_root && *wm_root) {
+        if (snprintf(path_res, sizeof(path_res), "%s/%s/wm_540p_", wm_root,
+                     w_res == W_LOW ? "low" : "high") >= sizeof(path_res))
+            return -1;
+    } else if (w_res != W_LOW) {
         strcpy(path_res, PATH_RES_HIGH);
     } else {
         strcpy(path_res, PATH_RES_LOW);
@@ -495,6 +512,7 @@ int add_watermark(unsigned char *buffer, int w_res, int h_res, struct tm *waterm
 
     return 0;
 }
+#endif
 
 pid_t proc_find(const char* process_name, pid_t process_pid)
 {
@@ -585,7 +603,11 @@ int main(int argc, char **argv)
     buf_offset = BUF_OFFSET_Y21GA;
     frame_header_size = FRAME_HEADER_SIZE_Y21GA;
     memset(file, '\0', sizeof(file));
+#ifdef YI_SNAPSHOT_GRID
+    res = RESOLUTION_LOW;
+#else
     res = RESOLUTION_HIGH;
+#endif
     model_high_res = RESOLUTION_FHD;
     width = W_FHD;
     height = H_FHD;
@@ -754,6 +776,12 @@ int main(int argc, char **argv)
         }
     }
 
+#ifdef YI_SNAPSHOT_GRID
+    if (res != RESOLUTION_LOW || watermark || watermark_time) {
+        fprintf(stderr, "Grid snapshots support low resolution without watermark only\n");
+        return EXIT_FAILURE;
+    }
+#endif
     if (debug) fprintf(stderr, "Starting program\n");
 
     // Set low priority
@@ -913,7 +941,9 @@ int main(int argc, char **argv)
 #ifdef USE_SEMAPHORE
             sem_write_unlock();
 #endif
-            if (fhs_addr != NULL) break;
+            /* A newly enabled encoder can publish SPS before PPS/IDR. Wait
+             * for a complete frame instead of dereferencing missing records. */
+            if (fhs_addr != NULL && fhp_addr != NULL && fhi_addr != NULL) break;
             usleep(10000);
         }
 
@@ -1143,6 +1173,7 @@ int main(int argc, char **argv)
     }
     if (bufferh26x != NULL) free(bufferh26x);
 
+#ifndef YI_SNAPSHOT_GRID
     if (watermark) {
         if (debug) fprintf(stderr, "Adding watermark\n");
         if (watermark_time == 1) {
@@ -1170,6 +1201,7 @@ int main(int argc, char **argv)
         }
     }
 
+#endif
     if (debug) fprintf(stderr, "Encoding jpeg image\n");
     if(YUVtoJPG("stdout", bufferyuv, width, height, width, height) < 0) {
         fprintf(stderr, "Error encoding jpeg file\n");

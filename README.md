@@ -46,7 +46,9 @@ if installation fails. Do not rename another model's firmware to force installat
 
 The [flash-core profile](docs/FLASH_CORE.md) installs core services into internal
 flash so the camera can boot without SD. go2rtc and other optional programs,
-and recording storage, remain on SD.
+and recording storage, remain on SD. Low-resolution reference snapshots for the
+motion grid work without SD; full-resolution and watermarked snapshots use the
+optional SD snapshot program.
 
 GitHub Actions builds both profiles in the same run. Under **Actions → Build Yi
 Pro / Kami 1080p firmware bundle → Run workflow**, download:
