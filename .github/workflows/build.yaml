@@ -95,6 +95,8 @@ jobs:
         run: |
           rm -rf out/y623 out/y28ga out/all
           sudo bash -ex scripts/pack_fw.all.sh
+          # The root packer creates out/. Later flash-core packaging runs as runner.
+          sudo chown "$(id -u):$(id -g)" out
 
       - name: Verify bundle contents
         run: |
