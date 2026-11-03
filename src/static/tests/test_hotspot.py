@@ -52,10 +52,10 @@ class HotspotTests(unittest.TestCase):
         self.executable('wpa', '''#!/usr/bin/env python3
 import os,sys,subprocess,pathlib
 args=sys.argv[1:]
-config=next(a[2:] for a in args if a.startswith('-c'))
+config=next((a[2:] for a in args if a.startswith('-c')),args[-1])
 with open(os.environ['TEST_CALLS'],'a') as f:f.write('wpa '+config+'\\n')
-if config.endswith('/wpa.conf'):
-    child=subprocess.Popen(['python3',os.environ['TEST_ROOT']+'/daemon.py',config],stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+if config.endswith('/hostapd.conf'):
+    child=subprocess.Popen(['python3',os.environ['TEST_ROOT']+'/daemon.py','-c'+config],stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
     pathlib.Path(os.environ['TEST_ROOT']+'/runtime/wpa.pid').write_text(str(child.pid))
 ''')
         self.executable('wpa_cli', '''#!/bin/sh
@@ -63,8 +63,9 @@ case "$*" in
  *terminate) exit 0 ;;
 esac
 [ "$FAIL_AP" != yes ] || exit 1
-printf 'mode=AP\\nwpa_state=COMPLETED\\n'
+printf 'state=ENABLED\\n'
 ''')
+        self.executable('bin/iwconfig', '#!/bin/sh\nif [ "$FAIL_RADIO" = yes ]; then echo Mode:Managed; else echo Mode:Master; fi\n')
         self.executable('script/wifidhcp.sh', 'echo station-dhcp >> "$TEST_CALLS"\n')
         self.executable('script/bounded_log.sh', '#!/bin/sh\n:;\n')
         source = (SCRIPTS / 'hotspot.sh').read_text()
@@ -79,9 +80,9 @@ sleep() { :; }
         self.script.write_text(source)
         self.script.chmod(0o755)
         self.env = dict(os.environ, YI_HACK_PREFIX=str(self.root), TEST_ROOT=str(self.root),
-                        TEST_CALLS=str(self.calls), YI_HOTSPOT_RUNTIME=str(self.runtime),
+                        TEST_CALLS=str(self.calls), PATH=str(self.root / "bin")+":"+os.environ["PATH"], YI_HOTSPOT_RUNTIME=str(self.runtime),
                         YI_HOTSPOT_REQUEST=str(self.request), YI_HOTSPOT_PRIMARY=str(self.primary),
-                        YI_HOTSPOT_WPA=str(self.root / 'wpa'), YI_HOTSPOT_WPA_CLI=str(self.root / 'wpa_cli'))
+                        YI_HOTSPOT_WPA=str(self.root / 'wpa'), YI_HOTSPOT_AP=str(self.root / 'wpa'), YI_HOTSPOT_AP_CLI=str(self.root / 'wpa_cli'), YI_HOTSPOT_WPA_CLI=str(self.root / 'wpa_cli'))
 
     def tearDown(self):
         for path in [self.runtime / 'wpa.pid', self.runtime / 'dhcp.pid']:
@@ -115,12 +116,13 @@ sleep() { :; }
                 self.assertEqual(self.call('status').stdout.strip(), 'active')
                 before_scan = self.calls.read_text()
                 self.assertEqual(self.call('scan').returncode, 0)
+                self.assertEqual(self.call('apply').returncode, 0)
                 self.assertEqual(self.calls.read_text(), before_scan)
-                config = (self.runtime / 'wpa.conf').read_text()
-                self.assertIn('mode=2\n', config)
-                self.assertIn('key_mgmt=NONE\n', config)
-                self.assertNotIn('psk=', config)
-                encoded = next(line.strip()[5:] for line in config.splitlines() if line.strip().startswith('ssid='))
+                config = (self.runtime / 'hostapd.conf').read_text()
+                self.assertIn('interface=wlan0\n', config)
+                self.assertIn('wpa=0\n', config)
+                self.assertNotIn('wpa_passphrase=', config)
+                encoded = next(line.strip()[6:] for line in config.splitlines() if line.strip().startswith('ssid2='))
                 self.assertEqual(bytes.fromhex(encoded).decode(), 'Camera "open" #name')
                 self.assertNotIn('wlan0 down', self.calls.read_text())
                 self.assertEqual(self.call('stop').returncode, 0)
@@ -137,6 +139,85 @@ sleep() { :; }
         self.assertIn('station-dhcp', self.calls.read_text())
         self.assertEqual(self.primary.read_bytes(), original)
         self.assertFalse((self.runtime / 'pending').exists())
+
+    def test_station_takeover_is_detected_despite_live_ap_daemons(self):
+        self.start()
+        original = self.primary.read_bytes()
+        result = self.call('apply', FAIL_RADIO='yes')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.call('status').stdout.strip(), 'station')
+        self.assertIn('station-dhcp', self.calls.read_text())
+        self.assertEqual(self.primary.read_bytes(), original)
+
+    def test_enabled_controller_without_master_radio_is_not_ready(self):
+        self.assertEqual(self.call('start').returncode, 0)
+        result = self.call('apply', FAIL_RADIO='yes')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(self.call('status').stdout.strip(), 'failed')
+        self.assertIn('station-dhcp', self.calls.read_text())
+
+    def test_password_ap_and_button_clear_on_both_models(self):
+        for model in ['y623', 'y28ga']:
+            with self.subTest(model=model):
+                (self.root / 'model_suffix').write_text(model+'\n')
+                password = 'safe"pass\\word'
+                with self.config.open('a') as conf:
+                    conf.write('WIFI_HOTSPOT_PASSWORD='+password+'\n')
+                original = self.primary.read_bytes()
+                self.start()
+                config = (self.runtime / 'hostapd.conf').read_text()
+                self.assertIn('wpa_key_mgmt=WPA-PSK\n', config)
+                self.assertIn('wpa=2\n', config)
+                self.assertIn('wpa_passphrase='+password, config)
+                self.assertEqual((self.runtime / 'hostapd.conf').stat().st_mode & 0o777, 0o600)
+                self.request.write_text('start-open\n')
+                self.assertEqual(self.call('apply').returncode, 0)
+                self.assertNotIn(password, self.config.read_text())
+                self.assertIn('wpa=0', (self.runtime / 'hostapd.conf').read_text())
+                self.assertEqual(self.primary.read_bytes(), original)
+                self.assertEqual(self.call('start').returncode, 0)
+                self.assertEqual(self.call('apply').returncode, 0)
+                self.assertNotIn('wpa_passphrase=', (self.runtime / 'hostapd.conf').read_text())
+
+    def test_invalid_saved_password_does_not_touch_radio_and_button_recovers(self):
+        with self.config.open('a') as conf:
+            conf.write('WIFI_HOTSPOT_PASSWORD=short\n')
+        self.assertNotEqual(self.call('start').returncode, 0)
+        self.assertEqual(self.calls.read_text(), '')
+        self.request.write_text('start-open\n')
+        self.assertEqual(self.call('apply').returncode, 0)
+        self.assertIn('wpa=0', (self.runtime / 'hostapd.conf').read_text())
+
+    def test_first_boot_only_opens_without_saved_router_key_or_config(self):
+        mtd = self.root / 'wifi-mtd'
+        cfg = self.root / 'configure_wifi.cfg'
+        for key, provision, expected in [(b'\0'*64,False,True), (b'\xff'*64,False,True),
+                                          (b'routerpassword'.ljust(64,b'\0'),False,False),
+                                          (b'\0'*64,True,False), (b'',False,False)]:
+            with self.subTest(key=key, provision=provision):
+                mtd.write_bytes(b'\0'*92+key)
+                if provision:cfg.write_text('wifi_ssid=router\nwifi_psk=password\n')
+                elif cfg.exists():cfg.unlink()
+                self.request.unlink(missing_ok=True)
+                result=self.call('boot',YI_HOTSPOT_WIFI_MTD=str(mtd),YI_HOTSPOT_WIFI_CONFIG=str(cfg))
+                self.assertEqual(result.returncode,0)
+                self.assertEqual(self.request.exists(),expected)
+                if expected:self.assertEqual(self.request.read_text(),'start-open\n')
+
+    def test_explicit_hotspot_password_survives_unprovisioned_boot(self):
+        mtd = self.root / 'unprovisioned'
+        mtd.write_bytes(bytes(256))
+        for boot in ('yes', 'no'):
+            with self.subTest(boot=boot):
+                self.config.write_text('WIFI_HOTSPOT_BOOT='+boot+'\nWIFI_HOTSPOT_SSID=Configured AP\nWIFI_HOTSPOT_PASSWORD=chosen-password\n')
+                self.assertEqual(self.call('boot', YI_HOTSPOT_WIFI_MTD=str(mtd),
+                    YI_HOTSPOT_WIFI_CONFIG=str(self.root / 'absent.cfg')).returncode, 0)
+                self.assertEqual(self.request.read_text(), 'start\n')
+                self.assertEqual(self.call('apply').returncode, 0)
+                self.assertIn('wpa_passphrase=chosen-password', (self.runtime / 'hostapd.conf').read_text())
+                self.assertIn('WIFI_HOTSPOT_PASSWORD=chosen-password', self.config.read_text())
+                self.assertEqual(self.call('stop').returncode, 0)
+                self.assertEqual(self.call('apply').returncode, 0)
 
     def test_diagnostic_log_failure_does_not_tear_down_a_working_ap(self):
         self.executable('script/bounded_log.sh', '#!/bin/sh\nexit 1\n')
@@ -189,7 +270,7 @@ sleep() { :; }
             with self.subTest(mode=mode):
                 (self.runtime / 'state').write_text(mode+'\n')
                 # Any fallthrough into ordinary station checks is a test failure.
-                body = 'get_config() { exit 99; }; reboot() { exit 99; }; ' + function + '\ncheck_wifi'
+                body = 'publish_reset_ready() { :; }; get_config() { exit 99; }; reboot() { exit 99; }; ' + function + '\ncheck_wifi'
                 result = subprocess.run([BUSYBOX, 'ash', '-c', body], env=self.env, capture_output=True, timeout=3)
                 self.assertEqual(result.returncode, 0, result.stderr)
 

@@ -1,5 +1,5 @@
 #!/tmp/sd/yi-hack/bin/busybox ash
-# Local open AP. Primary credentials and flash partitions are never changed.
+# Local AP. Primary credentials and provisioning partitions are never changed.
 YI_HACK_PREFIX=${YI_HACK_PREFIX:-/tmp/sd/yi-hack}
 . "$YI_HACK_PREFIX/script/service_lock.sh" || exit 1
 BB="$YI_HACK_PREFIX/bin/busybox"
@@ -9,6 +9,8 @@ PRIMARY=${YI_HOTSPOT_PRIMARY:-/tmp/wpa_supplicant.conf}
 SYSTEM_CONF="$YI_HACK_PREFIX/etc/system.conf"
 WPA_BIN=${YI_HOTSPOT_WPA:-/backup/tools/wpa_supplicant}
 WPA_CLI=${YI_HOTSPOT_WPA_CLI:-/home/base/tools/wpa_cli}
+AP_BIN=${YI_HOTSPOT_AP:-$YI_HACK_PREFIX/bin/hostapd}
+AP_CLI=${YI_HOTSPOT_AP_CLI:-$YI_HACK_PREFIX/bin/hostapd_cli}
 DISPATCH=${YI_HOTSPOT_DISPATCH:-/home/app/dispatch}
 
 config() { sed -n "s/^$1=//p" "$SYSTEM_CONF" | tail -n 1; }
@@ -26,7 +28,7 @@ reset_armed()
 reset_supported()
 {
     case "$(cat "$YI_HACK_PREFIX/model_suffix"):$(md5sum "$DISPATCH" 2>/dev/null | cut -d' ' -f1)" in
-        y623:033ff9e7091c72ab2209eaac74ad802e|y28ga:c6ae77baf1821023c2138cf46bb793ec) return 0 ;;
+        y623:033ff9e7091c72ab2209eaac74ad802e|y623:f4e457a4cc195460e5f6a63bd46351ef|y28ga:c6ae77baf1821023c2138cf46bb793ec|y28ga:2388704364446d01857c3cf11937f3f4) return 0 ;;
     esac
     return 1
 }
@@ -44,12 +46,55 @@ settings()
     CHANNEL=$(config WIFI_HOTSPOT_CHANNEL)
     [ -n "$CHANNEL" ] || CHANNEL=6
     case "$CHANNEL" in 1|2|3|4|5|6|7|8|9|10|11) ;; *) return 1 ;; esac
-    FREQUENCY=$((2407 + CHANNEL * 5))
+    PASSWORD=$(config WIFI_HOTSPOT_PASSWORD)
+    if [ -n "$PASSWORD" ]; then
+        [ "${#PASSWORD}" -ge 8 ] && [ "${#PASSWORD}" -le 63 ] || return 1
+        LC_ALL=C; export LC_ALL
+        case "$PASSWORD" in *[!\ -~]*) return 1 ;; esac
+    fi
+}
+radio_is_ap()
+{
+    "$BB" timeout -s KILL 2 iwconfig wlan0 2>/dev/null | grep -q 'Mode:Master'
+}
+boot_request()
+{
+    # Explicit SD/UI hotspot settings take precedence over the unprovisioned
+    # fallback. Never clear a deliberately configured hotspot password at boot.
+    if [ "$(config WIFI_HOTSPOT_BOOT)" = yes ]; then
+        check && request start
+        return 0
+    fi
+    WIFI_CONFIG=${YI_HOTSPOT_WIFI_CONFIG:-/tmp/sd/Factory/configure_wifi.cfg}
+    WIFI_MTD=${YI_HOTSPOT_WIFI_MTD:-/dev/mtdblock7}
+    KEY_HEX=$(dd if="$WIFI_MTD" bs=1 skip=92 count=64 2>/dev/null | "$BB" od -An -v -tx1 | tr -d ' \n')
+    if [ ! -e "$WIFI_CONFIG" ] && [ "${#KEY_HEX}" -eq 128 ] &&
+       [ -z "$(printf %s "$KEY_HEX" | sed 's/00//g; s/ff//g')" ]; then
+        if [ -n "$(config WIFI_HOTSPOT_PASSWORD)" ]; then
+            check && request start
+        else
+            request start-open
+        fi
+    fi
+    return 0
+}
+clear_password()
+{
+    [ -n "$(config WIFI_HOTSPOT_PASSWORD)" ] || return 0
+    if grep -q '^WIFI_HOTSPOT_PASSWORD=' "$SYSTEM_CONF"; then
+        sed -i 's/^WIFI_HOTSPOT_PASSWORD=.*/WIFI_HOTSPOT_PASSWORD=/' "$SYSTEM_CONF" || return 1
+    else
+        printf '\nWIFI_HOTSPOT_PASSWORD=\n' >> "$SYSTEM_CONF" || return 1
+    fi
+    if [ -f "$YI_HACK_PREFIX/flash-core" ]; then
+        "$YI_HACK_PREFIX/bin/service_guard" 5 "$YI_HACK_PREFIX/script/flash_config_sync.sh" || true
+    fi
 }
 check()
 {
     settings || return 1
-    [ -x "$WPA_BIN" ] && [ -x "$WPA_CLI" ] || return 1
+    [ -x "$WPA_BIN" ] && [ -x "$WPA_CLI" ] && [ -x "$AP_BIN" ] && [ -x "$AP_CLI" ] || return 1
+    command -v iwconfig >/dev/null 2>&1 || return 1
     "$BB" --list | grep -qx udhcpd || return 1
 }
 request()
@@ -64,7 +109,8 @@ pid_alive()
     PID=$(cat "$1" 2>/dev/null)
     case "$PID" in ''|*[!0-9]*) return 1 ;; esac
     "$BB" kill -0 "$PID" 2>/dev/null || return 1
-    tr '\000' '\n' < "/proc/$PID/cmdline" 2>/dev/null | grep -Fxq "$2"
+    tr '\000' '\n' < "/proc/$PID/cmdline" 2>/dev/null |
+        awk -v config="$2" '$0 == config || $0 == "-c" config { found=1 } END { exit !found }'
 }
 stop_owned()
 {
@@ -80,9 +126,9 @@ stop_owned()
 }
 stop_ap()
 {
-    "$BB" timeout -s KILL 2 "$WPA_CLI" -p "$RUNTIME/ctrl" -i wlan0 terminate >/dev/null 2>&1 || true
+    "$BB" timeout -s KILL 2 "$AP_CLI" -p "$RUNTIME/ctrl" -i wlan0 terminate >/dev/null 2>&1 || true
     stop_owned "$RUNTIME/dhcp.pid" "$RUNTIME/udhcpd.conf"
-    stop_owned "$RUNTIME/wpa.pid" "$RUNTIME/wpa.conf"
+    stop_owned "$RUNTIME/wpa.pid" "$RUNTIME/hostapd.conf"
 }
 restore_station()
 {
@@ -91,7 +137,11 @@ restore_station()
     # Restore the original primary profile, not a maintenance-only AP profile.
     ifconfig wlan0 0.0.0.0
     if [ -s "$PRIMARY" ]; then
-        "$BB" timeout -s KILL 10 "$WPA_BIN" -c"$PRIMARY" -g/var/run/wpa_supplicant-global -Dnl80211 -iwlan0 -B || return 1
+        # dispatch can relaunch its primary supplicant before rollback gets here.
+        # Its station control directory differs from the AP's private directory.
+        if ! "$BB" timeout -s KILL 2 "$WPA_CLI" -i wlan0 ping 2>/dev/null | grep -qx PONG; then
+            "$BB" timeout -s KILL 10 "$WPA_BIN" -c"$PRIMARY" -g/var/run/wpa_supplicant-global -Dnl80211 -iwlan0 -B || return 1
+        fi
         "$YI_HACK_PREFIX/bin/service_guard" 15 "$BB" ash "$YI_HACK_PREFIX/script/wifidhcp.sh" || return 1
     else
         return 1
@@ -105,15 +155,24 @@ start_ap()
     SSID_HEX=$(printf %s "$SSID" | "$BB" od -An -v -tx1 | tr -d ' \n') || return 1
     umask 077
     mkdir -p "$RUNTIME/ctrl" || return 1
-    cat > "$RUNTIME/wpa.conf" <<EOC
+    SECURITY='wpa=0'
+    if [ -n "$PASSWORD" ]; then
+        SECURITY="wpa=2
+wpa_key_mgmt=WPA-PSK
+rsn_pairwise=CCMP
+wpa_passphrase=$PASSWORD"
+    fi
+    cat > "$RUNTIME/hostapd.conf" <<EOC
+interface=wlan0
+driver=nl80211
 ctrl_interface=$RUNTIME/ctrl
-ap_scan=2
-network={
-    ssid=$SSID_HEX
-    mode=2
-    frequency=$FREQUENCY
-    key_mgmt=NONE
-}
+ssid2=$SSID_HEX
+hw_mode=g
+channel=$CHANNEL
+wmm_enabled=1
+ignore_broadcast_ssid=0
+auth_algs=1
+$SECURITY
 EOC
     cat > "$RUNTIME/udhcpd.conf" <<EOC
 start 192.168.10.100
@@ -134,12 +193,13 @@ EOC
     sleep 1
     "$BB" killall -q -9 udhcpc wpa_supplicant 2>/dev/null || true
     stop_ap
+    mkdir -p "$RUNTIME/ctrl" || return 1
     ifconfig wlan0 up || return 1
-    "$BB" timeout -s KILL 10 "$WPA_BIN" -c"$RUNTIME/wpa.conf" -P"$RUNTIME/wpa.pid" -g"$RUNTIME/global" -Dnl80211 -iwlan0 -B || return 1
+    (ulimit -f 32; "$BB" timeout -s KILL 10 "$AP_BIN" -B -P "$RUNTIME/wpa.pid" "$RUNTIME/hostapd.conf") > "$RUNTIME/startup.log" 2>&1 || return 1
     AP_READY=no
     for WAIT in 1 2 3 4 5; do
-        STATUS=$("$BB" timeout -s KILL 2 "$WPA_CLI" -p "$RUNTIME/ctrl" -i wlan0 status 2>/dev/null)
-        if printf '%s\n' "$STATUS" | grep -qx 'mode=AP' && printf '%s\n' "$STATUS" | grep -qx 'wpa_state=COMPLETED'; then
+        STATUS=$("$BB" timeout -s KILL 2 "$AP_CLI" -p "$RUNTIME/ctrl" -i wlan0 status 2>/dev/null)
+        if printf '%s\n' "$STATUS" | grep -qx 'state=ENABLED' && radio_is_ap; then
             AP_READY=yes
             break
         fi
@@ -152,7 +212,7 @@ EOC
     sleep 1
     pid_alive "$RUNTIME/dhcp.pid" "$RUNTIME/udhcpd.conf" || return 1
     set_state active || return 1
-    log "Open hotspot active: $SSID at 192.168.10.1. Camera authentication is unchanged."
+    log "Hotspot active: $SSID at 192.168.10.1. Camera authentication is unchanged."
 }
 apply()
 {
@@ -166,13 +226,19 @@ apply()
     fi
     ACTION=$(cat "$RUNTIME/pending" 2>/dev/null)
     case "$ACTION" in
+        start-open) clear_password || return 1; ACTION=start ;;
         start|stop) ;;
         '')
             case "$(state)" in
                 starting|stopping) ACTION=stop ;;
                 active)
-                    if pid_alive "$RUNTIME/wpa.pid" "$RUNTIME/wpa.conf" && pid_alive "$RUNTIME/dhcp.pid" "$RUNTIME/udhcpd.conf"; then return 0; fi
-                    ACTION=start ;;
+                    if pid_alive "$RUNTIME/wpa.pid" "$RUNTIME/hostapd.conf" && pid_alive "$RUNTIME/dhcp.pid" "$RUNTIME/udhcpd.conf"; then
+                        radio_is_ap && return 0
+                        log "Hotspot radio left AP mode; restoring primary WiFi."
+                        ACTION=stop
+                    else
+                        ACTION=start
+                    fi ;;
                 *) return 0 ;;
             esac ;;
         *) return 1 ;;
@@ -202,6 +268,7 @@ apply()
 }
 case "$1" in
     start) check || exit 1; request start ;;
+    boot) boot_request ;;
     stop) request stop ;;
     apply) apply ;;
     poll)
@@ -212,7 +279,7 @@ case "$1" in
             case "$(state)" in
                 starting|stopping) NEED_WORK=yes ;;
                 active)
-                    if ! pid_alive "$RUNTIME/wpa.pid" "$RUNTIME/wpa.conf" || ! pid_alive "$RUNTIME/dhcp.pid" "$RUNTIME/udhcpd.conf"; then NEED_WORK=yes; fi ;;
+                    if ! pid_alive "$RUNTIME/wpa.pid" "$RUNTIME/hostapd.conf" || ! pid_alive "$RUNTIME/dhcp.pid" "$RUNTIME/udhcpd.conf" || ! radio_is_ap; then NEED_WORK=yes; fi ;;
             esac
         fi
         if [ "$NEED_WORK" = yes ]; then
@@ -227,5 +294,5 @@ case "$1" in
     reset-supported) reset_supported ;;
     reset-armed) reset_armed ;;
     check) check ;;
-    *) echo "usage: $0 {start|stop|status|settings|check|reset-supported|poll|apply}" >&2; exit 2 ;;
+    *) echo "usage: $0 {boot|start|stop|status|settings|check|reset-supported|poll|apply}" >&2; exit 2 ;;
 esac

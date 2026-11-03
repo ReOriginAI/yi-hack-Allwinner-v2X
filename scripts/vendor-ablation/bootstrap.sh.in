@@ -41,7 +41,7 @@ if [ -e /tmp/sd/Factory/factory_test.sh ]; then
 fi
 
 YI=/tmp/sd/yi-hack
-for required in script/storage.sh script/hotspot.sh script/service_lock.sh script/operation_timeout.sh script/wifi_recovery.sh script/wifi_failover.sh bin/service_guard bin/busybox www/onvif/onvif_simple_server script/log_store.sh script/bounded_log.sh script/config_work.sh script/restore_config.sh script/motion_log.sh script/motion_settings.sh script/motion_service.sh bin/motiond script/system.sh script/service.sh script/wd.sh script/check_conf.sh script/configure_wifi.sh script/wifidhcp.sh script/ethdhcp.sh script/prepare_rmm.sh script/prepare_mp4record.sh script/rtsp_stream_venc.sh lib/ipc_multiplex.so bin/cloudAPI bin/cloudAPI_fake bin/ipc_cmd script/nightvision.sh bin/nightvisionctl lib/nightvision.so lib/motion_map.so script/time_config.sh script/apply_time.sh script/update_osd_tz.sh bin/set_tz_offset lib/record_metadata.so bin/ipc2file lib/record_preroll-y623.bin lib/record_preroll-y28ga.bin; do
+for required in bin/hostapd bin/hostapd_cli script/storage.sh script/hotspot.sh script/service_lock.sh script/operation_timeout.sh script/wifi_recovery.sh script/wifi_failover.sh script/wifi_station_guard.sh bin/service_guard bin/busybox www/onvif/onvif_simple_server script/log_store.sh script/bounded_log.sh script/config_work.sh script/restore_config.sh script/motion_log.sh script/motion_settings.sh script/motion_service.sh bin/motiond script/system.sh script/service.sh script/wd.sh script/check_conf.sh script/configure_wifi.sh script/wifidhcp.sh script/ethdhcp.sh script/prepare_rmm.sh script/prepare_mp4record.sh script/rtsp_stream_venc.sh lib/ipc_multiplex.so bin/cloudAPI bin/cloudAPI_fake bin/ipc_cmd script/nightvision.sh bin/nightvisionctl lib/nightvision.so lib/motion_map.so script/time_config.sh script/manual_time.sh www/cgi-bin/clock.sh script/apply_time.sh script/update_osd_tz.sh bin/set_tz_offset lib/record_metadata.so bin/ipc2file lib/record_preroll-y623.bin lib/record_preroll-y28ga.bin; do
     [ -s "$YI/$required" ] || boot_fail "missing $required"
 done
 [ "$(cat "$YI/model_suffix")" = "$SUFFIX" ] || boot_fail model
@@ -59,13 +59,17 @@ SD_MANIFEST
 if [ -f /tmp/sd/Factory/configure_wifi.cfg ]; then
     CFG_FILE=/tmp/sd/Factory/configure_wifi.cfg
     export CFG_FILE
-    /bin/sh "$YI/script/configure_wifi.sh" || boot_fail wifi-config
+    if /bin/sh "$YI/script/configure_wifi.sh"; then
+        # Consume successfully applied data; do not replay it on every boot.
+        rm -f /tmp/sd/Factory/configure_wifi.cfg.applied
+        mv /tmp/sd/Factory/configure_wifi.cfg /tmp/sd/Factory/configure_wifi.cfg.applied 2>/dev/null || true
+    else
+        # A malformed data file must not stop the camera before WiFi starts.
+        echo "yi-hack: invalid network configuration; keeping saved settings" > /dev/console
+        rm -f /tmp/sd/Factory/configure_wifi.cfg.rejected
+        mv /tmp/sd/Factory/configure_wifi.cfg /tmp/sd/Factory/configure_wifi.cfg.rejected 2>/dev/null || true
+    fi
     unset CFG_FILE
-    # Consume a successfully parsed/applied request so a later accidental edit
-    # cannot make every boot depend on the recovery file. Failure to rename is
-    # non-fatal; reapplying identical verified credentials is safe.
-    rm -f /tmp/sd/Factory/configure_wifi.cfg.applied
-    mv /tmp/sd/Factory/configure_wifi.cfg /tmp/sd/Factory/configure_wifi.cfg.applied 2>/dev/null || true
     sync
 fi
 
@@ -82,15 +86,25 @@ for kind in wifi eth; do
     mount --bind "$YI/script/${kind}dhcp.sh" "/home/app/script/${kind}dhcp.sh" || boot_fail dhcp
     mount --bind "$YI/script/${kind}dhcp.sh" "/backup/tools/${kind}dhcp.sh" || boot_fail dhcp
  done
+# Gate vendor-owned station recovery too: hostapd and station supplicant
+# cannot share wlan0. Preserve the verified DHCP hook behind the same guard.
+for role in wificonnect.sh killwifi.sh wifidhcp.sh; do
+    cp "/home/app/script/$role" "/tmp/local-only/vendor-$role" || boot_fail station-original
+    mount --bind "$YI/script/wifi_station_guard.sh" "/home/app/script/$role" || boot_fail station-guard
+ done
+for role in wificonnect.sh killwifi.sh wifidhcp.sh; do
+    [ ! -e "/backup/tools/$role" ] || mount --bind "$YI/script/wifi_station_guard.sh" "/backup/tools/$role" || boot_fail station-guard
+ done
 export DEVICE_MEMORY=8000000 CPU_MEMORY=-1
 export PATH=/home/app:/home/app/script:$PATH
 export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/tmp
 cd /home/app || boot_fail app
 # Optional physical reset override: only the exact audited broker is eligible.
 # Unknown firmware retains its original button behavior.
-rm -f /tmp/yi-reset-hotspot.armed
+rm -f /tmp/yi-reset-hotspot.armed /tmp/yi-reset-hotspot.ready
 RESET_HOTSPOT_MODEL=
-if grep -qx 'WIFI_RESET_HOTSPOT=yes' "$YI/etc/system.conf"; then
+[ ! -f "$YI/flash-core" ] || export YI_FLASH_CORE=1
+if ! grep -qx 'WIFI_RESET_HOTSPOT=no' "$YI/etc/system.conf"; then
     case "$SUFFIX:$(md5sum /home/app/dispatch | cut -d ' ' -f1)" in
         y623:033ff9e7091c72ab2209eaac74ad802e|y28ga:c6ae77baf1821023c2138cf46bb793ec)
             RESET_HOTSPOT_MODEL=$SUFFIX ;;

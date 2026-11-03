@@ -14,7 +14,7 @@ import subprocess
 import tarfile
 
 ROOT = Path(__file__).resolve().parents[2]
-FILES = ('www/onvif/onvif_simple_server', 'script/storage.sh', 'script/log_store.sh', 'script/bounded_log.sh', 'script/config_work.sh',
+FILES = ('bin/hostapd', 'bin/hostapd_cli', 'www/onvif/onvif_simple_server', 'script/storage.sh', 'script/log_store.sh', 'script/bounded_log.sh', 'script/config_work.sh',
          'script/restore_config.sh', 'script/motion_log.sh', 'script/motion_settings.sh', 'bin/motiond', 'script/service.sh', 'script/system.sh', 'script/wd.sh', 'script/motion_service.sh',
          'bin/cloudAPI', 'bin/cloudAPI_fake')
 

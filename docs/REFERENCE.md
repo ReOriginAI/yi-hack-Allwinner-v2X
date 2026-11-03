@@ -28,12 +28,10 @@ cold-boot validation; normal SD releases keep their existing installation path.
 
 ## Camera hotspot
 
-Both y623 and y28ga have open-hotspot controls on the WiFi page. The camera uses
-`192.168.10.1`; WiFi has no password and camera sign-in remains unchanged.
-An optional, firmware-gated rear-button override requests hotspot mode after a
-five-second hold, instead of the vendor's physical factory reset. It takes effect
-after saving/rebooting and must show as active in the UI before relying on it.
-See [hotspot behavior, validation and deployment limits](HOTSPOT.md).
+Both cameras support an optional WPA2 hotspot password. The rear-button
+override defaults to enabled on supported firmware and clears the hotspot
+password before starting an open AP. Unprovisioned cameras without an SD Wi-Fi
+configuration start an open AP for setup. See [hotspot setup](HOTSPOT.md).
 
 ## Supported targets
 

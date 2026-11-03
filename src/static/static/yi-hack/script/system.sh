@@ -241,6 +241,9 @@ if [[ $(get_config NTPD) == "yes" ]] ; then
     sleep 5 && ntpd -p $(get_config NTP_SERVER) &
 fi
 
+# Restore an explicitly saved offline time after the vendor startup time check.
+"$YI_HACK_PREFIX/script/manual_time.sh" restore >/dev/null 2>&1 || log "Offline clock restore failed"
+
 if [[ $(get_config MQTT) == "yes" ]] ; then
     log "Starting mqtt services"
     $START_STOP_SCRIPT mqtt start
@@ -399,9 +402,7 @@ if [ -x "$YI_HACK_PREFIX/script/oom_policy.sh" ]; then
     "$YI_HACK_PREFIX/script/oom_policy.sh" >/dev/null 2>&1
 fi
 
-if [ "$(get_config WIFI_HOTSPOT_BOOT)" = yes ]; then
-    "$YI_HACK_PREFIX/script/hotspot.sh" start >/dev/null 2>&1 || log "Hotspot boot request failed"
-fi
+"$YI_HACK_PREFIX/script/hotspot.sh" boot >/dev/null 2>&1 || log "Hotspot boot request failed"
 
 WD_COUNT=$(ps | grep wd.sh | grep -v grep | grep -c ^)
 if [ "$WD_COUNT" -eq 0 ]; then

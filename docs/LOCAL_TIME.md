@@ -30,6 +30,31 @@ The system clock, filesystem timestamp epochs, MP4 creation fields and
 for the same instant, rather than a change to the clock or video timestamps.
 For example, `2026-10-11 02:38 UTC` is `2026-10-10 22:38 EDT`.
 
+## Offline clock
+
+On both models, **Configurations → Offline clock** can copy the browser clock
+or accept a manually entered date and time in the browser's local timezone.
+It changes the system's UTC clock without an internet request. NTP is disabled
+and the chosen Unix timestamp is saved in `MANUAL_TIME_EPOCH`. Re-enable NTP
+to resume automatic synchronization; a local LAN NTP server needs no internet.
+
+The last manually saved timestamp is restored after the vendor startup check
+when NTP is disabled and the running clock is older. It is a lower bound, not
+an accurate clock through power loss: elapsed powered-off time is unknown.
+Set the time again after restarting an offline camera. No periodic clock
+checkpoint writes are made to internal flash. With flash-core, the usual
+configuration mirror preserves a manual setting made while SD is present.
+
+The normal camera HTTP login protects the clock API:
+
+- `GET /cgi-bin/clock.sh`: current Unix seconds, UTC string and NTP state.
+- `POST /cgi-bin/clock.sh` with JSON `{"epoch":1793635200}`: set UTC Unix seconds,
+  stop NTP, save the manual setting and refresh the OSD timezone offset.
+
+Requests are bounded to 512 bytes with a five-second read timeout. Only integer
+seconds from 2020 through 2037 are accepted, within the audited 32-bit userspace
+clock range. Errors are returned as JSON; GET never changes the clock.
+
 ## Implementation
 
 `script/time_config.sh` supplies one timezone policy for the recorder and web

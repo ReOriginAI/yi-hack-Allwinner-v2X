@@ -22,11 +22,12 @@ jobs:
       - name: Install deps
         run: |
           sudo apt update
-          sudo apt install -y git unzip build-essential \
+          sudo apt install -y git unzip build-essential cmake \
             bison bisonc++ libbison-dev autoconf autotools-dev \
             automake libssl-dev zlib1g-dev libzzip-dev flex libfl-dev \
             yui-compressor closure-compiler optipng jpegoptim libtidy5deb1 node-less \
-            sassc sass-spec libhtml-tidy-perl libxml2-utils rsync qemu-user-static p7zip-full xz-utils ffmpeg busybox jq
+            sassc sass-spec libhtml-tidy-perl libxml2-utils rsync qemu-user-static p7zip-full xz-utils ffmpeg busybox jq \
+            squashfs-tools mtd-utils bubblewrap
 
       - name: Test WiFi configuration parser
         run: sh scripts/test_configure_wifi.sh
@@ -56,8 +57,14 @@ jobs:
           python3 src/static/tests/test_ftppush_queue.py
           python3 src/static/tests/test_config_read_error.py
           python3 src/static/tests/test_hotspot.py
+          python3 src/static/tests/test_wifi_station_guard.py
           python3 src/static/tests/test_hotspot_api.py
           python3 src/static/tests/test_reset_hotspot.py
+          python3 src/static/tests/test_flash_mount.py
+          python3 src/static/tests/test_manual_time.py
+          python3 scripts/test_flash_core.py
+          python3 scripts/test_flash_core_build.py
+          python3 scripts/test_flash_core_installer.py
 
       - name: Test recorder-local motion metadata
         run: |
@@ -141,5 +148,29 @@ jobs:
         with:
           name: yi-hack-Allwinner-v2X-firmware
           path: out/all/*.tgz
+          if-no-files-found: error
+          compression-level: 0
+
+      - name: Enable isolated ARM image checks
+        run: |
+          if test -f /proc/sys/kernel/apparmor_restrict_unprivileged_userns; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+
+      - name: Build and verify experimental flash-core images and SD installers
+        run: |
+          python3 scripts/pack_flash_core_all.py \
+            --payload build/yi-hack \
+            --toolchain "${SUNXI_TOOLCHAIN}/toolchain/bin" \
+            --host-busybox "$YI_TEST_BUSYBOX" \
+            --qemu "$(command -v qemu-arm-static)" \
+            --mkfs-jffs2 "$(command -v mkfs.jffs2)" \
+            --output out/flash-core
+
+      - name: Upload experimental flash-core SD installers and development images
+        uses: actions/upload-artifact@v4
+        with:
+          name: yi-hack-Allwinner-v2X-flash-core-EXPERIMENTAL
+          path: out/flash-core/packages/*
           if-no-files-found: error
           compression-level: 0

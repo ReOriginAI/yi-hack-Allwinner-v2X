@@ -32,8 +32,8 @@ record_preroll-%.bin: record_preroll-%.elf
 %.o: %.c $(HEADERS)
 	$(CC) -c $< -fPIC -Os -o $@
 
-ipc_multiplex.so: ipc_multiplex.c dispatch_poll.c reset_hotspot.c reset_hotspot.h ipc_multiplex.h
-	$(CC) ipc_multiplex.c dispatch_poll.c reset_hotspot.c -fPIC -Os -shared -pthread -ldl -lrt -o $@
+ipc_multiplex.so: ipc_multiplex.c dispatch_poll.c reset_hotspot.c reset_hotspot.h flash_mount.c ipc_multiplex.h
+	$(CC) ipc_multiplex.c dispatch_poll.c reset_hotspot.c flash_mount.c -fPIC -Os -shared -pthread -ldl -lrt -o $@
 
 record_metadata.so: record_metadata.c motion_metadata_events.c motion_metadata_events.h motion_metadata_levels.c motion_metadata_levels.h
 	$(CC) record_metadata.c motion_metadata_events.c motion_metadata_levels.c -std=c11 -Wall -Wextra -fPIC -Os -shared -pthread -ldl -lrt -o $@

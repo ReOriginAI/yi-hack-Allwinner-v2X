@@ -1,0 +1,21 @@
+#!/bin/bash
+set -euo pipefail
+cd "$(dirname "$0")"
+python3 - <<'PY'
+import hashlib, pathlib, shutil, tarfile, urllib.request
+root=pathlib.Path.cwd()
+cache=root/'_downloads';cache.mkdir(exist_ok=True)
+archives=[
+ ('hostapd-2.11.tar.gz','https://w1.fi/releases/hostapd-2.11.tar.gz','2b3facb632fd4f65e32f4bf82a76b4b72c501f995a4f62e330219fe7aed1747a'),
+ ('libnl-tiny.tar.gz','https://codeload.github.com/openwrt/libnl-tiny/tar.gz/40493a655d8caa2ccf5206dde1e733abe2920432','a3f0456006b72352f0ccc9a653eb2428a03bc3ff3c6987a858b0c060ac19b181')]
+for name,url,digest in archives:
+    path=cache/name
+    if not path.exists():urllib.request.urlretrieve(url,path)
+    if hashlib.sha256(path.read_bytes()).hexdigest()!=digest:raise SystemExit('Source checksum mismatch: '+name)
+shutil.rmtree(root/'_build',ignore_errors=True)
+(root/'_build').mkdir()
+for name,_,_ in archives:
+    with tarfile.open(cache/name) as archive:archive.extractall(root/'_build',filter='data')
+PY
+patch -d _build/hostapd-2.11 -p1 < no-stdout-debug.patch
+mkdir -p _install/bin

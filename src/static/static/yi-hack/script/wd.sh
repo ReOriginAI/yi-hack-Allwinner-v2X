@@ -348,10 +348,21 @@ soft_wifi_reconnect()
 
 }
 
+publish_reset_ready()
+{
+    if [ "$(get_config WIFI_RESET_HOTSPOT)" = yes ] && [ ! -e /tmp/yi-reset-hotspot.ready ]; then
+        (umask 077; : > /tmp/yi-reset-hotspot.ready)
+    fi
+    return 0
+}
+
 check_wifi()
 {
     # AP mode is a deliberate local network, not a failed station association.
-    case "$(cat /tmp/yi-hotspot/state 2>/dev/null)" in starting|active|stopping) return 0 ;; esac
+    case "$(cat /tmp/yi-hotspot/state 2>/dev/null)" in
+        active) return 0 ;;
+        starting|stopping) return 0 ;;
+    esac
     MAINT_STATE=$(cat /tmp/wifi_maintenance_active 2>/dev/null)
 
     # After primary failover, monitor only the maintenance profile. Never poll
@@ -402,7 +413,7 @@ check_wifi()
                 echo -e "$(date): Maintenance WiFi connection restored" >> "$LOGWIFI_FILE"
             fi
             WIFI_MAINTENANCE_FAILSAFE_COUNTER=0
-            return 0
+                return 0
         fi
 
         WIFI_MAINTENANCE_FAILSAFE_COUNTER=$((WIFI_MAINTENANCE_FAILSAFE_COUNTER + 1))
@@ -535,7 +546,10 @@ RTSP_PORT_NUMBER=$RTSP_PORT
 # Keep the supervisor itself difficult to kill. oom_policy.sh protects the
 # irreplaceable media/network processes and ranks restartable services.
 echo -900 > /proc/$$/oom_score_adj 2>/dev/null
+# system.sh starts this supervisor after media/network initialization. Arm the
+# runtime button hook even if the router is unavailable, so it can recover WiFi.
 refresh_oom_policy
+publish_reset_ready
 
 echo "$(date +'%Y-%m-%d %H:%M:%S') - Starting service supervisor..." >> $LOG_FILE
 

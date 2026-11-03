@@ -10,7 +10,7 @@ flash_prepare_sd()
         if [ -f /tmp/sd/yi-hack/etc/system.conf ]; then
             cp -a /tmp/sd/yi-hack/etc/. /tmp/sd/yi-hack-config/ || return 1
         else
-            cp -a /backup/yi-hack-config/. /tmp/sd/yi-hack-config/ || return 1
+            cp -aL /backup/yi-hack-config/. /tmp/sd/yi-hack-config/ || return 1
         fi
     fi
 }

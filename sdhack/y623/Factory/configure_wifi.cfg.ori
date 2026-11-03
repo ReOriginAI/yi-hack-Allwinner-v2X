@@ -1,8 +1,16 @@
-# Rename this file to configure_wifi.cfg before booting.
-# Save as UTF-8/plain text. LF, CRLF, and CR line endings are accepted.
-# A UTF-8 BOM is accepted; UTF-16/NUL and invisible formatting characters are rejected.
-# Don't use backslash char \
-# Don't use double quote " around ssid and psk
-# Space chars are allowed and preserved exactly
+# Rename to configure_wifi.cfg and place in Factory/ on the SD card.
+# Save as UTF-8/plain text (LF, CRLF or CR; an optional UTF-8 BOM is accepted).
+# Use exactly ONE uncommented pair below. Both or partial pairs are rejected.
+# Do not put quotes around values. Spaces inside values are preserved.
+
+# For wifi_ values, avoid backslashes and double quotes (vendor restriction).
+# Option 1: join a 2.4 GHz router. Selects router Wi-Fi on boot.
 wifi_ssid=My AP 2.4GHz
-wifi_psk=password$
+wifi_psk=MyWifiPassword
+
+# Option 2: start the camera's hotspot. Comment out BOTH wifi_ lines above,
+# then uncomment BOTH hotspot_ lines below. SSID: 1-32 UTF-8 bytes.
+# Password: 8-63 printable ASCII characters, or hotspot_psk= for no password.
+# Saved router credentials are kept for Return to Primary WiFi.
+#hotspot_ssid=My Camera
+#hotspot_psk=CameraPassword

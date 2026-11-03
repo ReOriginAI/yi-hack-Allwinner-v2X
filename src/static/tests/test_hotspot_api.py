@@ -32,6 +32,7 @@ class HotspotApiTests(unittest.TestCase):
         self.config = self.root / 'etc/system.conf'
         shutil.copyfile(STATIC / 'etc/system.conf', self.config)
         shutil.copyfile(CGI / 'validate.sh', self.root / 'www/cgi-bin/validate.sh')
+        shutil.copyfile(STATIC / 'script/service_lock.sh', self.root / 'script/service_lock.sh')
         (self.root / 'bin/busybox').symlink_to(shutil.which(BUSYBOX))
         (self.root / 'bin/service_guard').symlink_to(self.guard)
         self.calls = self.root / 'calls'
@@ -93,7 +94,10 @@ esac
     def test_invalid_hotspot_input_is_rejected_before_primary_flash_write(self):
         cases = [{'WIFI_HOTSPOT_CHANNEL':'12'}, {'WIFI_HOTSPOT_BOOT':True},
                  {'WIFI_HOTSPOT_SSID':'a\nb'}, {'WIFI_HOTSPOT_SSID':'a\x00b'},
-                 {'WIFI_HOTSPOT_SSID':'é'*17}, {'WIFI_RESET_HOTSPOT':'maybe'}]
+                 {'WIFI_HOTSPOT_SSID':'é'*17}, {'WIFI_RESET_HOTSPOT':'maybe'},
+                 {'WIFI_HOTSPOT_PASSWORD':'short'}, {'WIFI_HOTSPOT_PASSWORD':'é'*8},
+                 {'WIFI_HOTSPOT_PASSWORD':'x'*64}, {'WIFI_HOTSPOT_PASSWORD':'valid\npass'},
+                 {'WIFI_HOTSPOT_CLEAR_PASSWORD':True}]
         before = self.config.read_bytes()
         for value in cases:
             with self.subTest(value=value):
@@ -101,6 +105,18 @@ esac
                 self.assertEqual(self.call('save', body)['error'], 'true')
                 self.assertEqual(self.config.read_bytes(), before)
                 self.assertFalse(self.calls.exists())
+
+    def test_password_save_keep_clear_and_status_never_discloses_it(self):
+        password='safe"pass\\word&|='
+        self.assertEqual(self.call('save', {'WIFI_HOTSPOT_PASSWORD':password})['error'],'false')
+        self.assertIn('WIFI_HOTSPOT_PASSWORD='+password+'\n',self.config.read_text())
+        status=self.call('status',method='GET')
+        self.assertTrue(status['hotspot_password_set'])
+        self.assertNotIn(password,json.dumps(status))
+        self.assertEqual(self.call('save', {'WIFI_HOTSPOT_PASSWORD':''})['error'],'false')
+        self.assertIn('WIFI_HOTSPOT_PASSWORD='+password+'\n',self.config.read_text())
+        self.assertEqual(self.call('save', {'WIFI_HOTSPOT_CLEAR_PASSWORD':'yes'})['error'],'false')
+        self.assertFalse(self.call('status',method='GET')['hotspot_password_set'])
 
     def test_unknown_firmware_rejects_button_override(self):
         before = self.config.read_bytes()

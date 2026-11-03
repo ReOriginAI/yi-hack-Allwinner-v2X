@@ -81,7 +81,7 @@ if [ "$ACTION" = "scan" ] || [ "$ACTION" = "status" ]; then
     [ -n "$HOTSPOT_STATE" ] || HOTSPOT_STATE=station
     [ -n "$HOTSPOT_CHANNEL" ] || HOTSPOT_CHANNEL=6
     [ -n "$HOTSPOT_BOOT" ] || HOTSPOT_BOOT=no
-    [ -n "$RESET_HOTSPOT" ] || RESET_HOTSPOT=no
+    [ -n "$RESET_HOTSPOT" ] || RESET_HOTSPOT=yes
     SCAN_FILE="/tmp/wifi_scan.$$"
     trap 'rm -f "$SCAN_FILE"' 0
     trap 'exit 1' 1 2 15
@@ -101,6 +101,11 @@ if [ "$ACTION" = "scan" ] || [ "$ACTION" = "status" ]; then
     printf '"hotspot_configured_ssid":%s,' "$(json_string "$(get_system_config WIFI_HOTSPOT_SSID)")"
     printf '"hotspot_channel":%s,' "$(json_string "$HOTSPOT_CHANNEL")"
     printf '"hotspot_boot":%s,' "$(json_string "$HOTSPOT_BOOT")"
+    if [ -n "$(get_system_config WIFI_HOTSPOT_PASSWORD)" ]; then
+        printf '"hotspot_password_set":true,'
+    else
+        printf '"hotspot_password_set":false,'
+    fi
     printf '"reset_hotspot":%s,' "$(json_string "$RESET_HOTSPOT")"
     printf '"reset_hotspot_supported":%s,' "$RESET_SUPPORTED"
     printf '"reset_hotspot_armed":%s,' "$RESET_ARMED"
@@ -131,12 +136,14 @@ if [ "$ACTION" = hotspot_start ] || [ "$ACTION" = hotspot_stop ]; then
 fi
 
 if [ "$ACTION" = "save" ]; then
+    . "$YI_HACK_PREFIX/script/service_lock.sh" || exit 1
+    yi_lock wifi-recovery || json_error "WiFi is busy; retry saving shortly"
     read -r POST_DATA
     printf '%s\n' "$POST_DATA" | jq -e . >/dev/null 2>&1 || json_error "invalid json"
 
     # Validate hotspot fields before any primary credential write. Missing fields
     # preserve saved values for clients using the older WiFi API.
-    for HOTSPOT_KEY in WIFI_HOTSPOT_BOOT WIFI_HOTSPOT_SSID WIFI_HOTSPOT_CHANNEL WIFI_RESET_HOTSPOT; do
+    for HOTSPOT_KEY in WIFI_HOTSPOT_BOOT WIFI_HOTSPOT_SSID WIFI_HOTSPOT_CHANNEL WIFI_RESET_HOTSPOT WIFI_HOTSPOT_PASSWORD WIFI_HOTSPOT_CLEAR_PASSWORD; do
         printf '%s\n' "$POST_DATA" | jq -e --arg key "$HOTSPOT_KEY" 'if has($key) then (.[$key] | type == "string" and (test("[\u0000-\u001f\u007f]") | not)) else true end' >/dev/null 2>&1 || json_error "invalid hotspot field"
     done
     HOTSPOT_BOOT=$(printf '%s\n' "$POST_DATA" | jq -r --arg saved "$(get_system_config WIFI_HOTSPOT_BOOT)" '.WIFI_HOTSPOT_BOOT // $saved')
@@ -145,10 +152,21 @@ if [ "$ACTION" = "save" ]; then
     RESET_HOTSPOT=$(printf '%s\n' "$POST_DATA" | jq -r --arg saved "$(get_system_config WIFI_RESET_HOTSPOT)" '.WIFI_RESET_HOTSPOT // $saved')
     [ -n "$HOTSPOT_BOOT" ] || HOTSPOT_BOOT=no
     [ -n "$HOTSPOT_CHANNEL" ] || HOTSPOT_CHANNEL=6
-    [ -n "$RESET_HOTSPOT" ] || RESET_HOTSPOT=no
+    [ -n "$RESET_HOTSPOT" ] || RESET_HOTSPOT=yes
     case "$HOTSPOT_BOOT:$RESET_HOTSPOT" in yes:yes|yes:no|no:yes|no:no) ;; *) json_error "invalid hotspot option" ;; esac
     case "$HOTSPOT_CHANNEL" in 1|2|3|4|5|6|7|8|9|10|11) ;; *) json_error "hotspot channel must be 1-11" ;; esac
     [ "$(printf %s "$HOTSPOT_SSID" | "$YI_HACK_PREFIX/bin/busybox" wc -c)" -le 32 ] || json_error "hotspot SSID must fit in 32 bytes"
+    HOTSPOT_PASSWORD=$(get_system_config WIFI_HOTSPOT_PASSWORD)
+    NEW_HOTSPOT_PASSWORD=$(printf '%s\n' "$POST_DATA" | jq -r '.WIFI_HOTSPOT_PASSWORD // ""')
+    CLEAR_HOTSPOT_PASSWORD=$(printf '%s\n' "$POST_DATA" | jq -r '.WIFI_HOTSPOT_CLEAR_PASSWORD // "no"')
+    case "$CLEAR_HOTSPOT_PASSWORD" in yes|no) ;; *) json_error "invalid hotspot clear option" ;; esac
+    if [ -n "$NEW_HOTSPOT_PASSWORD" ]; then
+        printf %s "$NEW_HOTSPOT_PASSWORD" | jq -Rse 'test("^[ -~]{8,63}$")' >/dev/null || json_error "hotspot password must be 8-63 printable ASCII characters"
+        [ "$CLEAR_HOTSPOT_PASSWORD" != yes ] || json_error "choose a password or clear it"
+        HOTSPOT_PASSWORD=$NEW_HOTSPOT_PASSWORD
+    elif [ "$CLEAR_HOTSPOT_PASSWORD" = yes ]; then
+        HOTSPOT_PASSWORD=
+    fi
     if [ "$RESET_HOTSPOT" = yes ]; then
         "$YI_HACK_PREFIX/script/hotspot.sh" reset-supported || json_error "reset button override is unavailable for this firmware"
     fi
@@ -200,6 +218,7 @@ if [ "$ACTION" = "save" ]; then
 
     set_system_config WIFI_HOTSPOT_BOOT "$HOTSPOT_BOOT"
     set_system_config WIFI_HOTSPOT_SSID "$HOTSPOT_SSID"
+    set_system_config WIFI_HOTSPOT_PASSWORD "$HOTSPOT_PASSWORD"
     set_system_config WIFI_HOTSPOT_CHANNEL "$HOTSPOT_CHANNEL"
     set_system_config WIFI_RESET_HOTSPOT "$RESET_HOTSPOT"
     set_system_config WIFI_MAINTENANCE_ENABLED "$MAINT_ENABLED"

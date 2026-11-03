@@ -38,32 +38,40 @@ int main(int argc, char **argv) {
     assert(filter_level(43, 0x700e, caller, 0, 0) == 0);
     assert(filter_level(42, 0x701c, caller, 0, 0) == 0);
     assert(filter_level(42, 0x700e, caller, -1, 0) == -1);
-    assert(access(RESET_ARMED, F_OK) == 0);
-    assert(filter_level(42, 0x700e, caller, 0, 1000) == 1);
-    assert(filter_level(42, 0x700e, caller, -1, 6000) == -1);
-    assert(filter_level(42, 0x700e, caller, 0, 6001) == 1);
-    assert(filter_level(42, 0x700e, caller, 0, 7000) == 1);
+    assert(access(RESET_ARMED, F_OK) != 0);
+    /* Boot-time low samples must not request a hotspot. Release after the
+     * startup guard is required before a deliberate five-second hold. */
+    assert(filter_level(42, 0x700e, caller, 0, 1000) == 0);
+    assert(filter_level(42, 0x700e, caller, 0, 10000) == 0);
+    assert(access(RESET_REQUEST, F_OK) != 0);
+    assert(filter_level(42, 0x700e, caller, 0, 31000) == 1);
+    assert(access(RESET_REQUEST, F_OK) != 0);
+    assert(filter_level(42, 0x700e, caller, 1, 35000) == 1);
+    assert(filter_level(42, 0x700e, caller, 0, 41000) == 1);
+    assert(filter_level(42, 0x700e, caller, -1, 46000) == -1);
+    assert(filter_level(42, 0x700e, caller, 0, 46001) == 1);
+    assert(filter_level(42, 0x700e, caller, 0, 47000) == 1);
     assert(access(RESET_REQUEST, F_OK) != 0); /* unknown readings break the hold */
-    assert(filter_level(42, 0x700e, caller, 1, 8000) == 1);
+    assert(filter_level(42, 0x700e, caller, 1, 48000) == 1);
     assert(filter_level(42, 0x700e, caller, 0, UINT64_MAX) == 1);
     assert(access(RESET_REQUEST, F_OK) != 0); /* failed clock never resets */
-    assert(filter_level(42, 0x700e, caller, 0, 10000) == 1);
-    assert(filter_level(42, 0x700e, caller, 0, 14999) == 1);
+    assert(filter_level(42, 0x700e, caller, 0, 50000) == 1);
+    assert(filter_level(42, 0x700e, caller, 0, 54999) == 1);
     assert(access(RESET_REQUEST, F_OK) != 0);
-    assert(filter_level(42, 0x700e, caller, 0, 15000) == 1);
+    assert(filter_level(42, 0x700e, caller, 0, 55000) == 1);
     FILE *f = fopen(RESET_REQUEST, "r");
     assert(f);
     char message[32];
     assert(fgets(message, sizeof(message), f));
-    assert(strcmp(message, "start\n") == 0);
+    assert(strcmp(message, "start-open\n") == 0);
     fclose(f);
     unlink(RESET_REQUEST);
     assert(filter_level(42, 0x700e, caller, 0, UINT64_MAX) == 1);
-    assert(filter_level(42, 0x700e, caller, 0, 20000) == 1);
+    assert(filter_level(42, 0x700e, caller, 0, 60000) == 1);
     assert(access(RESET_REQUEST, F_OK) != 0); /* one event per hold */
-    assert(filter_level(42, 0x700e, caller, 1, 20001) == 1);
-    assert(filter_level(42, 0x700e, caller, 0, 21000) == 1);
-    assert(filter_level(42, 0x700e, caller, 0, 26000) == 1);
+    assert(filter_level(42, 0x700e, caller, 1, 60001) == 1);
+    assert(filter_level(42, 0x700e, caller, 0, 61000) == 1);
+    assert(filter_level(42, 0x700e, caller, 0, 66000) == 1);
     assert(access(RESET_REQUEST, F_OK) == 0);
     unlink(RESET_REQUEST);
     /* Real unrelated ioctl failures preserve libc's errno contract. */

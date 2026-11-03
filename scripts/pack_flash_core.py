@@ -14,6 +14,7 @@ import re
 import shutil
 import subprocess
 import tarfile
+import struct
 
 ROOT = Path(__file__).resolve().parents[1]
 STOCK_RMM = {'y623':'f8164a1c221ba8c1d4888322a3cf0706','y28ga':'46261d809c58dea5b39f3351e322d710'}
@@ -24,6 +25,17 @@ LIMITS = {'rootfs':0x120000,'home':0x340000,'backup':0x130000}
 
 def md5(path): return hashlib.md5(path.read_bytes()).hexdigest()
 def run(args, **kw): subprocess.run([str(x) for x in args],check=True,**kw)
+def jffs2_geometry(image, erase=4096):
+    data=image.read_bytes();offset=0;nodes=0;crossing=0
+    while offset+12<=len(data):
+        magic,kind,length=struct.unpack_from('<HHI',data,offset)
+        if magic==0x1985 and 12<=length<=len(data)-offset:
+            nodes+=1
+            crossing+=int(offset%erase+length>erase)
+            offset+=(length+3)&~3
+        else:offset+=4
+    if not nodes:raise ValueError('no JFFS2 nodes in generated image')
+    return {'physical_erase_bytes':erase,'nodes_crossing_blocks':crossing,'flashable':crossing==0}
 def copy(src,dst):
     dst.parent.mkdir(parents=True,exist_ok=True)
     shutil.copy2(src,dst)
@@ -62,6 +74,7 @@ def check_dependencies(trees):
     paths=['/lib','/usr/lib','/home/lib','/home/qigan/lib','/home/app/locallib','/home/yi-hack/lib']
     queue=[p for p in (trees/'home/yi-hack').rglob('*') if not p.is_symlink() and p.is_file()]
     queue += [trees/'home/app'/name for name in ('rmm','dispatch','mp4record')]
+    if (trees/'backup/tools/hostapd').exists():queue.append(trees/'backup/tools/hostapd')
     checked=set()
     while queue:
         path=queue.pop()
@@ -93,6 +106,9 @@ def build(a):
     for name,src in [('rootfs',a.rootfs),('home',a.home),('backup',a.backup)]:
         shutil.copytree(src,trees/name,symlinks=True)
     home=trees/'home';rootfs=trees/'rootfs';backup=trees/'backup';core=home/'yi-hack'
+    # Keep an SD mountpoint even before tmpfs setup. This also lets an older
+    # pending dispatcher reach its verified SD repair on a recovery boot.
+    (rootfs/'tmp/sd').mkdir(parents=True,exist_ok=True)
     # Import build artifacts only, never runtime settings, keys or recordings.
     core.mkdir()
     for name in ['bin','lib','sbin','usr','www/onvif']:
@@ -155,7 +171,27 @@ def build(a):
         p.chmod(0o755)
     # A small persistent fallback exists even if the data card cannot mount.
     shutil.copytree(core/'etc',backup/'yi-hack-config',dirs_exist_ok=True)
+    # Default images/fonts/archive are immutable, and already stored in home.
+    # Keep mutable settings/keys in JFFS2 without duplicating those assets.
+    for name in ['fallback.jpg','defaults.tar.bz2','watermark']:
+        p=backup/'yi-hack-config'/name
+        if p.is_dir():shutil.rmtree(p)
+        elif p.exists():p.unlink()
+        p.symlink_to('/home/yi-hack/etc/'+name)
+    copy(backup/'tools/default.script',core/'script/vendor-default.script')
+    (backup/'tools/default.script').unlink()
+    (backup/'tools/default.script').symlink_to('/home/yi-hack/script/vendor-default.script')
     (backup/'init.sh').write_text(renderer.render(model,a.noop.read_bytes(),core,flash=True));(backup/'init.sh').chmod(0o755)
+    # The AP daemon replaces the vendor's station-only build for hotspot duty.
+    # Store it in backup; retain a manifest-checked link at the common prefix.
+    if model == 'y623':
+        copy(core/'bin/hostapd',backup/'tools/hostapd')
+        (core/'bin/hostapd').unlink()
+        (core/'bin/hostapd').symlink_to('/backup/tools/hostapd')
+    # The SD installer already reclaims these obsolete vendor update helpers.
+    # Flash profiles disable SD payload upgrades and keep raw recovery inputs.
+    for name in ['upgrade.sh','extpkg.sh','rsa_pub_dec','upgrade_firmware','mem_update_pack.sh','update_homefs.sh']:
+        (backup/'tools'/name).unlink(missing_ok=True)
     deduplicate(core/'lib');deduplicate(optional/'lib')
     dependencies=check_dependencies(trees)
     report={'model':model,'profile':'flash-core','limits':LIMITS,'images':{},'optional_programs':sorted(OPTIONAL_BIN),'dependency_files_checked':dependencies,'deployed':False}
@@ -170,6 +206,7 @@ def build(a):
     size=image.stat().st_size
     if size>LIMITS['backup']-131072:raise ValueError('backup lacks 128 KiB config/recovery headroom')
     report['images']['backup']={'bytes':size,'headroom':LIMITS['backup']-size,'sha256':hashlib.sha256(image.read_bytes()).hexdigest()}
+    report['images']['backup'].update(jffs2_geometry(image))
     (a.output/'report.json').write_text(json.dumps(report,indent=2)+'\n')
     print(json.dumps(report,indent=2))
 

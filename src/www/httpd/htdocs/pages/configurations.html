@@ -412,7 +412,7 @@
                                 <span class="switch-text"></span>
                             </label>
                             <span class="switch-description">
-                                Enable or disable the Network Time Protocol Daemon. This is required to sync the time on the camera if the cloud features are disabled.
+                                Enable automatic clock synchronization. A local NTP server also works without internet access.
                             </span>
                         </td>
                     </tr>
@@ -421,8 +421,21 @@
                         <td>
                             <input class="u-full-width" type="text" placeholder="" data-key="NTP_SERVER" id="NTP_SERVER"/>
                             <span class="switch-description">
-                                NTP server name.
+                                NTP server name or local network IP address.
                             </span>
+                        </td>
+                    </tr>
+                    <tr class="row">
+                        <td>Offline clock</td>
+                        <td>
+                            <p>Camera time (UTC): <span id="clock-current">Loading...</span></p>
+                            <button type="button" class="clock-action" id="clock-browser">Use browser time</button>
+                            <label for="clock-manual">Date and time in this browser's timezone</label>
+                            <input class="u-full-width" type="datetime-local" step="1" min="2020-01-01T00:00" max="2037-12-31T23:59:59" id="clock-manual"/>
+                            <button type="button" class="clock-action" id="clock-set">Set manual time</button>
+                            <span id="clock-status" role="status"></span>
+                            <p class="switch-description">Setting the clock disables NTP synchronization. Camera timezone settings still control its display and recordings.
+                            After power loss, the last manually saved time is restored as an estimate; set it again for accurate time.</p>
                         </td>
                     </tr>
                     <tr class="row">

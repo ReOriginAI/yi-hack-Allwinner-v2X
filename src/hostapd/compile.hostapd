@@ -1,0 +1,21 @@
+#!/bin/bash
+set -euo pipefail
+cd "$(dirname "$0")"
+AP_ROOT=$(pwd)
+AP_TOOLCHAIN=${YI_TOOLCHAIN_BIN:-/opt/yi/toolchain-sunxi-musl/toolchain/bin}
+AP_CC="$AP_TOOLCHAIN/arm-openwrt-linux-gcc"
+AP_NL="$AP_ROOT/_build/libnl-tiny-40493a655d8caa2ccf5206dde1e733abe2920432"
+cmake -S "$AP_NL" -B _build/netlink -DCMAKE_SYSTEM_NAME=Linux \
+    -DCMAKE_C_COMPILER="$AP_CC" -DCMAKE_C_FLAGS='-Os -ffunction-sections -fdata-sections'
+cmake --build _build/netlink --target nl-tiny-static -j"$(nproc)"
+AP_SOURCE="$AP_ROOT/_build/hostapd-2.11/hostapd"
+cp config.hostapd "$AP_SOURCE/.config"
+cat >> "$AP_SOURCE/.config" <<EOC
+CFLAGS += -I$AP_NL/include
+LIBS += -L$AP_ROOT/_build/netlink
+EOC
+make -C "$AP_SOURCE" -j"$(nproc)" CC="$AP_CC"
+for program in hostapd hostapd_cli; do
+    cp "$AP_SOURCE/$program" "_install/bin/$program"
+    "$AP_TOOLCHAIN/arm-openwrt-linux-strip" "_install/bin/$program"
+done

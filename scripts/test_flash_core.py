@@ -97,6 +97,24 @@ class FlashCoreTests(unittest.TestCase):
                                         env=self.env, capture_output=True, timeout=2)
                 self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_vendor_sd_callback_preserves_existing_mounts(self):
+        calls = self.root / 'mount-calls'
+        for command in ('mount', 'umount'):
+            path = self.prefix / 'bin' / command
+            path.write_text(f'#!/bin/sh\necho "{command} $*" >> "{calls}"\n')
+            path.chmod(0o755)
+        env = dict(self.env, YI_FLASH_CORE_PREFIX=str(self.prefix),
+                   PATH=str(self.prefix / 'bin') + ':' + os.environ['PATH'])
+        for present in (True, False):
+            self.mounts.write_text('/dev/mmcblk0p1 /tmp/sd vfat rw 0 0\n' if present else '')
+            result = subprocess.run(['sh', str(SCRIPTS / 'flash_mount_sd.sh')], env=env,
+                                    capture_output=True, timeout=3)
+            self.assertEqual(result.returncode, 0)
+            if present:
+                self.assertFalse(calls.exists())
+            else:
+                self.assertEqual(calls.read_text().splitlines(), ['mount -t vfat /dev/mmcblk0p1 /tmp/sd'])
+
     def test_storage_boot_uses_internal_fallback_without_card(self):
         self.mounts.write_text('')
         sd = self.root / 'sd'
@@ -137,11 +155,48 @@ check() {
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.strip(), 'next-service')
 
+    def test_boot_consumes_valid_requests_and_keeps_running_after_rejection(self):
+        template = (ROOT / 'scripts/vendor-ablation/bootstrap.sh.in').read_text()
+        start = template.index('if [ -f /tmp/sd/Factory/configure_wifi.cfg ]; then')
+        end = template.index('\n# Keep the archived Yi cloud helper', start)
+        sd = self.root / 'sd'
+        factory = sd / 'Factory'
+        factory.mkdir(parents=True)
+        helper = self.prefix / 'script/configure_wifi.sh'
+        helper.write_text('#!/bin/sh\n[ -f "$CFG_FILE" ] || exit 2\nexit "$TEST_RESULT"\n')
+        helper.chmod(0o755)
+        console = self.root / 'console'
+        body = template[start:end].replace('/tmp/sd', str(sd)).replace('/dev/console', str(console))
+        for result, suffix in ((0, 'applied'), (1, 'rejected')):
+            cfg = factory / 'configure_wifi.cfg'
+            cfg.write_text('fixture credentials\n')
+            run = subprocess.run(['sh', '-c', body + '\necho boot-continued'],
+                env=dict(os.environ, YI=str(self.prefix), TEST_RESULT=str(result)),
+                capture_output=True, text=True, timeout=3)
+            self.assertEqual(run.returncode, 0, run.stderr)
+            self.assertIn('boot-continued', run.stdout)
+            self.assertFalse(cfg.exists())
+            self.assertEqual((factory / ('configure_wifi.cfg.' + suffix)).read_text(), 'fixture credentials\n')
+        self.assertNotIn('fixture credentials', console.read_text())
+
+    def test_reset_button_arms_after_startup_without_wifi(self):
+        text = (SCRIPTS / 'wd.sh').read_text()
+        function = text[text.index('publish_reset_ready()'):text.index('\ncheck_wifi()')]
+        startup = text[text.index('# Keep the supervisor'):text.index('\nwhile true')]
+        ready = self.root / 'reset-ready'
+        body = ('get_config() { echo yes; }\nrefresh_oom_policy() { :; }\n'
+                'LOG_FILE=/dev/null\n' + function + '\n' + startup)
+        body = body.replace('/tmp/yi-reset-hotspot.ready', str(ready))
+        body = body.replace('/proc/$$/oom_score_adj', str(self.root / 'oom-score'))
+        result = self.shell(body)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(ready.exists())
+
     def test_flash_boot_is_optional_sd_and_does_not_execute_factory(self):
         spec = importlib.util.spec_from_file_location('render', ROOT / 'scripts/vendor-ablation/render.py')
         renderer = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(renderer)
-        for name in renderer.REQUIRED + ('script/flash_storage.sh', 'script/flash_config_sync.sh'):
+        for name in renderer.REQUIRED + ('script/flash_storage.sh', 'script/flash_config_sync.sh', 'script/flash_mount_sd.sh', 'script/flash_dispatch.sh'):
             path = self.root / 'payload' / name
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text('fixture')
@@ -152,6 +207,12 @@ check() {
                 self.assertNotIn('boot_fail no-sd', text)
                 self.assertNotIn('/bin/sh /tmp/sd/Factory/config.sh', text)
                 self.assertIn('script/flash_config_sync.sh', text)
+                self.assertIn('script/wifi_station_guard.sh', text)
+                self.assertIn('cp "/home/app/script/$role" "/tmp/local-only/vendor-$role"', text)
+                self.assertIn('wificonnect.sh killwifi.sh wifidhcp.sh', text)
+                self.assertIn('/home/app/script/mount_sd.sh || boot_fail sd-mount-hook', text)
+                self.assertNotIn('boot_fail wifi-config', text)
+                self.assertIn('configure_wifi.cfg.rejected', text)
                 self.assertNotIn(renderer.RMM[model], text)
                 subprocess.run(['sh', '-n'], input=text, text=True, check=True)
                 normal = renderer.render(model, b'noop', self.root / 'payload')

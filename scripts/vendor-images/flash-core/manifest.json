@@ -1,0 +1,75 @@
+{
+  "format": 1,
+  "archive": "bases.tar.xz",
+  "sha256": "54e56b70cad29d337de3303238e2b0b95a60c6cc3b01d0d9ff2917c2afdabd34",
+  "files": {
+    "y28ga/backup/ko/8189fs.ko": {
+      "bytes": 994336,
+      "sha256": "0bd6522c93c64a60457d576640a099eaaa386e669e56b85ebd80f0d0d678c449"
+    },
+    "y28ga/backup/ko/icplus.ko": {
+      "bytes": 5820,
+      "sha256": "1838663f54cde2ee1b99cb68a16e0fda870ac7ff468596d3efc69d576dfe99e7"
+    },
+    "y28ga/backup/tools/default.script": {
+      "bytes": 4755,
+      "sha256": "b98a3fae1bbc26211ff30fe947b65367499467b3876ce4240ce250307885288a"
+    },
+    "y28ga/backup/tools/ethdhcp.sh": {
+      "bytes": 65,
+      "sha256": "d515f314f5ccf0730266810fb7791a44ec0398cfe3b0ee9dbc04cab64cbd5ef1"
+    },
+    "y28ga/backup/tools/wificonnect.sh": {
+      "bytes": 238,
+      "sha256": "50a93a5f05f874af7be2ed074bd48c5d36c9149d4e8b213d86575f6f481d734e"
+    },
+    "y28ga/backup/tools/wifidhcp.sh": {
+      "bytes": 67,
+      "sha256": "487a21ce684c897b92c4dd2fda71135b9a5e68077dc59fa2c54ebc330832b1a3"
+    },
+    "y28ga/backup/tools/wpa_supplicant": {
+      "bytes": 613112,
+      "sha256": "96c7676e43a27272281ef5fa5340a9dbaa2b98d0455756e09099f27fb2f99e84"
+    },
+    "y28ga/home.bin": {
+      "bytes": 3407872,
+      "sha256": "abc5172f7ea19d78f76c3b8638d6b4e9aaf12fce943dcc686d91981d69eb5356"
+    },
+    "y28ga/rootfs.bin": {
+      "bytes": 1179648,
+      "sha256": "8486e5f4622caa7085c95ba2c190b133859e282b376e95ecea07b473a53a7e76"
+    },
+    "y623/backup/ko/8189fs.ko": {
+      "bytes": 983852,
+      "sha256": "a95bcdef9727114055e6937ef85f9cc00e9cb52ffcf3f288d4e41801615e130d"
+    },
+    "y623/backup/tools/default.script": {
+      "bytes": 4755,
+      "sha256": "b98a3fae1bbc26211ff30fe947b65367499467b3876ce4240ce250307885288a"
+    },
+    "y623/backup/tools/ethdhcp.sh": {
+      "bytes": 65,
+      "sha256": "d515f314f5ccf0730266810fb7791a44ec0398cfe3b0ee9dbc04cab64cbd5ef1"
+    },
+    "y623/backup/tools/wificonnect.sh": {
+      "bytes": 238,
+      "sha256": "50a93a5f05f874af7be2ed074bd48c5d36c9149d4e8b213d86575f6f481d734e"
+    },
+    "y623/backup/tools/wifidhcp.sh": {
+      "bytes": 67,
+      "sha256": "487a21ce684c897b92c4dd2fda71135b9a5e68077dc59fa2c54ebc330832b1a3"
+    },
+    "y623/backup/tools/wpa_supplicant": {
+      "bytes": 613112,
+      "sha256": "96c7676e43a27272281ef5fa5340a9dbaa2b98d0455756e09099f27fb2f99e84"
+    },
+    "y623/home.bin": {
+      "bytes": 3407872,
+      "sha256": "7144c78c7a77446f752f1db0c4280b3de37e8a237f8336836ad8bf95019dd831"
+    },
+    "y623/rootfs.bin": {
+      "bytes": 1179648,
+      "sha256": "3e0b738bf76b76518daa543367e6dd1ab58748273ef172d3c877c2ef2245fba3"
+    }
+  }
+}

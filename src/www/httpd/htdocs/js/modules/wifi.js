@@ -119,6 +119,14 @@ APP.wifi = (function($) {
         configs["WIFI_HOTSPOT_BOOT"] = $('#WIFI_HOTSPOT_BOOT').prop('checked') ? "yes" : "no";
         configs["WIFI_HOTSPOT_SSID"] = $('#WIFI_HOTSPOT_SSID').val();
         configs["WIFI_HOTSPOT_CHANNEL"] = String(hotspotChannel);
+        var hotspotPassword = $('#WIFI_HOTSPOT_PASSWORD').val();
+        var clearHotspotPassword = $('#WIFI_HOTSPOT_CLEAR_PASSWORD').prop('checked');
+        if (hotspotPassword && (!/^[ -~]{8,63}$/.test(hotspotPassword) || clearHotspotPassword)) {
+            saveStatusElem.text("Not saved, use 8-63 printable ASCII characters or choose to remove the password.");
+            return;
+        }
+        configs["WIFI_HOTSPOT_PASSWORD"] = hotspotPassword;
+        configs["WIFI_HOTSPOT_CLEAR_PASSWORD"] = clearHotspotPassword ? "yes" : "no";
         configs["WIFI_RESET_HOTSPOT"] = $('#WIFI_RESET_HOTSPOT').prop('checked') ? "yes" : "no";
         configs["WIFI_MAINTENANCE_ENABLED"] = maintenanceEnabled ? "yes" : "no";
         configs["WIFI_MAINTENANCE_SSID"] = maintenanceSSID;
@@ -139,6 +147,8 @@ APP.wifi = (function($) {
                     saveStatusElem.text("Not saved: " + ((response && response.message) ? response.message : "generic error."));
                 } else {
                     saveStatusElem.text("Saved. Reboot the camera to apply WiFi changes.");
+                    $('#WIFI_HOTSPOT_PASSWORD').val('');
+                    $('#WIFI_HOTSPOT_CLEAR_PASSWORD').prop('checked', false);
                     currentPrimarySSID = primarySSID;
                     if (maintenancePassword) {
                         maintenancePasswordSet = true;
@@ -171,6 +181,9 @@ APP.wifi = (function($) {
                 $('#WIFI_HOTSPOT_SSID').val(data.hotspot_configured_ssid || "").attr('placeholder', data.hotspot_ssid || "Automatic");
                 $('#WIFI_HOTSPOT_CHANNEL').val(data.hotspot_channel || "6");
                 $('#WIFI_HOTSPOT_BOOT').prop('checked', data.hotspot_boot == "yes");
+                $('#hotspot-password-description').text(data.hotspot_password_set ?
+                    'A password is saved. Leave blank to keep it, or choose Remove hotspot password.' :
+                    'No password is saved: the hotspot is open. Set 8-63 printable ASCII characters to protect it.');
                 $('#reset-hotspot-current').text(data.reset_hotspot_armed ? 'Hotspot override active: hold five seconds.' : 'Factory reset. An enabled hotspot override takes effect after reboot.');
                 $('#WIFI_RESET_HOTSPOT').prop('checked', data.reset_hotspot_supported && data.reset_hotspot == "yes").prop('disabled', !data.reset_hotspot_supported);
                 if (!data.reset_hotspot_supported) {

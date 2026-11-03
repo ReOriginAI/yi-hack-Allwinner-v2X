@@ -6,6 +6,7 @@ APP.configurations = (function($) {
         registerEventHandler();
         fetchConfigs();
         fetchStatus();
+        APP.clock.init();
     }
 
     function registerEventHandler() {

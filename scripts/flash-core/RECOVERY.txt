@@ -1,0 +1,31 @@
+RECOVERY FOR THIS CAMERA ONLY (@MODEL@)
+
+Never use another camera's flash-core-recovery directory. Keep it and all
+installer files: it holds private device identity, settings and original startup.
+
+If hack_result.txt reports failure before images were staged, remove the SD
+card with power OFF and boot again. The stock rootfs/home have not been
+changed. Reclaimed updater files are backed up on SD. To undo staged writable
+changes too, follow the full recovery below. Do not retry using a partially
+prepared card without preserving its recovery directory.
+
+To restore original rootfs/home and startup after this installer was activated:
+1. Power OFF and put the SAME installation SD card in your computer.
+2. Check flash-core-recovery/checksums.md5 from that directory with md5sum -c.
+3. Copy flash-core/recovery/rootfs_@MODEL@.restore to the card root as
+   rootfs_@MODEL@. Copy home_@MODEL@.restore there as home_@MODEL@.
+4. Create an empty file flash-core-recovery/RESTORE (no extension).
+5. Leave flash-core/ and flash-core-recovery/ intact. Insert the card and power
+   on. Allow five minutes, stable power and automatic reboots. U-Boot restores
+   rootfs/home; the dispatcher then verifies both originals and camera identity,
+   restores original startup and reclaimed updater files, and retires triggers.
+   hack_result.txt reports 'Original rootfs/home and startup restored'.
+6. Power OFF, remove the card, and boot the vendor firmware.
+
+If the dispatcher was not activated yet, the installer SD hook also handles the
+RESTORE marker once both stock images and recovery checksums match.
+The compatible y623 VE kernel patch, if installed, is retained. Requested Wi-Fi
+credentials are retained. This does not factory-reset the camera or erase its
+identity. Do not write mtdblock4.bin (raw JFFS2), mfg, env or conf from generic
+packages. Recovery requires a working U-Boot/SD path and cannot guarantee repair
+of interrupted bootloader/kernel writes or faulty storage; UART may be needed.

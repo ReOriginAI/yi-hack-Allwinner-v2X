@@ -28,6 +28,9 @@
 #ifndef RESET_REQUEST
 #define RESET_REQUEST "/tmp/yi-hotspot.request"
 #endif
+#ifndef RESET_READY
+#define RESET_READY "/tmp/yi-reset-hotspot.ready"
+#endif
 #ifdef __GLIBC__
 typedef unsigned long ioctl_request_t;
 #else
@@ -41,6 +44,9 @@ static const struct reset_profile profiles[] = {
 static const struct reset_profile *profile;
 static struct reset_press press;
 static int armed_reported;
+static uint64_t accept_after;
+static int startup_released;
+static int runtime_ready;
 static pthread_once_t once = PTHREAD_ONCE_INIT;
 static int (*real_ioctl)(int, ioctl_request_t, ...);
 static void resolve(void) { real_ioctl = dlsym(RTLD_NEXT, "ioctl"); }
@@ -84,7 +90,7 @@ static void request_hotspot(void)
     int fd = open(temporary, O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC, 0600);
     if (fd < 0) return;
     struct stat st;
-    int ok = fstat(fd, &st) == 0 && S_ISREG(st.st_mode) && write(fd, "start\n", 6) == 6;
+    int ok = fstat(fd, &st) == 0 && S_ISREG(st.st_mode) && write(fd, "start-open\n", 11) == 11;
     close(fd);
     if (ok) rename(temporary, RESET_REQUEST);
     else unlink(temporary);
@@ -94,6 +100,10 @@ static int filter_level(int fd, ioctl_request_t request, uintptr_t caller, int r
     char path[64], target[64];
     if (!profile || (unsigned long)request != 0x700e || caller != profile->caller)
         return result;
+    /* Preserve the vendor's initialization-time reads. Interception is a
+     * runtime feature and must not alter WiFi/board startup sequencing. */
+    if (!accept_after && now != UINT64_MAX) accept_after = now + 30000;
+    if (!accept_after || now < accept_after) return result;
     snprintf(path, sizeof(path), "/proc/self/fd/%d", fd);
     ssize_t n = readlink(path, target, sizeof(target)-1);
     if (n < 0) return result;
@@ -105,7 +115,14 @@ static int filter_level(int fd, ioctl_request_t request, uintptr_t caller, int r
     if (now == UINT64_MAX) {
         /* Timing failure must never expose a pressed sample to factory reset. */
         press.tracking = 0;
-    } else if (reset_press_update(&press, result, now)) request_hotspot();
+    } else {
+        /* The CPLD reset line can read low while boot pin setup settles.
+         * Require a released sample after startup before accepting a hold. */
+        if (!startup_released) {
+            if (result > 0) startup_released = 1;
+            press.tracking = 0;
+        } else if (reset_press_update(&press, result, now)) request_hotspot();
+    }
     return result == 0 ? 1 : result;
 }
 int ioctl(int fd, ioctl_request_t request, ...)
@@ -119,7 +136,8 @@ int ioctl(int fd, ioctl_request_t request, ...)
     if (!real_ioctl) { errno = ENOSYS; return -1; }
     errno = incoming_errno;
     int result = real_ioctl(fd, request, arg), saved = errno;
-    if (profile && (unsigned long)request == 0x700e) {
+    if (profile && (unsigned long)request == 0x700e &&
+        (runtime_ready || (runtime_ready = access(RESET_READY, F_OK) == 0))) {
         struct timespec now;
         uint64_t milliseconds = UINT64_MAX;
         if (clock_gettime(CLOCK_MONOTONIC, &now) == 0)

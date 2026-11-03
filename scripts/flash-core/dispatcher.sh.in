@@ -1,0 +1,48 @@
+#!/bin/sh
+# Pending installs and explicit recovery need the SD card; ordinary boots do not.
+boot_error() {
+    echo "Flash-core boot failed: $*" > /dev/console
+    (umask 077; printf '%.160s\n' "$*" > /backup/flash-core-last-error) 2>/dev/null
+    sync
+    exit 1
+}
+if [ -f /backup/flash-core-install.pending ] || [ -e /dev/mmcblk0p1 ] || [ -e /dev/mmcblk0 ]; then
+    # Stock rcS does not mount /tmp. The old vendor init did that; replacing it
+    # makes this our responsibility before creating directories on SquashFS.
+    if ! awk '$2 == "/tmp" && $3 == "tmpfs" {found=1} END {exit !found}' /proc/mounts; then
+        mount -t tmpfs -o size=32m tmpfs /tmp || boot_error tmpfs
+    fi
+    mkdir -p /tmp/sd || boot_error sd-directory
+    if ! awk '$2 == "/tmp/sd" && $3 == "vfat" && $1 ~ /^\/dev\/(block\/)?mmcblk/ {found=1} END {exit !found}' /proc/mounts; then
+        if ! mount -t vfat /dev/mmcblk0p1 /tmp/sd 2>/dev/null && ! mount -t vfat /dev/mmcblk0 /tmp/sd 2>/dev/null; then
+            [ ! -f /backup/flash-core-install.pending ] || boot_error 'pending installation needs original SD card'
+        fi
+    fi
+fi
+if [ -f /tmp/sd/flash-core-recovery/RESTORE ]; then
+    # Unused partition padding can change on erase/write; verify the complete
+    # original filesystem prefix rather than requiring identical tail bytes.
+    [ "$(dd if=/dev/mtdblock2 bs=4096 count=@ROOT_STOCK_BLOCKS@ 2>/dev/null | md5sum | cut -d ' ' -f1)" = '@ROOT_STOCK_PREFIX@' ] &&
+    [ "$(dd if=/dev/mtdblock3 bs=4096 count=@HOME_STOCK_BLOCKS@ 2>/dev/null | md5sum | cut -d ' ' -f1)" = '@HOME_STOCK_PREFIX@' ] &&
+    [ -s /tmp/sd/flash-core-recovery/mtd/mtdblock6.bin ] &&
+    [ "$(md5sum /dev/mtdblock6 | cut -d ' ' -f1)" = "$(md5sum /tmp/sd/flash-core-recovery/mtd/mtdblock6.bin | cut -d ' ' -f1)" ] || exit 1
+    (cd /tmp/sd/flash-core-recovery && md5sum -c checksums.md5 >/dev/null 2>&1) || exit 1
+    # Restore only the explicitly reclaimed updater files, never raw JFFS2.
+    rm -f /backup/tools/hostapd /backup/flash-core-init.sh /backup/flash-core-init.sh.new /backup/init.sh.new
+    rm -rf /backup/yi-hack-config
+    for f in upgrade.sh upgrade_firmware extpkg.sh rsa_pub_dec mem_update_pack.sh update_homefs.sh; do
+        saved=/tmp/sd/flash-core-recovery/files/tools_$f
+        [ ! -f "$saved" ] || cp "$saved" "/backup/tools/$f" || exit 1
+    done
+    cp /tmp/sd/flash-core-recovery/files/init.sh /backup/init.sh.restore || exit 1
+    chmod 755 /backup/init.sh.restore
+    mv /backup/init.sh.restore /backup/init.sh || exit 1
+    rm -f /backup/flash-core-install.pending /backup/flash-core-original-init.sh /tmp/sd/rootfs_@MODEL@ /tmp/sd/home_@MODEL@ /tmp/sd/flash-core-recovery/RESTORE /tmp/sd/Factory/factory_test.sh /tmp/sd/lower_half_init.sh
+    echo 'Original rootfs/home and startup restored. Compatible y623 kernel patch, if installed, is retained.' > /tmp/sd/hack_result.txt
+    sync
+    exec /bin/busybox reboot -f
+fi
+if [ -f /backup/flash-core-install.pending ]; then
+    exec /bin/sh /tmp/sd/flash-core/install.sh --resume
+fi
+exec /bin/sh /backup/flash-core-init.sh
