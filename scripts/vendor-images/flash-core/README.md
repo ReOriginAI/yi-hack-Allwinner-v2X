@@ -39,3 +39,14 @@ python3 scripts/test_flash_core_build.py
 
 Use the images only with the matching model. Physical flash/cold-boot validation
 and an installation/rollback procedure remain necessary before deployment.
+
+## Ready SD recovery packages
+
+Do not put `bases.tar.xz` itself on SD. Run
+`python3 scripts/pack_vendor_recovery.py --output out/vendor-recovery` to generate
+model-specific, ready-to-extract ZIPs with checked U-Boot headers, a temporary
+rescue rootfs, original vendor filesystems and bootstrap repair. The build uses
+only the pinned generic inputs above; private identity/configuration dumps are
+never release inputs. See the root README for startup/kernel limitations and
+physical validation status. GitHub Actions publishes these separately as
+`yi-hack-Allwinner-v2X-vendor-recovery`.

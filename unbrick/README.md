@@ -1,3 +1,14 @@
+## Ready-to-extract vendor recovery packages
+
+For y623 and y28ga, use the [vendor SD recovery instructions](../README.md#restore-vendor-camera-software-from-sd)
+and the **yi-hack-Allwinner-v2X-vendor-recovery** GitHub Actions artifact. These
+packages include the correct U-Boot filenames and an automatic bootstrap repair
+stage. Physical validation remains pending. They retain the existing kernel and
+use a project-provided vendor-service launcher; they are not a byte-for-byte
+factory backup. Identity/calibration and provisioning are preserved.
+
+The procedure below is the older method for building images from your own dumps.
+
 ## Content
 
 This procedure allows you to unbrick your cam using a backup file (which you did previously).

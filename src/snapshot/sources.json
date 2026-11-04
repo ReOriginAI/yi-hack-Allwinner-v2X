@@ -1,0 +1,31 @@
+{
+  "ffmpeg": {
+    "version": "8.1.1",
+    "archives": [
+      {
+        "sha256": "918929faccab2700c9cc7be2531c0b74f054a4dd5d3862bc485b0ab17af76486",
+        "urls": [
+          "https://codeload.github.com/FFmpeg/FFmpeg/tar.gz/refs/tags/n8.1.1"
+        ]
+      },
+      {
+        "sha256": "b08594a47ca475ddda21c7990d8e9e3ceb5cd74f9709b4b5995b24d11cafa467",
+        "urls": [
+          "https://ffmpeg.org/releases/ffmpeg-8.1.1.tar.bz2"
+        ]
+      }
+    ]
+  },
+  "jpeg": {
+    "version": "3.1.4.1",
+    "archives": [
+      {
+        "sha256": "a7da42b640377c2a9a9665e2c4b0ea60cd5599afb48c2521e6df0c9dc9d15a25",
+        "urls": [
+          "https://codeload.github.com/libjpeg-turbo/libjpeg-turbo/tar.gz/refs/tags/3.1.4.1",
+          "https://github.com/libjpeg-turbo/libjpeg-turbo/archive/refs/tags/3.1.4.1.tar.gz"
+        ]
+      }
+    ]
+  }
+}

@@ -91,6 +91,15 @@ jobs:
           sudo mkdir -p "${SUNXI_TOOLCHAIN}"
           sudo cp -r lindenis-v536-prebuilt/gcc/linux-x86/arm/toolchain-sunxi-musl/toolchain "${SUNXI_TOOLCHAIN}/"
 
+      - name: Test snapshot source download recovery
+        run: python3 scripts/test_snapshot_sources.py
+
+      - name: Cache verified snapshot source archives
+        uses: actions/cache@v4
+        with:
+          path: src/snapshot/snapshot/SDK
+          key: snapshot-sources-v1-${{ runner.os }}-${{ hashFiles('src/snapshot/sources.json') }}
+
       - name: Build shared firmware payload
         run: bash -ex scripts/compile.sh
 
@@ -115,5 +124,26 @@ jobs:
         with:
           name: yi-hack-Allwinner-v2X-flash-core
           path: out/flash-core/packages/*
+          if-no-files-found: error
+          compression-level: 0
+
+  vendor-recovery:
+    name: Build vendor SD recovery for both cameras
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install recovery build dependencies
+        run: sudo apt-get update && sudo apt-get install -y squashfs-tools
+      - name: Test vendor recovery packages and startup repair
+        run: python3 scripts/test_vendor_recovery.py
+      - name: Build ready-to-extract vendor recovery ZIPs
+        run: python3 scripts/pack_vendor_recovery.py --output out/vendor-recovery
+      - name: Upload vendor recovery packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: yi-hack-Allwinner-v2X-vendor-recovery
+          path: |
+            out/vendor-recovery/*.zip
+            out/vendor-recovery/SHA256SUMS
           if-no-files-found: error
           compression-level: 0

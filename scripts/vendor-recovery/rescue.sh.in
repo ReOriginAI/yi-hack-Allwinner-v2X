@@ -1,0 +1,85 @@
+#!/bin/sh
+# Embedded in temporary rescue rootfs. Never execute the old /backup/init.sh.
+PATH=/usr/bin:/usr/sbin:/bin:/sbin:/home/base/tools:/home/app/localbin:/home/base
+export PATH
+SD=/tmp/sd
+P=$SD/vendor-recovery
+B=/backup
+error() { echo "Vendor recovery failed: $*" > "$SD/vendor_recovery_result.txt"; sync; exit 1; }
+hash() { md5sum "$1" | awk '{print $1}'; }
+live() { dd if="/dev/mtdblock$1" bs=4096 count="$2" 2>/dev/null | md5sum | awk '{print $1}'; }
+if ! awk '$2=="/tmp" && $3=="tmpfs" {ok=1} END {exit !ok}' /proc/mounts; then
+    mount -t tmpfs -o size=32m tmpfs /tmp || exit 1
+fi
+mkdir -p "$SD"
+if ! awk -v sd="$SD" '$2==sd && $3=="vfat" {ok=1} END {exit !ok}' /proc/mounts; then
+    mount -t vfat /dev/mmcblk0p1 "$SD" 2>/dev/null || mount -t vfat /dev/mmcblk0 "$SD" 2>/dev/null || exit 1
+fi
+[ -d "$P" ] || error 'original recovery card required'
+[ "$(hash "$P/payload.md5")" = @MANIFEST_MD5@ ] || error 'manifest checksum'
+(cd "$P" && md5sum -c payload.md5 >/dev/null 2>&1) || error 'damaged or mixed recovery files'
+for item in '0:00060000' '1:001d0000' '2:00120000' '3:00340000' '4:00130000' '5:00020000' '6:00010000' '7:00010000'; do
+    n=${item%:*}; size=${item#*:}
+    grep -q "^mtd$n: $size 00001000 " /proc/mtd || error 'unsupported partition layout'
+done
+[ "$(cat /home/homever)" = '@HOMEVER@' ] || error 'home not restored for this model; leave recovery card inserted and power-cycle'
+[ "$(live 3 @HOME_BLOCKS@)" = @HOME_MD5@ ] || error 'home update incomplete; leave recovery card inserted and power-cycle'
+# Preserve private, device-specific data locally on the card, never in releases.
+if [ ! -f "$P/saved/verified" ]; then
+    [ ! -e "$P/saved" ] || error 'incomplete backup exists; preserve this card and use another recovery card'
+    free=$(df -k "$SD" | awk 'NR==2 {print $4}')
+    case "$free" in ''|*[!0-9]*) error 'cannot measure SD space';; esac
+    [ "$free" -ge 16384 ] || error 'SD needs at least 16 MiB free'
+    umask 077
+    mkdir "$P/saved" || error 'backup already running'
+    for n in 0 1 2 3 4 5 6 7; do
+        dd if="/dev/mtdblock$n" of="$P/saved/mtdblock$n.bin" bs=65536 2>/dev/null || error 'partition backup'
+        [ "$(hash "$P/saved/mtdblock$n.bin")" = "$(hash /dev/mtdblock$n)" ] || error 'backup read-back'
+    done
+    tar cf "$P/saved/backup-files.tar" -C "$B" . || error 'writable files backup'
+    (cd "$P/saved" && md5sum *.bin backup-files.tar > checksums.md5) || error 'backup checksums'
+    sync
+    : > "$P/saved/verified" || error 'backup journal'
+    sync
+fi
+(cd "$P/saved" && md5sum -c checksums.md5 >/dev/null 2>&1) || error 'saved backup damaged'
+[ "$(hash /dev/mtdblock6)" = "$(hash "$P/saved/mtdblock6.bin")" ] || error 'recovery card belongs to another camera'
+for directory in tools ko; do
+    [ ! -L "$B/$directory" ] || error 'unsupported support-directory symlink'
+done
+# Copy only generic vendor Wi-Fi support, replacing flash-core's absolute symlinks.
+# Never touch manufacturing, environment, provisioning or raw writable partitions.
+for relative in @SUPPORT_FILES@ init.sh; do
+    source="$P/support/$relative"
+    [ -L "$B/$relative" ] || [ "$(hash "$B/$relative" 2>/dev/null)" != "$(hash "$source")" ] || continue
+    size=$(wc -c < "$source")
+    free=$(df -k "$B" | awk 'NR==2 {print $4}')
+    case "$free" in ''|*[!0-9]*) error 'cannot measure internal space';; esac
+    [ "$free" -ge "$(( (size+1023)/1024 + 16 ))" ] || error 'insufficient internal space; backups retained'
+    mkdir -p "$B/$(dirname "$relative")" || error 'support directory'
+    rm -f "$B/$relative.vendor-new" || error 'clear previous support staging'
+    cp "$source" "$B/$relative.vendor-new" || error 'stage support'
+    chmod 755 "$B/$relative.vendor-new"
+    [ "$(hash "$B/$relative.vendor-new")" = "$(hash "$source")" ] || error 'support read-back'
+    sync
+    mv -f "$B/$relative.vendor-new" "$B/$relative" || error 'activate support'
+done
+# Flash only via U-Boot on the next boot, never overwrite mounted MTD filesystems.
+attempts=0
+[ ! -f "$P/attempts" ] || attempts=$(cat "$P/attempts")
+case "$attempts" in 0|1|2) ;; *)
+    echo 'Vendor services restored, but final rootfs update was ignored after three attempts. Rescue rootfs remains. Preserve card and result file.' > "$SD/vendor_recovery_result.txt"
+    sync
+    /bin/sh "$B/init.sh" &
+    exit 0
+    ;;
+esac
+printf '%s\n' "$((attempts+1))" > "$P/attempts.new" || error 'retry journal'
+mv "$P/attempts.new" "$P/attempts" || error 'commit retry journal'
+cp "$P/rootfs.stage" "$SD/rootfs_@MODEL@.new" || error 'stage final rootfs'
+[ "$(hash "$SD/rootfs_@MODEL@.new")" = @ROOT_IMAGE_MD5@ ] || error 'final image checksum'
+sync
+mv "$SD/rootfs_@MODEL@.new" "$SD/rootfs_@MODEL@" || error 'activate final rootfs'
+echo 'Vendor startup restored. Rebooting to install original vendor rootfs; keep SD and power connected.' > "$SD/vendor_recovery_result.txt"
+sync
+/bin/busybox reboot -f

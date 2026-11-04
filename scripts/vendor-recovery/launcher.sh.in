@@ -1,0 +1,39 @@
+#!/bin/sh
+# Vendor-service launcher supplied by this project; not an original vendor init.
+PATH=/usr/bin:/usr/sbin:/bin:/sbin:/home/base/tools:/home/app/localbin:/home/base
+LD_LIBRARY_PATH=/lib:/usr/lib:/home/lib:/home/qigan/lib:/home/app/locallib
+SUFFIX=@MODEL@
+NETWORK_IFACE=wlan0
+enable_4g=
+export PATH LD_LIBRARY_PATH SUFFIX NETWORK_IFACE enable_4g
+ulimit -c 0
+ulimit -s 1024
+if ! awk '$2=="/tmp" && $3=="tmpfs" {ok=1} END {exit !ok}' /proc/mounts; then
+    mount -t tmpfs -o size=32m tmpfs /tmp || exit 1
+fi
+mkdir -p /tmp/sd /tmp/var/run /tmp/run /tmp/ko /tmp/app /tmp/tools /dev/shm /dev/mqueue
+if ! awk '$2=="/dev/mqueue" {ok=1} END {exit !ok}' /proc/mounts; then
+    mount -t mqueue none /dev/mqueue || exit 1
+fi
+sysctl -w fs.mqueue.msg_max=256
+if ! awk '$2=="/tmp/sd" && $3=="vfat" {ok=1} END {exit !ok}' /proc/mounts; then
+    mount -t vfat /dev/mmcblk0p1 /tmp/sd 2>/dev/null || mount -t vfat /dev/mmcblk0 /tmp/sd 2>/dev/null || true
+fi
+# Report read-back success only once the final, unmodified filesystems boot.
+if [ -d /tmp/sd/vendor-recovery ]; then
+    root=$(dd if=/dev/mtdblock2 bs=4096 count=@ROOT_BLOCKS@ 2>/dev/null | md5sum | awk '{print $1}')
+    home=$(dd if=/dev/mtdblock3 bs=4096 count=@HOME_BLOCKS@ 2>/dev/null | md5sum | awk '{print $1}')
+    if [ "$root" = @ROOT_MD5@ ] && [ "$home" = @HOME_MD5@ ]; then
+        echo 'Vendor rootfs/home verified. Vendor services starting. Power off before removing SD.' > /tmp/sd/vendor_recovery_result.txt
+        # Retire only this package's own trigger images.
+        for item in 'rootfs:@ROOT_IMAGE_MD5@' 'home:@HOME_IMAGE_MD5@'; do
+            part=${item%:*}; expected=${item#*:}
+            file=/tmp/sd/${part}_@MODEL@
+            [ ! -f "$file" ] || [ "$(md5sum "$file" | awk '{print $1}')" != "$expected" ] || rm -f "$file"
+        done
+        sync
+    fi
+fi
+[ "$(cat /home/homever)" = '@HOMEVER@' ] || exit 1
+# The unmodified vendor script starts dispatch, capture, recording and vendor services.
+. /home/app/lower_half_init.sh

@@ -541,6 +541,12 @@ The common firmware payload is compiled once:
 ./scripts/compile.sh
 ```
 
+Snapshot source versions and SHA-256 checksums are pinned in
+`src/snapshot/sources.json`. Downloads use bounded retries, prefer the official
+GitHub mirror, and fall back to the FFmpeg release server. Cached archives are
+verified before extraction; failed downloads and configure steps stop the build.
+Actions caches only the source archives under `src/snapshot/snapshot/SDK`.
+
 Package the primary flash-core firmware for both supported targets. This also
 checks the images under QEMU and creates the SD installers:
 
@@ -585,7 +591,9 @@ Other model names are rejected by `scripts/common.sh`; their firmware and recove
 
 ### GitHub Actions
 
-`.github/workflows/build.yaml` uses **one build job** for both supported targets.
+`.github/workflows/build.yaml` uses **one firmware build job** for both supported
+targets, plus an independent vendor recovery job that publishes
+**yi-hack-Allwinner-v2X-vendor-recovery**. See the README vendor recovery steps.
 
 The flash-core-only job:
 

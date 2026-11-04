@@ -16,8 +16,10 @@ matrix has passed.
 | Yi Pro 2K Home | `y623` | `12.0.51.01_202303091901` |
 | Kami 1080p | `y28ga` | `9.0.20.06_202007061841` |
 
-GitHub Actions builds only **yi-hack-Allwinner-v2X-flash-core** for both models
-on manual runs and `3.*` tags.
+GitHub Actions builds **yi-hack-Allwinner-v2X-flash-core** for both models
+on manual runs and `3.*` tags. A separate **yi-hack-Allwinner-v2X-vendor-recovery**
+artifact contains ready-to-extract vendor recovery ZIPs. Legacy SD-dependent
+firmware is not built.
 
 Revision 6 installation on y623 has passed installed-image verification, router
 Wi-Fi, SSH, web UI, H.264/AAC streaming and motion-grid snapshot checks, including
@@ -326,6 +328,45 @@ SD card/
 `hack_result.txt` and renames `Factory/` to `Factory.done/`. Check `hack_result.txt`
 if installation fails. Do not rename another model's firmware to force installation.
 
+
+## Restore vendor camera software from SD
+
+**Recovery packages are experimental; physical validation on both models is pending.**
+Download **yi-hack-Allwinner-v2X-vendor-recovery** from GitHub Actions and unzip
+that artifact first. Choose exactly your model's inner ZIP:
+
+- `vendor-recovery-y623-12.0.51.01_202303091901-sd.zip`
+- `vendor-recovery-y28ga-9.0.20.06_202007061841-sd.zip`
+
+1. Power off. Preserve previous recovery cards/backups and use a **clean MBR
+   card with a primary FAT32 partition 1**.
+2. Extract the matching ZIP's contents directly onto the card. The root must
+   contain **`rootfs_MODEL`**, **`home_MODEL`**, and **`vendor-recovery/`**.
+   No renaming, Wi-Fi file, old installation card or SSH command is required.
+3. Insert the card, power on, and keep power and SD connected for five minutes
+   through the automatic reboots.
+4. Check `vendor_recovery_result.txt` for **“Vendor rootfs/home verified.
+   Vendor services starting.”** Then power off before removing the card.
+5. Boot normally and use the vendor app. Existing vendor Wi-Fi provisioning is
+   retained; use normal vendor reset/pairing if your router credentials changed.
+
+A temporary rescue rootfs bypasses the old bootstrap, backs up device data to
+`vendor-recovery/saved/`, repairs startup, and stages the original vendor rootfs.
+Final rootfs/home match the pinned vendor filesystems. Startup uses a small
+**project-provided vendor-service launcher**, rather than an original factory
+`/backup/init.sh`. Reclaimed vendor OTA helpers are not included, so vendor app
+firmware updates may require separate vendor media. This restores vendor camera
+operation, rather than every factory flash byte. The current kernel is retained;
+bootloader, identity/calibration, environment and Wi-Fi provisioning are not flashed.
+The package cannot repair those partitions if they are damaged.
+
+Keep `saved/` private: it contains this camera's data. If recovery reports an
+error, preserve the result file and card. Each ZIP includes detailed instructions.
+To build these packages locally without compiling flash-core:
+
+```sh
+python3 scripts/pack_vendor_recovery.py --output out/vendor-recovery
+```
 
 ## Clean reinstall over flash-core
 
