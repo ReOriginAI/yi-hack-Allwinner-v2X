@@ -11,7 +11,11 @@ boot_fail() {
 [ "$(cat /home/homever)" = '@FIRMWARE@' ] || boot_fail firmware
 ulimit -c 0
 ulimit -s 1024
-mount -t tmpfs -o size=32m tmpfs /tmp || boot_fail tmpfs
+# The flash installer dispatcher may already have mounted RAM and the SD card.
+# Mounting another tmpfs here hides that card and its early startup state.
+if ! awk '$2 == "/tmp" && $3 == "tmpfs" {found=1} END {exit !found}' /proc/mounts; then
+    mount -t tmpfs -o size=32m tmpfs /tmp || boot_fail tmpfs
+fi
 mkdir -p /tmp/sd /tmp/var/run /tmp/run /tmp/ko /tmp/app /tmp/tools /dev/shm /dev/mqueue /tmp/local-only
 mount -t mqueue none /dev/mqueue || boot_fail mqueue
 sysctl -w fs.mqueue.msg_max=256

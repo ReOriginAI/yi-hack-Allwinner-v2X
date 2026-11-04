@@ -10,6 +10,17 @@ REBOOT_CMD=${YI_HACK_REBOOT_CMD:-reboot}
 MIN_BACKUP_FREE_KIB=128
 EXPECTED_Y623_PATCHED_BOOT_MD5=26a2e9a432fbe36efe97f0e7cee84dc9
 
+FLASH_CORE=false
+[ ! -f "$YI_HACK_PREFIX/flash-core" ] || FLASH_CORE=true
+ACTION=${QUERY_STRING%%&*}
+# A direct request must be as safe as the disabled WebUI controls. Do not create
+# staging files, touch the bootstrap, or reboot an installed flash-core camera.
+if [ "$FLASH_CORE" = true ] && [ "$ACTION" != "get=info" ]; then
+    printf "Content-type: application/json\r\n\r\n"
+    printf '{"error":true,"description":"Upload flashing is not supported on flash-core. Preserve recovery backups and follow the matching recovery instructions."}'
+    exit 1
+fi
+
 . "$YI_HACK_PREFIX/www/cgi-bin/validate.sh"
 
 if ! $(validateQueryString "$QUERY_STRING"); then
@@ -18,8 +29,8 @@ if ! $(validateQueryString "$QUERY_STRING"); then
     exit 1
 fi
 
-NAME=$(echo "$QUERY_STRING" | cut -d'=' -f1)
-VAL=$(echo "$QUERY_STRING" | cut -d'=' -f2)
+NAME=$(echo "$ACTION" | cut -d'=' -f1)
+VAL=$(echo "$ACTION" | cut -d'=' -f2)
 
 [ "$NAME" = "get" ] || exit 1
 
@@ -31,6 +42,11 @@ case "$MODEL_SUFFIX" in ''|*[!A-Za-z0-9_-]*) exit 1 ;; esac
 case "$FW_VERSION" in ''|*[!A-Za-z0-9._-]*) exit 1 ;; esac
 
 if [ "$VAL" = "info" ]; then
+    if [ "$FLASH_CORE" = true ]; then
+        printf "Content-type: application/json\r\n\r\n"
+        printf '{"error":false,"fw_version":"%s","profile":"flash-core","upload_supported":false,"local_fw":false,"description":"Upload flashing is not supported on flash-core. Preserve recovery backups and follow the matching recovery instructions."}' "$FW_VERSION"
+        exit 0
+    fi
     if [ -f "$LOCAL_FW" ]; then
         LOCAL_FW_PRESENT=true
     else
@@ -38,7 +54,7 @@ if [ "$VAL" = "info" ]; then
     fi
 
     printf "Content-type: application/json\r\n\r\n"
-    printf '{"error":false,"fw_version":"%s","local_fw":%s}' "$FW_VERSION" "$LOCAL_FW_PRESENT"
+    printf '{"error":false,"fw_version":"%s","profile":"sd-legacy","upload_supported":true,"local_fw":%s}' "$FW_VERSION" "$LOCAL_FW_PRESENT"
     exit 0
 fi
 

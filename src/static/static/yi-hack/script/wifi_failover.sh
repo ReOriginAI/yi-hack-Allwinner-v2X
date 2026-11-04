@@ -4,6 +4,7 @@ YI_HACK_PREFIX=${YI_HACK_PREFIX:-/tmp/sd/yi-hack}
 . "$YI_HACK_PREFIX/script/service_lock.sh" || exit 1
 yi_lock wifi-recovery || exit $?
 case "$(cat /tmp/yi-hotspot/state 2>/dev/null)" in starting|active|stopping) exit 75 ;; esac
+[ ! -s /tmp/yi-hotspot.request ] && [ ! -s /tmp/yi-hotspot/pending ] || exit 75
 CONF_FILE="$YI_HACK_PREFIX/etc/system.conf"
 ACTIVE_FILE="/tmp/wifi_maintenance_active"
 WPA_CONF="/tmp/wpa_supplicant.maintenance.conf"
@@ -33,7 +34,14 @@ log()
 
 echo -650 > "/proc/$$/oom_score_adj" 2>/dev/null
 
-[ "$(get_config WIFI_MAINTENANCE_ENABLED)" = "yes" ] || exit 1
+[ "$(get_config WIFI_RECOVERY_MODE)" = maintenance ] || exit 1
+
+if [ "${1:-}" = reboot ]; then
+    case "$(cat "$ACTIVE_FILE" 2>/dev/null)" in
+        maintenance|maintenance_pending) reboot; exit $? ;;
+        *) exit 75 ;;
+    esac
+fi
 
 MAINT_SSID=$(get_config WIFI_MAINTENANCE_SSID)
 MAINT_PASSWORD=$(get_config WIFI_MAINTENANCE_PASSWORD)
@@ -86,11 +94,6 @@ EOC
 WPA_BIN=""
 [ -x /backup/tools/wpa_supplicant ] && WPA_BIN=/backup/tools/wpa_supplicant
 [ -z "$WPA_BIN" ] && [ -x /home/base/tools/wpa_supplicant ] && WPA_BIN=/home/base/tools/wpa_supplicant
-# Mark maintenance recovery before touching the current network. wd.sh uses
-# this state to stop primary polling and give maintenance up to six recovery
-# attempts before rebooting.
-echo "maintenance_pending" > "$ACTIVE_FILE"
-
 if [ -z "$WPA_BIN" ]; then
     log "maintenance handoff failed: wpa_supplicant not found"
     exit 1
@@ -99,13 +102,19 @@ fi
 PRIMARY_WPA_BACKUP=/tmp/wpa_supplicant.primary.before-maint.conf
 [ -f /tmp/wpa_supplicant.conf ] && cp /tmp/wpa_supplicant.conf "$PRIMARY_WPA_BACKUP" 2>/dev/null
 
+# Publish only after validation, while holding wifi-recovery. Primary recovery
+# and vendor station launchers must leave this maintenance connection alone.
+# Six failed watchdog checks escalate to a guarded reboot.
+echo "maintenance_pending" > "$ACTIVE_FILE"
 log "switching once to maintenance-only WiFi profile"
 
 killall udhcpc 2>/dev/null
 killall wpa_supplicant 2>/dev/null
 sleep 1
+killall -q -9 udhcpc wpa_supplicant 2>/dev/null || true
 # Keep the SDIO interface up while replacing the supplicant profile. Repeated
 # down/up cycling can wedge Wi-Fi on y623.
+ifconfig wlan0 0.0.0.0 2>/dev/null
 ifconfig wlan0 up 2>/dev/null
 mkdir -p /var/run/wpa_supplicant
 

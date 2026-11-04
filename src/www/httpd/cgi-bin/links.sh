@@ -29,14 +29,13 @@ HTTP_BASE="http://$LOCAL_IP$D_HTTPD_PORT"
 RTSP_ALT=$(get_config RTSP_ALT)
 case "$RTSP_ALT" in
     alternative) ;;
-    go2rtc) [ -x "$YI_HACK_PREFIX/bin/go2rtc" ] || RTSP_ALT=standard ;;
     *) RTSP_ALT=standard ;;
 esac
 BACKCHANNEL=$(get_config RTSP_BACKCHANNEL)
 [ -n "$BACKCHANNEL" ] || BACKCHANNEL=$(get_config ONVIF_AUDIO_BC)
 BACKCHANNEL_ENABLED=no
 if [ "$BACKCHANNEL" = "G711" ] && [ "$(get_config SPEAKER_AUDIO)" != "no" ]; then
-    case "$RTSP_ALT" in standard|go2rtc) BACKCHANNEL_ENABLED=yes ;; esac
+    case "$RTSP_ALT" in standard) BACKCHANNEL_ENABLED=yes ;; esac
 fi
 
 link()
@@ -56,7 +55,7 @@ if [ "$(get_config RTSP)" = "yes" ]; then
         [ "$BACKCHANNEL_ENABLED" != "yes" ] || link low_res_backchannel "$RTSP_BASE/ch0_1.h264?backchannel=1"
     fi
     RTSP_AUDIO=$(get_config RTSP_AUDIO)
-    if [ "$RTSP_ALT" != "go2rtc" ] && [ -n "$RTSP_AUDIO" ] && [ "$RTSP_AUDIO" != "no" ] && [ "$RTSP_AUDIO" != "none" ]; then
+    if [ -n "$RTSP_AUDIO" ] && [ "$RTSP_AUDIO" != "no" ] && [ "$RTSP_AUDIO" != "none" ]; then
         link audio_stream "$RTSP_BASE/ch0_2.h264"
     fi
 fi

@@ -20,10 +20,10 @@ set_system_config()
     KEY="$1"
     VALUE="$2"
     ESCAPED=$(printf '%s' "$VALUE" | sed 's/\\/\\\\/g; s/&/\\&/g; s/|/\\|/g')
-    if grep -q "^${KEY}=" "$SYSTEM_CONF"; then
-        sed -i "s|^${KEY}=.*|${KEY}=${ESCAPED}|" "$SYSTEM_CONF" || json_error "could not save WiFi configuration"
+    if grep -q "^${KEY}=" "${SAVE_CONF:-$SYSTEM_CONF}"; then
+        sed -i "s|^${KEY}=.*|${KEY}=${ESCAPED}|" "${SAVE_CONF:-$SYSTEM_CONF}" || json_error "could not save WiFi configuration"
     else
-        printf '%s=%s\n' "$KEY" "$VALUE" >> "$SYSTEM_CONF" || json_error "could not save WiFi configuration"
+        printf '%s=%s\n' "$KEY" "$VALUE" >> "${SAVE_CONF:-$SYSTEM_CONF}" || json_error "could not save WiFi configuration"
     fi
 }
 
@@ -57,7 +57,8 @@ ACTION="none"
 
 if [ "$ACTION" = "scan" ] || [ "$ACTION" = "status" ]; then
     PRIMARY=$(current_primary_ssid)
-    MAINT_ENABLED=$(get_system_config WIFI_MAINTENANCE_ENABLED)
+    RECOVERY_MODE=$(get_system_config WIFI_RECOVERY_MODE)
+    case "$RECOVERY_MODE" in maintenance) MAINT_ENABLED=yes ;; *) RECOVERY_MODE=hotspot; MAINT_ENABLED=no ;; esac
     MAINT_SSID=$(get_system_config WIFI_MAINTENANCE_SSID)
     MAINT_GRACE=$(get_system_config WIFI_MAINTENANCE_GRACE)
     MAINT_PASSWORD=$(get_system_config WIFI_MAINTENANCE_PASSWORD)
@@ -92,6 +93,7 @@ if [ "$ACTION" = "scan" ] || [ "$ACTION" = "status" ]; then
 
     printf "Content-type: application/json\r\n\r\n"
     printf '{"current_ssid":%s,' "$(json_string "$PRIMARY")"
+    printf '"recovery_mode":%s,' "$(json_string "$RECOVERY_MODE")"
     printf '"maintenance_enabled":%s,' "$(json_string "$MAINT_ENABLED")"
     printf '"maintenance_ssid":%s,' "$(json_string "$MAINT_SSID")"
     printf '"maintenance_grace":%s,' "$(json_string "$MAINT_GRACE")"
@@ -136,14 +138,17 @@ if [ "$ACTION" = hotspot_start ] || [ "$ACTION" = hotspot_stop ]; then
 fi
 
 if [ "$ACTION" = "save" ]; then
+    [ "$REQUEST_METHOD" = POST ] || json_error "use POST to save WiFi settings"
+    # The stock CGI shell lacks yi_lock. Re-exec before consuming stdin so the
+    # locking shell receives the original POST body rather than an empty one.
     . "$YI_HACK_PREFIX/script/service_lock.sh" || exit 1
-    yi_lock wifi-recovery || json_error "WiFi is busy; retry saving shortly"
     read -r POST_DATA
     printf '%s\n' "$POST_DATA" | jq -e . >/dev/null 2>&1 || json_error "invalid json"
 
+    yi_lock wifi-recovery || json_error "WiFi is busy; retry saving shortly"
     # Validate hotspot fields before any primary credential write. Missing fields
     # preserve saved values for clients using the older WiFi API.
-    for HOTSPOT_KEY in WIFI_HOTSPOT_BOOT WIFI_HOTSPOT_SSID WIFI_HOTSPOT_CHANNEL WIFI_RESET_HOTSPOT WIFI_HOTSPOT_PASSWORD WIFI_HOTSPOT_CLEAR_PASSWORD; do
+    for HOTSPOT_KEY in WIFI_HOTSPOT_BOOT WIFI_HOTSPOT_SSID WIFI_HOTSPOT_CHANNEL WIFI_RESET_HOTSPOT WIFI_HOTSPOT_PASSWORD WIFI_HOTSPOT_CLEAR_PASSWORD WIFI_RECOVERY_MODE WIFI_MAINTENANCE_SSID WIFI_MAINTENANCE_PASSWORD WIFI_MAINTENANCE_PASSWORD2; do
         printf '%s\n' "$POST_DATA" | jq -e --arg key "$HOTSPOT_KEY" 'if has($key) then (.[$key] | type == "string" and (test("[\u0000-\u001f\u007f]") | not)) else true end' >/dev/null 2>&1 || json_error "invalid hotspot field"
     done
     HOTSPOT_BOOT=$(printf '%s\n' "$POST_DATA" | jq -r --arg saved "$(get_system_config WIFI_HOTSPOT_BOOT)" '.WIFI_HOTSPOT_BOOT // $saved')
@@ -182,20 +187,18 @@ if [ "$ACTION" = "save" ]; then
         [ -n "$PRIMARY_PASSWORD" ] || json_error "primary password is blank"
         [ "${#PRIMARY_PASSWORD}" -le 63 ] || json_error "primary password is too long"
         [ "$PRIMARY_PASSWORD" = "$PRIMARY_PASSWORD2" ] || json_error "primary passwords do not match"
-
-        rm -f /tmp/configure_wifi.cfg
-        printf 'wifi_ssid=%s\n' "$PRIMARY_SSID" >> /tmp/configure_wifi.cfg
-        printf 'wifi_psk=%s\n' "$PRIMARY_PASSWORD" >> /tmp/configure_wifi.cfg
-        "$YI_HACK_PREFIX/script/configure_wifi.sh" >/dev/null 2>&1 || {
-            rm -f /tmp/configure_wifi.cfg
-            json_error "could not save primary WiFi"
-        }
-        rm -f /tmp/configure_wifi.cfg
     fi
 
-    MAINT_ENABLED=$(printf '%s\n' "$POST_DATA" | jq -r '.WIFI_MAINTENANCE_ENABLED // "no"')
-    MAINT_SSID=$(printf '%s\n' "$POST_DATA" | jq -r '.WIFI_MAINTENANCE_SSID // ""')
-    MAINT_GRACE=$(printf '%s\n' "$POST_DATA" | jq -r '.WIFI_MAINTENANCE_GRACE // "180"')
+    SAVED_MODE=$(get_system_config WIFI_RECOVERY_MODE)
+    [ -n "$SAVED_MODE" ] || SAVED_MODE=hotspot
+    RECOVERY_MODE=$(printf '%s\n' "$POST_DATA" | jq -r --arg saved "$SAVED_MODE" '
+        if has("WIFI_RECOVERY_MODE") then .WIFI_RECOVERY_MODE
+        elif .WIFI_MAINTENANCE_ENABLED == "yes" then "maintenance"
+        elif .WIFI_MAINTENANCE_ENABLED == "no" then "hotspot" else $saved end')
+    case "$RECOVERY_MODE" in hotspot) MAINT_ENABLED=no ;; maintenance) MAINT_ENABLED=yes ;; *) json_error "invalid recovery mode" ;; esac
+    MAINT_SSID=$(printf '%s\n' "$POST_DATA" | jq -r --arg saved "$(get_system_config WIFI_MAINTENANCE_SSID)" '.WIFI_MAINTENANCE_SSID // $saved')
+    MAINT_GRACE=$(printf '%s\n' "$POST_DATA" | jq -r --arg saved "$(get_system_config WIFI_MAINTENANCE_GRACE)" '.WIFI_MAINTENANCE_GRACE // $saved')
+    [ -n "$MAINT_GRACE" ] || MAINT_GRACE=180
     NEW_MAINT_PASSWORD=$(printf '%s\n' "$POST_DATA" | jq -r '.WIFI_MAINTENANCE_PASSWORD // ""')
     NEW_MAINT_PASSWORD2=$(printf '%s\n' "$POST_DATA" | jq -r '.WIFI_MAINTENANCE_PASSWORD2 // ""')
     CURRENT_MAINT_PASSWORD=$(get_system_config WIFI_MAINTENANCE_PASSWORD)
@@ -216,6 +219,22 @@ if [ "$ACTION" = "save" ]; then
         [ "${#CURRENT_MAINT_PASSWORD}" -ge 8 ] && [ "${#CURRENT_MAINT_PASSWORD}" -le 63 ] || json_error "maintenance password is not configured"
     fi
 
+    # All recovery/hotspot/primary fields are validated before any flash write.
+    if [ "$HAS_PRIMARY" = yes ]; then
+        rm -f /tmp/configure_wifi.cfg
+        printf 'wifi_ssid=%s\n' "$PRIMARY_SSID" >> /tmp/configure_wifi.cfg
+        printf 'wifi_psk=%s\n' "$PRIMARY_PASSWORD" >> /tmp/configure_wifi.cfg
+        "$YI_HACK_PREFIX/script/configure_wifi.sh" >/dev/null 2>&1 || {
+            rm -f /tmp/configure_wifi.cfg
+            json_error "could not save primary WiFi"
+        }
+        rm -f /tmp/configure_wifi.cfg
+    fi
+    SAVE_CONF="$SYSTEM_CONF.wifi.$$"
+    trap 'rm -f "$SAVE_CONF"' 0
+    trap 'exit 1' 1 2 15
+    cp "$SYSTEM_CONF" "$SAVE_CONF" || json_error "could not stage WiFi configuration"
+    set_system_config WIFI_RECOVERY_MODE "$RECOVERY_MODE"
     set_system_config WIFI_HOTSPOT_BOOT "$HOTSPOT_BOOT"
     set_system_config WIFI_HOTSPOT_SSID "$HOTSPOT_SSID"
     set_system_config WIFI_HOTSPOT_PASSWORD "$HOTSPOT_PASSWORD"
@@ -228,7 +247,8 @@ if [ "$ACTION" = "save" ]; then
         set_system_config WIFI_MAINTENANCE_PASSWORD "$NEW_MAINT_PASSWORD"
     fi
 
-    sync
+    mv -f "$SAVE_CONF" "$SYSTEM_CONF" || json_error "could not save WiFi configuration"
+    "$YI_HACK_PREFIX/bin/service_guard" 5 /bin/busybox sync >/dev/null 2>&1 || true
     json_ok
 fi
 

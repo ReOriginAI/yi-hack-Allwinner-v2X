@@ -48,7 +48,8 @@ APP.wifi = (function($) {
         var primarySSID = selectedPrimarySSID();
         var primaryPassword = $('#WIFI_PASSWORD').prop('value');
         var primaryPassword2 = $('#WIFI_PASSWORD2').prop('value');
-        var maintenanceEnabled = $('#WIFI_MAINTENANCE_ENABLED').prop('checked');
+        var recoveryMode = $('#WIFI_RECOVERY_MODE').val();
+        var maintenanceEnabled = recoveryMode == 'maintenance';
         var maintenanceSSID = $('#WIFI_MAINTENANCE_SSID').prop('value');
         var maintenancePassword = $('#WIFI_MAINTENANCE_PASSWORD').prop('value');
         var maintenancePassword2 = $('#WIFI_MAINTENANCE_PASSWORD2').prop('value');
@@ -128,6 +129,7 @@ APP.wifi = (function($) {
         configs["WIFI_HOTSPOT_PASSWORD"] = hotspotPassword;
         configs["WIFI_HOTSPOT_CLEAR_PASSWORD"] = clearHotspotPassword ? "yes" : "no";
         configs["WIFI_RESET_HOTSPOT"] = $('#WIFI_RESET_HOTSPOT').prop('checked') ? "yes" : "no";
+        configs["WIFI_RECOVERY_MODE"] = recoveryMode;
         configs["WIFI_MAINTENANCE_ENABLED"] = maintenanceEnabled ? "yes" : "no";
         configs["WIFI_MAINTENANCE_SSID"] = maintenanceSSID;
         configs["WIFI_MAINTENANCE_GRACE"] = String(grace);
@@ -209,7 +211,7 @@ APP.wifi = (function($) {
                 html += '</select>';
                 document.getElementById("select-container").innerHTML = html;
 
-                $('#WIFI_MAINTENANCE_ENABLED').prop('checked', data.maintenance_enabled == "yes");
+                $('#WIFI_RECOVERY_MODE').val(data.recovery_mode || 'hotspot');
                 $('#WIFI_MAINTENANCE_SSID').prop('value', data.maintenance_ssid || "");
                 $('#WIFI_MAINTENANCE_GRACE').prop('value', data.maintenance_grace || "180");
 

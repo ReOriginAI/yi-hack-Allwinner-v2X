@@ -27,6 +27,10 @@ json_ok()
     exit 0
 }
 
+# Reject before reading the request body, installing cleanup traps or touching SD.
+# The legacy updater replaces an SD tree, not the read-only internal images.
+[ ! -f "$YI_HACK_PREFIX/flash-core" ] || json_error "Upload flashing is not supported on flash-core. Preserve recovery backups and follow the matching recovery instructions."
+
 file_size()
 {
     ls -ln "$1" 2>/dev/null | awk '{print $5}'

@@ -251,6 +251,10 @@ if [ "$CONF_TYPE" == "system" ]; then
     if [ "$NEW_TIME_SETTINGS" != "$OLD_TIME_SETTINGS" ]; then
         "$YI_HACK_PREFIX/script/apply_time.sh" >/dev/null 2>&1 || TIME_APPLY_ERROR=true
     fi
+    # Legacy API clients may still submit the retired server name.
+    if grep -qx 'RTSP_ALT=go2rtc' "$CONF_FILE"; then
+        sed -i 's/^RTSP_ALT=go2rtc$/RTSP_ALT=standard/' "$CONF_FILE"
+    fi
     NEW_RTSP_STREAM=$(grep '^RTSP_STREAM=' "$CONF_FILE" 2>/dev/null | cut -d= -f2-)
     NEW_RTSP_BACKCHANNEL=$(grep '^RTSP_BACKCHANNEL=' "$CONF_FILE" 2>/dev/null | cut -d= -f2-)
 

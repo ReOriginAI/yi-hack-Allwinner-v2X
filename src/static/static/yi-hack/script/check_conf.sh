@@ -51,6 +51,7 @@ WIFI_HOTSPOT_PASSWORD=
 WIFI_HOTSPOT_SSID=
 WIFI_HOTSPOT_CHANNEL=6
 WIFI_RESET_HOTSPOT=yes
+WIFI_RECOVERY_MODE=hotspot
 WIFI_MAINTENANCE_ENABLED=no
 WIFI_MAINTENANCE_SSID=
 WIFI_MAINTENANCE_PASSWORD=
@@ -164,10 +165,15 @@ do
     fi
 done
 
+# Migrate the removed camera-side server before any services/UI load settings.
+if grep -qx 'RTSP_ALT=go2rtc' "$SYSTEM_CONF_FILE"; then
+    sed -i 's/^RTSP_ALT=go2rtc$/RTSP_ALT=standard/' "$SYSTEM_CONF_FILE"
+fi
+
 # RTSP_BACKCHANNEL is the public/source-of-truth setting. Keep the historical
 # ONVIF_AUDIO_BC key only as a compatibility mirror for service.sh and ONVIF
 # capability advertisement; ONVIF itself may be disabled without disabling the
-# RTSP/go2rtc speaker backchannel.
+# RTSP speaker backchannel.
 RTSP_BACKCHANNEL=$(grep '^RTSP_BACKCHANNEL=' "$SYSTEM_CONF_FILE" 2>/dev/null | cut -d= -f2-)
 case "$RTSP_BACKCHANNEL" in
     G711|g711) RTSP_BACKCHANNEL=G711 ;;

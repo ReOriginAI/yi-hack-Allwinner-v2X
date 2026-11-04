@@ -1,5 +1,10 @@
 # Yi Allwinner v2X Optimization Inventory
 
+Camera-side go2rtc has since been removed from both firmware variants to reduce
+RAM use. Its build, memory measurements and patches below are historical;
+current firmware uses Standard RTSP by default. Host/NVR go2rtc remains compatible.
+
+
 This document records the performance, memory, reliability, and local-only optimizations added by the ReOriginAI fork, along with the experiments that are **not** yet part of the firmware. It is intentionally scoped to fork-specific work rather than inherited upstream behavior.
 
 It exists to keep release engineering and future debugging grounded in what the repository actually implements rather than in one-off live-camera experiments.
@@ -386,13 +391,12 @@ Key sources:
 
 - `src/www/httpd/cgi-bin/fw_upload.sh`
 - `src/www/httpd/cgi-bin/fw_upgrade.sh`
-- `src/www/httpd/cgi-bin/fw_online.sh`
 - `sdhack/y623/Factory/config.sh`
 - `sdhack/y28ga/Factory/config.sh`
 
 This is primarily reliability engineering, but it protects all of the optimizations above from being silently lost between upgrades.
 
-Current behavior includes:
+The legacy SD-dependent profile includes:
 
 - staged archive validation before activation
 - model/version validation
@@ -401,10 +405,11 @@ Current behavior includes:
 - preservation of current configuration
 - bootstrap rollback copy
 - retirement of stale Factory triggers
-- ReOriginAI-specific online-release feed
 - y623 kernel-state verification/installation as part of the same release contract
 
-The goal is that two cameras reporting the same release no longer differ because one happened to receive a manual kernel or runtime patch in an earlier SSH session.
+Online flashing has been removed. Flash-core reports its version locally and
+rejects these SD-payload upload/upgrade paths before changing any files; an
+in-place internal-flash updater is not yet implemented.
 
 ### 17. Stream-aware low-VENC gating and y28ga main-only recording
 

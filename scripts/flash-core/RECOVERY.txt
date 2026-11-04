@@ -3,8 +3,14 @@ RECOVERY FOR THIS CAMERA ONLY (@MODEL@)
 Never use another camera's flash-core-recovery directory. Keep it and all
 installer files: it holds private device identity, settings and original startup.
 
+y623 needs FAT32 on SD partition 1 for U-Boot flashing (MBR recommended). FAT32
+directly on a whole card without a partition table is unreadable to its updater.
+If your old installation card uses that layout, preserve it and copy its entire
+installation and flash-core-recovery/ directory to a compatible partitioned card
+before requesting recovery. y28ga supports either FAT32 layout.
+
 If hack_result.txt reports failure before images were staged, remove the SD
-card with power OFF and boot again. The stock rootfs/home have not been
+card with power OFF and boot again. The previous rootfs/home have not been
 changed. Reclaimed updater files are backed up on SD. To undo staged writable
 changes too, follow the full recovery below. Do not retry using a partially
 prepared card without preserving its recovery directory.
@@ -12,7 +18,11 @@ prepared card without preserving its recovery directory.
 To restore original rootfs/home and startup after this installer was activated:
 1. Power OFF and put the SAME installation SD card in your computer.
 2. Check flash-core-recovery/checksums.md5 from that directory with md5sum -c.
-3. Copy flash-core/recovery/rootfs_@MODEL@.restore to the card root as
+3. For a CLEAN REINSTALL (flash-core-recovery/clean.conf exists), use
+   flash-core-recovery/files/rootfs.restore and home.restore. These restore the
+   previous flash-core images, startup and internal settings. Do NOT use the
+   bundled vendor images with a clean-reinstall recovery journal.
+   For an original VENDOR INSTALL, copy flash-core/recovery/rootfs_@MODEL@.restore to the card root as
    rootfs_@MODEL@. Copy home_@MODEL@.restore there as home_@MODEL@.
 4. Create an empty file flash-core-recovery/RESTORE (no extension).
 5. Leave flash-core/ and flash-core-recovery/ intact. Insert the card and power
@@ -20,7 +30,8 @@ To restore original rootfs/home and startup after this installer was activated:
    rootfs/home; the dispatcher then verifies both originals and camera identity,
    restores original startup and reclaimed updater files, and retires triggers.
    hack_result.txt reports 'Original rootfs/home and startup restored'.
-6. Power OFF, remove the card, and boot the vendor firmware.
+6. Power OFF, remove the card, and boot the previous firmware (previous
+   flash-core after a clean reinstall, vendor after a vendor installation).
 
 If the dispatcher was not activated yet, the installer SD hook also handles the
 RESTORE marker once both stock images and recovery checksums match.

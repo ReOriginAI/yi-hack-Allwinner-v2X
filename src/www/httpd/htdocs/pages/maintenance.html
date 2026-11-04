@@ -76,39 +76,19 @@
             <tbody>
             <tr class="row">
                 <td>
-                    <input class="u-full-width" type="file" id="button-fw-file" accept=".tgz,application/gzip,application/x-gzip"/>
+                    <input class="u-full-width" type="file" id="button-fw-file" disabled="" accept=".tgz,application/gzip,application/x-gzip"/>
                     <span class="switch-description">
-                        Select a model-matching firmware .tgz built by this fork. The archive, startup payload, and matching local-only bootstrap are validated before activation.
+                        Upload is available for the legacy SD-dependent profile only. Flash-core does not yet support upload flashing; preserve the camera's recovery backups before reinstalling.
                     </span>
                 </td>
                 <td>
-                    <input class="button-primary" type="button" id="button-fw-upload" value="Upload &amp; Upgrade"/>
+                    <input class="button-primary" type="button" id="button-fw-upload" disabled="" value="Upload &amp; Upgrade"/>
                     <div id="text-fw-upload"></div>
                 </td>
             </tr>
             </tbody>
         </table>
 
-        <h5 class="tiny-margin strong">Online firmware upgrade</h5>
-        <hr class="no-margin"/>
-
-        <table class="u-full-width padded-table">
-            <tbody>
-            <tr class="row">
-                <td>
-                    <span class="switch-description">
-                        Download the latest model-matching firmware release from ReOriginAI/yi-hack-Allwinner-v2X. The downloaded package passes the same validation as a manual upload before activation.
-                    </span>
-                </td>
-                <td>
-                    <input class="button-primary" type="button" id="button-fw-online" value="Download &amp; Upgrade"/>
-                    <div id="text-fw-online"></div>
-                </td>
-            </tr>
-            </tbody>
-        </table>
-
-        <p>Current yi-hack configuration is preserved. The SD payload and its matching internal bootstrap are switched together, then the camera reboots once. Do not remove power or the SD card while upgrading.</p>
         <input class="u-full-width" type="text" placeholder="" readonly="" data-key="FW" id="FW"/>
     </div>
 </div>

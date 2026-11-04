@@ -19,11 +19,22 @@ if [ -f /backup/flash-core-install.pending ] || [ -e /dev/mmcblk0p1 ] || [ -e /d
         fi
     fi
 fi
+ROOT_STOCK_BLOCKS=@ROOT_STOCK_BLOCKS@
+ROOT_STOCK_PREFIX=@ROOT_STOCK_PREFIX@
+HOME_STOCK_BLOCKS=@HOME_STOCK_BLOCKS@
+HOME_STOCK_PREFIX=@HOME_STOCK_PREFIX@
+CLEAN=no
+if [ -f /tmp/sd/flash-core-recovery/clean.conf ]; then
+    (cd /tmp/sd/flash-core-recovery && md5sum -c checksums.md5 >/dev/null 2>&1) || boot_error 'clean recovery checksum'
+    . /tmp/sd/flash-core-recovery/clean.conf
+    [ "$CLEAN_RELEASE" = '@RELEASE_ID@' ] || boot_error 'different clean release'
+    CLEAN=yes
+fi
 if [ -f /tmp/sd/flash-core-recovery/RESTORE ]; then
     # Unused partition padding can change on erase/write; verify the complete
     # original filesystem prefix rather than requiring identical tail bytes.
-    [ "$(dd if=/dev/mtdblock2 bs=4096 count=@ROOT_STOCK_BLOCKS@ 2>/dev/null | md5sum | cut -d ' ' -f1)" = '@ROOT_STOCK_PREFIX@' ] &&
-    [ "$(dd if=/dev/mtdblock3 bs=4096 count=@HOME_STOCK_BLOCKS@ 2>/dev/null | md5sum | cut -d ' ' -f1)" = '@HOME_STOCK_PREFIX@' ] &&
+    [ "$(dd if=/dev/mtdblock2 bs=4096 count="$ROOT_STOCK_BLOCKS" 2>/dev/null | md5sum | cut -d ' ' -f1)" = "$ROOT_STOCK_PREFIX" ] &&
+    [ "$(dd if=/dev/mtdblock3 bs=4096 count="$HOME_STOCK_BLOCKS" 2>/dev/null | md5sum | cut -d ' ' -f1)" = "$HOME_STOCK_PREFIX" ] &&
     [ -s /tmp/sd/flash-core-recovery/mtd/mtdblock6.bin ] &&
     [ "$(md5sum /dev/mtdblock6 | cut -d ' ' -f1)" = "$(md5sum /tmp/sd/flash-core-recovery/mtd/mtdblock6.bin | cut -d ' ' -f1)" ] || exit 1
     (cd /tmp/sd/flash-core-recovery && md5sum -c checksums.md5 >/dev/null 2>&1) || exit 1
@@ -34,15 +45,35 @@ if [ -f /tmp/sd/flash-core-recovery/RESTORE ]; then
         saved=/tmp/sd/flash-core-recovery/files/tools_$f
         [ ! -f "$saved" ] || cp "$saved" "/backup/tools/$f" || exit 1
     done
+    if [ "$CLEAN" = yes ]; then
+        tar xf /tmp/sd/flash-core-recovery/files/previous-core.tar -C /backup || exit 1
+        if [ -d /tmp/sd/yi-hack-config ]; then
+            mv /tmp/sd/yi-hack-config /tmp/sd/flash-core-recovery/failed-settings || exit 1
+        fi
+    else
+        rm -f /backup/flash-core-original-init.sh
+    fi
+    rm -f /tmp/sd/flash-core/CLEAN_INSTALL
     cp /tmp/sd/flash-core-recovery/files/init.sh /backup/init.sh.restore || exit 1
     chmod 755 /backup/init.sh.restore
     mv /backup/init.sh.restore /backup/init.sh || exit 1
-    rm -f /backup/flash-core-install.pending /backup/flash-core-original-init.sh /tmp/sd/rootfs_@MODEL@ /tmp/sd/home_@MODEL@ /tmp/sd/flash-core-recovery/RESTORE /tmp/sd/Factory/factory_test.sh /tmp/sd/lower_half_init.sh
-    echo 'Original rootfs/home and startup restored. Compatible y623 kernel patch, if installed, is retained.' > /tmp/sd/hack_result.txt
+    rm -f /backup/flash-core-install.pending /tmp/sd/rootfs_@MODEL@ /tmp/sd/home_@MODEL@ /tmp/sd/flash-core-recovery/RESTORE /tmp/sd/Factory/factory_test.sh /tmp/sd/lower_half_init.sh
+    if [ -f /tmp/sd/flash-core-recovery/automatic-restore.txt ]; then
+        cat /tmp/sd/flash-core-recovery/automatic-restore.txt > /tmp/sd/hack_result.txt
+    else
+        echo 'Original rootfs/home and startup restored. Compatible y623 kernel patch, if installed, is retained.' > /tmp/sd/hack_result.txt
+    fi
     sync
     exec /bin/busybox reboot -f
 fi
 if [ -f /backup/flash-core-install.pending ]; then
     exec /bin/sh /tmp/sd/flash-core/install.sh --resume
+fi
+if [ -f /tmp/sd/flash-core/CLEAN_INSTALL ]; then
+    [ "$(cat /tmp/sd/flash-core/CLEAN_INSTALL)" = reset-to-hotspot ] || boot_error 'invalid clean request'
+    if [ "$CLEAN" = yes ]; then
+        exec /bin/sh /tmp/sd/flash-core/install.sh --clean
+    fi
+    exec /bin/sh /tmp/sd/flash-core/install.sh --prepare-clean
 fi
 exec /bin/sh /backup/flash-core-init.sh

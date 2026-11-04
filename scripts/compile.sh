@@ -108,6 +108,8 @@ if [ -n ${SELECTED_MODULE} ]; then
 fi
 
 for SUB_DIR in $SRC_DIR/* ; do
+    # Old checkouts can retain downloaded files in this retired module folder.
+    [ "${SUB_DIR##*/}" != go2rtc ] || continue
     if [ -d ${SUB_DIR} ]; then # Will not run if no directories are available
         if [ -n ${SELECTED_MODULE} ]; then
             if [[ $SUB_DIR == *"$SELECTED_MODULE"* ]]; then

@@ -3,76 +3,43 @@
 Local RTSP/ONVIF streaming, two-way audio, offline text-to-speech, and motion
 detection for **Yi Pro 2K (y623)** and **Kami 1080p (y28ga)**, without the vendor cloud.
 
-## Install the SD-based firmware on a stock camera
+## Flash-core installation (experimental)
 
-Use the archive matching your camera model and installed vendor firmware:
+Flash-core is the primary firmware for both supported models. It boots from
+internal flash and retains saved settings without a card. SD adds recordings,
+configuration storage and optional programs.
+Experimental package notices remain until the complete fresh-install/recovery
+matrix has passed.
 
 | Camera | Archive target | Supported vendor firmware |
 | --- | --- | --- |
 | Yi Pro 2K Home | `y623` | `12.0.51.01_202303091901` |
 | Kami 1080p | `y28ga` | `9.0.20.06_202007061841` |
 
-1. Download a [firmware release](https://github.com/ReOriginAI/yi-hack-Allwinner-v2X/releases)
-   or [GitHub Actions firmware artifact](https://github.com/ReOriginAI/yi-hack-Allwinner-v2X/actions).
-   If the download
-   is a ZIP containing two `.tgz` files, unzip it first.
-2. Extract **only your model's** `.tgz` / `.tar.gz` onto a **FAT32** microSD card.
-   Copy the contents, not the archive or its enclosing folder.
-3. **Before flashing, create and fill in `Factory/configure_wifi.cfg`** as shown
-   below. Do not skip this step on a fresh or recovered vendor camera.
-4. Power off the camera, insert the card, and power it on. Allow installation and
-   its automatic reboot to finish before removing power.
-5. Find the camera's address in your router's DHCP/client list and open `http://IP-CAM/`.
-6. Set the camera login and SSH password in the WebUI. Save the card's `backup/`
-   directory somewhere safe; installation preserves recovery copies there.
+GitHub Actions builds only **yi-hack-Allwinner-v2X-flash-core** for both models
+on manual runs and `3.*` tags.
 
-Before installation, the card root should contain:
-
-```text
-SD card/
-├── Factory/
-│   ├── config.sh
-│   ├── local_init.sh
-│   └── configure_wifi.cfg   # fill in before flashing; copy/edit the .ori template
-└── yi-hack/
-    ├── bin/
-    ├── etc/
-    └── ...
-```
-
-**Keep the SD card installed during normal use.** Successful installation writes
-`hack_result.txt` and renames `Factory/` to `Factory.done/`. Check `hack_result.txt`
-if installation fails. Do not rename another model's firmware to force installation.
-
-The [flash-core profile](docs/FLASH_CORE.md) installs core services into internal
-flash so the camera can boot without SD. go2rtc and other optional programs,
-and recording storage, remain on SD. Low-resolution reference snapshots for the
-motion grid work without SD; full-resolution and watermarked snapshots use the
-optional SD snapshot program.
-
-GitHub Actions builds both profiles in the same run. Under **Actions → Build Yi
-Pro / Kami 1080p firmware bundle → Run workflow**, download:
-
-- `yi-hack-Allwinner-v2X-firmware` for the normal SD-dependent installation above.
-- `yi-hack-Allwinner-v2X-flash-core-EXPERIMENTAL` for flash-core SD installers,
-  raw development images, checksums and build reports for both models.
-
-## Flash-core installation (experimental)
-
-Revision 3 SD installation has been reported working on y28ga with the Wi-Fi
-configuration file set. **Full installation/recovery validation on both models
-is still pending.** A manually installed y28ga has passed no-SD boot and
-network/video checks. These installers target fresh vendor firmware from the table above;
-they are not an upgrade for an existing flash-core installation.
+Revision 6 installation on y623 has passed installed-image verification, router
+Wi-Fi, SSH, web UI, H.264/AAC streaming and motion-grid snapshot checks, including
+a physical cold boot without SD. A manually installed y28ga has also passed
+no-SD boot and network/video checks. **The full installation/recovery matrix on
+both models is still pending.** These installers support fresh vendor firmware from the table above and a
+[clean reinstall over flash-core](#clean-reinstall-over-flash-core).
 
 1. Download the flash-core artifact from a successful Actions run and extract
    its ZIP on your computer. On Linux, verify its archives with
    `sha256sum -c SHA256SUMS` from that directory.
-2. Choose **`flash-core-y623-VERSION-EXPERIMENTAL-sd-installer-r3.zip`** for Yi
-   Pro 2K, or **`flash-core-y28ga-VERSION-EXPERIMENTAL-sd-installer-r3.zip`**
+2. Choose **`flash-core-y623-VERSION-EXPERIMENTAL-sd-installer-r8.zip`** for Yi
+   Pro 2K, or **`flash-core-y28ga-VERSION-EXPERIMENTAL-sd-installer-r8.zip`**
    for Kami 1080p. The matching `.tar.gz` contains the same installer. No prior
    SD-dependent yi-hack installation is needed.
-3. Extract the chosen archive's **contents directly onto a clean FAT32 card**.
+3. Prepare a card with an **MBR partition table and one primary FAT32 partition**,
+   then extract the chosen archive's **contents directly onto that partition**.
+   **y623 requires FAT32 on partition 1.** FAT32 directly on the whole card,
+   without a partition table, works in Linux but its vendor updater cannot read
+   it. Revision 6 checks this before changing flash. Use a spare card or back up
+   existing files before repartitioning; formatting only an existing volume may
+   leave the incompatible layout unchanged. y28ga supports either FAT32 layout.
    The card root should contain `Factory/`, `flash-core/`, `lower_half_init.sh`
    and `yi-hack-optional/`. Copying the compressed archive itself does not work.
 4. **Create and fill in `Factory/configure_wifi.cfg` before flashing**, using
@@ -93,6 +60,9 @@ staging updates. Preserve that folder privately for this camera. If it fails,
 read `hack_result.txt` and `RECOVERY.txt`; do not force another model's files.
 Recovery restores stock rootfs/home and startup while retaining identity and
 requested Wi-Fi settings; the compatible y623 kernel patch is retained.
+If three update attempts leave both original images unchanged, revision 5
+automatically restores the previous startup and records the failure on SD.
+Partial updates still require the explicit recovery procedure.
 
 If an earlier experimental installer stops at **“Flash-core staged”** and
 `flash-core-recovery/update-attempts` stays at `1` after a power cycle, preserve
@@ -100,7 +70,7 @@ that installation card and its backups. The first installer had an early SD
 mountpoint bug; it needs the matching staged-install boot repair, rather than
 re-extracting a full installer over the pending installation.
 
-Choose the **`-sd-installer-r3.zip`** or **`-sd-installer.tar.gz`** archive. The separate `-images.tar.gz`
+Choose the **`-sd-installer-r8.zip`** or **`-sd-installer.tar.gz`** archive. The separate `-images.tar.gz`
 archives are raw development inputs and do not install by copying them onto SD.
 See [flash-core storage, build and validation details](docs/FLASH_CORE.md).
 
@@ -151,6 +121,25 @@ also works for recovery; a successfully applied request is renamed to
 `configure_wifi.cfg.rejected`, and the camera continues with its saved settings.
 During a fresh installation, invalid settings stop installation and are reported
 in `hack_result.txt`.
+
+On the **WiFi Configuration** page, choose the connection recovery behavior:
+
+- **Start camera hotspot** (default): after the outage grace period and reconnect
+  attempts, start the camera's hotspot using its configured SSID and password.
+  Join it and open `http://192.168.10.1/` (or your configured web port).
+- **Join maintenance WiFi**: switch to the configured backup network. If that
+  connection also fails six watchdog checks, reboot and retry the primary network.
+
+The grace period defaults to 180 seconds and accepts 30–3600 seconds. Recovery
+works with RTSP disabled. The recovery network stays selected until reboot or
+**Return to Primary WiFi**; it does not repeatedly switch between networks.
+The rear button still clears the hotspot password and requests an open hotspot.
+
+With the default grace period, allow startup time plus three minutes. A y623
+bad-password boot test activated its hotspot about 3 minutes 55 seconds after
+power-on. Unless you set another name, look for `cam-y623-…` or `cam-y28ga-…` in
+your phone's Wi-Fi list. Join that network before opening `192.168.10.1`;
+the camera's previous router address is unavailable while it serves the hotspot.
 
 On already installed firmware, a boot without the Wi-Fi file keeps existing
 Wi-Fi credentials. If no router Wi-Fi password is saved, it can start an open
@@ -203,7 +192,7 @@ if you change it. Select **Standard (LIVE555)** in the WebUI.
 
 Enable RTSP, choose `RTSP_AUDIO=aac`, and select `RTSP_STREAM=both` if you need
 both video URLs. The fresh-install setting is `high`, so enable the low stream
-before using its URL. Standard is the default; go2rtc is optional.
+before using its URL. Standard is the default. Camera-side go2rtc has been removed to reduce RAM use.
 
 With authentication enabled, use `rtsp://USER:PASS@IP-CAM/ch0_0.h264`.
 URL-encode reserved characters in credentials.
@@ -302,10 +291,79 @@ curl --data-binary @doorbell.wav \
 Immediate playback can return a queued result before playback finishes. Use the
 Audio Library's `play` endpoint when you need a completion result.
 
+## Legacy SD-dependent installation
+
+The older SD-dependent profile is available through the [manual legacy build steps](docs/REFERENCE.md#building); GitHub Actions no longer packages it. Match the model and vendor firmware listed above.
+
+
+
+1. Build the legacy package locally, or use a matching archived legacy release.
+2. Extract **only your model's** `.tgz` / `.tar.gz` onto a **FAT32** microSD card.
+   Copy the contents, not the archive or its enclosing folder.
+3. **Before flashing, create and fill in `Factory/configure_wifi.cfg`** as shown
+   above. Do not skip this step on a fresh or recovered vendor camera.
+4. Power off the camera, insert the card, and power it on. Allow installation and
+   its automatic reboot to finish before removing power.
+5. Find the camera's address in your router's DHCP/client list and open `http://IP-CAM/`.
+6. Set the camera login and SSH password in the WebUI. Save the card's `backup/`
+   directory somewhere safe; installation preserves recovery copies there.
+
+Before installation, the card root should contain:
+
+```text
+SD card/
+├── Factory/
+│   ├── config.sh
+│   ├── local_init.sh
+│   └── configure_wifi.cfg   # fill in before flashing; copy/edit the .ori template
+└── yi-hack/
+    ├── bin/
+    ├── etc/
+    └── ...
+```
+
+**Keep the SD card installed during normal use.** Successful installation writes
+`hack_result.txt` and renames `Factory/` to `Factory.done/`. Check `hack_result.txt`
+if installation fails. Do not rename another model's firmware to force installation.
+
+
+## Clean reinstall over flash-core
+
+Revision 8 supports installing newer flash-core over an older flash-core while
+**resetting user settings and keys**. Factory identity and calibration stay intact.
+This path still needs physical validation on both models.
+
+1. Preserve your old recovery card/backups. Extract your model's revision 8
+   installer to a **clean compatible FAT32 card** (y623: MBR partition 1).
+2. Leave `Factory/configure_wifi.cfg` unset. Clean reinstalls ignore that file
+   and start in hotspot setup mode, even if router credentials were previously saved.
+3. Insert the card and reboot. Revision 8 bootstraps recognize the included
+   `flash-core/CLEAN_INSTALL` request. **Older flash-core needs this one-time
+   SSH command after booting with the card inserted:**
+
+   ```sh
+   /bin/sh /tmp/sd/flash-core/install.sh --prepare-clean
+   ```
+
+4. Keep power and SD connected through the automatic reboots. Wait for
+   `hack_result.txt` to report **Flash-core images verified**.
+5. Join the open **`cam-MODEL-MACSUFFIX`** hotspot and open
+   **http://192.168.10.1/** to configure your router Wi-Fi and hotspot password.
+
+The installer verifies backups before changing startup, then stages images for
+U-Boot. Preserve the new `flash-core-recovery/` privately. For a clean reinstall,
+its `files/rootfs.restore` and `files/home.restore` restore the previous flash-core;
+use the package's `RECOVERY.txt`, rather than its bundled vendor recovery images.
+Web upload flashing remains disabled; this is an SD installation path.
+
 ## Updates, recovery, and further documentation
 
-Use the WebUI firmware maintenance page for routine upgrades, or prepare a fresh
-card with the complete matching release as above. Formatting the card does not
+Use the clean reinstall procedure above to replace an existing flash-core.
+Preserve this camera's recovery backups and follow its matching `RECOVERY.txt`
+if recovery is needed. **Online firmware flashing has been removed.**
+The WebUI reports the installed version without contacting GitHub. Upload flashing
+works only with the legacy SD-dependent profile and is disabled on flash-core;
+flash-core installers cannot be uploaded through that path. Formatting the card does not
 restore stock firmware; internal bootstrap changes remain. Keep recovery backups
 and follow the [recovery instructions](unbrick/README.md) when needed.
 
@@ -313,7 +371,7 @@ and follow the [recovery instructions](unbrick/README.md) when needed.
 - [Standard RTSP validation](docs/STANDARD_RTSP_VALIDATION.md)
 - [Motion tuning](docs/MOTION_TUNING.md), [recording lookback](docs/RECORDING_PREROLL.md), and [event metadata](docs/MOTION_METADATA.md)
 - [Night vision](docs/NIGHTVISION.md) and [time settings](docs/LOCAL_TIME.md)
-- [Experimental flash core](docs/FLASH_CORE.md)
+- [Flash-core storage, build and validation details](docs/FLASH_CORE.md)
 
 Based on `roleoroleo/yi-hack-Allwinner-v2` and related yi-hack projects. Original
 authorship is retained in source headers and repository history. See [LICENSE](LICENSE).

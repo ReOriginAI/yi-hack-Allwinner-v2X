@@ -5,7 +5,7 @@ The subsequent [y28ga deployment and checks](STANDARD_RTSP_Y28GA_VALIDATION.md)
 are recorded separately.
 The camera now runs `RTSP_ALT=standard` on port 554, with its existing high-only
 stream, native AAC audio, G.711 backchannel, speaker audio and ONVIF enabled.
-Source, documentation and UI recommend Standard; go2rtc remains selectable.
+Source, documentation and UI recommend Standard; camera-side go2rtc has been removed.
 
 ## Build and fixes
 

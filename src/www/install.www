@@ -4,4 +4,6 @@ SCRIPT_DIR=$(cd `dirname $0` && pwd)
 cd $SCRIPT_DIR
 
 mkdir -p ../../build/yi-hack || exit 1
-rsync -a ./_install/* ../../build/yi-hack/ || exit 1
+# Retired endpoints/assets must disappear when rebuilding an existing payload.
+# The ONVIF executable is installed separately by onvif_simple_server.
+rsync -a --delete --exclude=/onvif/ ./_install/www/ ../../build/yi-hack/www/ || exit 1

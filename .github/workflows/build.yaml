@@ -1,7 +1,7 @@
-name: Build Yi Pro / Kami 1080p firmware bundle
+name: Build Yi Pro / Kami 1080p flash-core firmware
 
 on:
-  workflow_dispatch:
+  workflow_dispatch: {}
   push:
     tags:
       - "3.*"
@@ -11,7 +11,7 @@ env:
 
 jobs:
   build:
-    name: Build firmware bundle
+    name: Build flash-core for both cameras
     runs-on: ubuntu-latest
 
     steps:
@@ -58,6 +58,7 @@ jobs:
           python3 src/static/tests/test_config_read_error.py
           python3 src/static/tests/test_hotspot.py
           python3 src/static/tests/test_wifi_station_guard.py
+          python3 src/static/tests/test_wifi_recovery.py
           python3 src/static/tests/test_hotspot_api.py
           python3 src/static/tests/test_reset_hotspot.py
           python3 src/static/tests/test_flash_mount.py
@@ -65,6 +66,8 @@ jobs:
           python3 scripts/test_flash_core.py
           python3 scripts/test_flash_core_build.py
           python3 scripts/test_flash_core_installer.py
+          python3 scripts/test_firmware_maintenance.py
+          node scripts/test_firmware_maintenance_ui.js
 
       - name: Test recorder-local motion metadata
         run: |
@@ -91,75 +94,13 @@ jobs:
       - name: Build shared firmware payload
         run: bash -ex scripts/compile.sh
 
-      - name: Pack Yi Pro and Kami 1080p firmware
-        run: |
-          rm -rf out/y623 out/y28ga out/all
-          sudo bash -ex scripts/pack_fw.all.sh
-          # The root packer creates out/. Later flash-core packaging runs as runner.
-          sudo chown "$(id -u):$(id -g)" out
-
-      - name: Verify bundle contents
-        run: |
-          set -e
-          test "$(find out/all -maxdepth 1 -type f -name '*.tgz' | wc -l)" -eq 2
-          test "$(find out/all -maxdepth 1 -type f -name 'y623_*.tgz' | wc -l)" -eq 1
-          test "$(find out/all -maxdepth 1 -type f -name 'y28ga_*.tgz' | wc -l)" -eq 1
-          for model in y623 y28ga; do
-            archive=$(find out/all -maxdepth 1 -type f -name "${model}_*.tgz")
-            tar tzf "$archive" | grep -qx 'Factory/local_init.sh'
-            tar tzf "$archive" | grep -qx 'yi-hack/script/configure_wifi.sh'
-            tar tzf "$archive" | grep -qx 'yi-hack/startup.sh'
-            tar tzf "$archive" | grep -qx 'yi-hack/script/ensure_y623_ve_kernel.sh'
-            tar tzf "$archive" | grep -qx "yi-hack/script/prepare_mp4record.sh"
-            tar tzf "$archive" | grep -qx "yi-hack/lib/record_preroll-${model}.bin"
-            tar tzf "$archive" | grep -qx "yi-hack/script/rtsp_stream_venc.sh"
-            if [ "$model" = y623 ]; then
-              tar tzf "$archive" | grep -qx 'Factory/boot-vmalloc.bin'
-              test "$(tar xOzf "$archive" Factory/boot-vmalloc.bin | md5sum | awk '{print $1}')" = 26a2e9a432fbe36efe97f0e7cee84dc9
-            elif tar tzf "$archive" | grep -qx 'Factory/boot-vmalloc.bin'; then
-              echo "Unexpected y623 boot image in $model archive" >&2
-              exit 1
-            fi
-            tar xOzf "$archive" Factory/local_init.sh | sh -n
-            tar xOzf "$archive" Factory/local_init.sh | grep -q 'script/configure_wifi.sh'
-            tar xOzf "$archive" Factory/local_init.sh | grep -q '/tmp/sd/Factory/configure_wifi.cfg'
-            tar xOzf "$archive" Factory/local_init.sh | grep -q '/tmp/sd/Factory/config.sh'
-            tar xOzf "$archive" yi-hack/script/configure_wifi.sh | sh -n
-            tar xOzf "$archive" yi-hack/script/prepare_mp4record.sh | sh -n
-            tar xOzf "$archive" yi-hack/startup.sh | sh -n
-            tar xOzf "$archive" yi-hack/startup.sh | grep -q '/tmp/sd/Factory/config.sh'
-            tar xOzf "$archive" Factory/config.sh | grep -q 'SD payload does not match bootstrap'
-            tar xOzf "$archive" Factory/config.sh | grep -q 'init.\$CURRENT_INIT_MD5.sh'
-            tar xOzf "$archive" Factory/config.sh | grep -q 'MIN_BACKUP_FREE_KIB=128'
-            tar xOzf "$archive" Factory/config.sh | grep -q 'RECLAIM_PATHS='
-            tar xOzf "$archive" yi-hack/www/cgi-bin/fw_upgrade.sh | grep -q 'Factory.retired-web-'
-            tar xOzf "$archive" yi-hack/www/cgi-bin/fw_online.sh | grep -q 'api.github.com/repos/ReOriginAI/yi-hack-Allwinner-v2X/releases/latest'
-            ! tar xOzf "$archive" Factory/config.sh | grep -q 'EXPECTED_LEGACY_INIT_MD5='
-            ! tar xOzf "$archive" yi-hack/script/wd.sh | grep -q 'ifconfig wlan0 down'
-            ! tar xOzf "$archive" yi-hack/script/wifi_failover.sh | grep -q 'ifconfig wlan0 down'
-            if tar xOzf "$archive" Factory/config.sh | grep -Eq '^[[:space:]]*cp /tmp/init\.sh /backup/init\.sh([[:space:]]|$)'; then
-              echo "Legacy telnet init installer found in $archive" >&2
-              exit 1
-            fi
-          done
-          echo "Firmware bundle contents:"
-          find out/all -maxdepth 1 -type f -name '*.tgz' -printf '  %f\n' | sort
-
-      - name: Upload firmware bundle
-        uses: actions/upload-artifact@v4
-        with:
-          name: yi-hack-Allwinner-v2X-firmware
-          path: out/all/*.tgz
-          if-no-files-found: error
-          compression-level: 0
-
       - name: Enable isolated ARM image checks
         run: |
           if test -f /proc/sys/kernel/apparmor_restrict_unprivileged_userns; then
             sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
           fi
 
-      - name: Build and verify experimental flash-core images and SD installers
+      - name: Build and verify primary flash-core firmware and SD installers
         run: |
           python3 scripts/pack_flash_core_all.py \
             --payload build/yi-hack \
@@ -169,10 +110,10 @@ jobs:
             --mkfs-jffs2 "$(command -v mkfs.jffs2)" \
             --output out/flash-core
 
-      - name: Upload experimental flash-core SD installers and development images
+      - name: Upload primary flash-core firmware
         uses: actions/upload-artifact@v4
         with:
-          name: yi-hack-Allwinner-v2X-flash-core-EXPERIMENTAL
+          name: yi-hack-Allwinner-v2X-flash-core
           path: out/flash-core/packages/*
           if-no-files-found: error
           compression-level: 0

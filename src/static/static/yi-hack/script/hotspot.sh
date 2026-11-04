@@ -39,7 +39,7 @@ settings()
     SSID=$(config WIFI_HOTSPOT_SSID)
     if [ -z "$SSID" ]; then
         MAC=$(cat /sys/class/net/wlan0/address 2>/dev/null | tr -d ':' | tail -c 7)
-        SSID="yi-$MODEL-${MAC:-camera}"
+        SSID="cam-$MODEL-${MAC:-camera}"
     fi
     [ "$(printf %s "$SSID" | "$BB" wc -c)" -le 32 ] || return 1
     [ -n "$SSID" ] || return 1
@@ -135,13 +135,14 @@ restore_station()
     set_state stopping || return 1
     stop_ap
     # Restore the original primary profile, not a maintenance-only AP profile.
+    "$BB" killall udhcpc wpa_supplicant 2>/dev/null || true
+    sleep 1
+    "$BB" killall -q -9 udhcpc wpa_supplicant 2>/dev/null || true
+    rm -f /tmp/wifi_maintenance_active
     ifconfig wlan0 0.0.0.0
     if [ -s "$PRIMARY" ]; then
-        # dispatch can relaunch its primary supplicant before rollback gets here.
-        # Its station control directory differs from the AP's private directory.
-        if ! "$BB" timeout -s KILL 2 "$WPA_CLI" -i wlan0 ping 2>/dev/null | grep -qx PONG; then
-            "$BB" timeout -s KILL 10 "$WPA_BIN" -c"$PRIMARY" -g/var/run/wpa_supplicant-global -Dnl80211 -iwlan0 -B || return 1
-        fi
+        # Always start the primary profile: PONG alone could be maintenance.
+        "$BB" timeout -s KILL 10 "$WPA_BIN" -c"$PRIMARY" -g/var/run/wpa_supplicant-global -Dnl80211 -iwlan0 -B || return 1
         "$YI_HACK_PREFIX/bin/service_guard" 15 "$BB" ash "$YI_HACK_PREFIX/script/wifidhcp.sh" || return 1
     else
         return 1
@@ -214,9 +215,8 @@ EOC
     set_state active || return 1
     log "Hotspot active: $SSID at 192.168.10.1. Camera authentication is unchanged."
 }
-apply()
+apply_locked()
 {
-    yi_lock wifi-recovery || return $?
     umask 077
     mkdir -p "$RUNTIME" || return 1
     NEW_REQUEST=no
@@ -243,11 +243,12 @@ apply()
             esac ;;
         *) return 1 ;;
     esac
-    # Resume a timed-out rollback before replaying its original start request.
-    if [ "$NEW_REQUEST" = no ] && [ "$(state)" = stopping ]; then ACTION=stop; fi
+    # Resume interrupted transitions by restoring station before another start.
+    if [ "$NEW_REQUEST" = no ] && { [ "$(state)" = stopping ] || [ "$(state)" = starting ]; }; then ACTION=stop; fi
     if [ "$ACTION" = stop ]; then
         case "$(state)" in
-            ''|station) rm -f "$RUNTIME/pending"; return 0 ;;
+            ''|station)
+                if [ ! -s /tmp/wifi_maintenance_active ]; then rm -f "$RUNTIME/pending"; return 0; fi ;;
         esac
         restore_station || { set_state failed; rm -f "$RUNTIME/pending"; log "Primary WiFi restoration needs watchdog recovery."; return 1; }
     elif ! start_ap; then
@@ -270,7 +271,20 @@ case "$1" in
     start) check || exit 1; request start ;;
     boot) boot_request ;;
     stop) request stop ;;
-    apply) apply ;;
+    apply) yi_lock wifi-recovery || exit $?; apply_locked ;;
+    recover)
+        # Never acquire this lock in a caller before invoking apply/recover.
+        # Manual/button requests take priority; automatic recovery never writes
+        # the shared request file, so it cannot overwrite a simultaneous stop.
+        yi_lock wifi-recovery || exit $?
+        case "$(config WIFI_RECOVERY_MODE)" in maintenance) exit 75 ;; esac
+        [ ! -s "$REQUEST" ] && [ ! -s "$RUNTIME/pending" ] || exit 75
+        case "$(state)" in starting|active|stopping) exit 75 ;; esac
+        umask 077
+        mkdir -p "$RUNTIME" || exit 1
+        printf 'start\n' > "$RUNTIME/pending" || exit 1
+        apply_locked ;;
+
     poll)
         NEED_WORK=no
         if [ -s "$REQUEST" ] || [ -s "$RUNTIME/pending" ]; then

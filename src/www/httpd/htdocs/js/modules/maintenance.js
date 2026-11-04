@@ -3,9 +3,11 @@ var APP = APP || {};
 APP.maintenance = (function($) {
 
     var timeoutVar;
-    var latestOnlineFw = null;
+    var uploadSupported = false;
 
     function init() {
+        uploadSupported = false;
+        setUpgradeControlsDisabled(true);
         registerEventHandler();
         setRebootStatus("Camera is online.");
         getFwStatus();
@@ -26,9 +28,6 @@ APP.maintenance = (function($) {
         });
         $(document).on("click", '#button-fw-upload', function(e) {
             uploadFirmware();
-        });
-        $(document).on("click", '#button-fw-online', function(e) {
-            onlineFirmware();
         });
     }
 
@@ -144,12 +143,14 @@ APP.maintenance = (function($) {
     }
 
     function setUpgradeControlsDisabled(disabled) {
-        $('#button-fw-upload').attr("disabled", disabled);
-        $('#button-fw-file').attr("disabled", disabled);
-        $('#button-fw-online').attr("disabled", disabled);
+        $('#button-fw-upload').attr("disabled", disabled || !uploadSupported);
+        $('#button-fw-file').attr("disabled", disabled || !uploadSupported);
     }
 
     function uploadFirmware() {
+        if (!uploadSupported) {
+            return;
+        }
         var fileSelect = document.getElementById('button-fw-file');
         var file = fileSelect && fileSelect.files ? fileSelect.files[0] : null;
 
@@ -222,65 +223,12 @@ APP.maintenance = (function($) {
         xhr.send(file);
     }
 
-    function onlineFirmware() {
-        var target = latestOnlineFw ? " " + latestOnlineFw : "";
-        var confirmation = confirm(
-            "Download and install ReOriginAI online release" + target + "? " +
-            "The model-matching package will pass the same validation as a manual upload, then the matching payload and bootstrap will be activated together."
-        );
-        if (!confirmation) {
-            return;
-        }
-
-        setUpgradeControlsDisabled(true);
-        $('#text-fw-online').text("Downloading and validating online release...");
-        setFwStatus("Downloading firmware from ReOriginAI.");
-
-        $.ajax({
-            type: "GET",
-            url: 'cgi-bin/fw_online.sh?get=download',
-            dataType: "json",
-            error: function(response) {
-                var message = "Online firmware download failed.";
-                if (response.responseJSON && response.responseJSON.description) {
-                    message = response.responseJSON.description;
-                } else if (response.responseText) {
-                    try {
-                        var data = JSON.parse(response.responseText);
-                        if (data.description) {
-                            message = data.description;
-                        }
-                    } catch (e) {
-                    }
-                }
-                $('#text-fw-online').text(message);
-                setFwStatus(message);
-                setUpgradeControlsDisabled(false);
-                getFwStatus();
-            },
-            success: function(data) {
-                if (data.error) {
-                    var message = data.description || "Online firmware download failed.";
-                    $('#text-fw-online').text(message);
-                    setFwStatus(message);
-                    setUpgradeControlsDisabled(false);
-                    getFwStatus();
-                    return;
-                }
-
-                var staged = "Validated online firmware " + data.version + ".";
-                $('#text-fw-online').text(staged + " Starting upgrade...");
-                setFwStatus(staged + " Preparing upgrade.");
-                runFirmwareUpgrade();
-            }
-        });
-    }
-
     function runFirmwareUpgrade() {
         setUpgradeControlsDisabled(true);
         $.ajax({
             type: "GET",
             url: 'cgi-bin/fw_upgrade.sh?get=upgrade',
+            dataType: "text",
             error: function(response) {
                 console.log('error', response);
                 setFwStatus("Unable to start firmware upgrade.");
@@ -354,32 +302,37 @@ APP.maintenance = (function($) {
     function getFwStatus() {
         $.ajax({
             type: "GET",
-            url: 'cgi-bin/fw_online.sh?get=info',
+            url: 'cgi-bin/fw_upgrade.sh?get=info',
             dataType: "json",
+            cache: false,
+            timeout: 5000,
             error: function(response) {
                 console.log('error', response);
-                latestOnlineFw = null;
-                $('#button-fw-online').attr("disabled", true);
+                uploadSupported = false;
+                setUpgradeControlsDisabled(true);
                 setFwStatus("Unable to read firmware status.");
+                $('#text-fw-upload').text("Upload unavailable: unable to verify firmware profile.");
             },
             success: function(data) {
-                latestOnlineFw = data.latest_fw || null;
+                uploadSupported = !data.error && data.upload_supported === true;
+                setUpgradeControlsDisabled(false);
+                if (data.error) {
+                    var message = data.description || data.message || "Unable to read firmware status.";
+                    setFwStatus(message);
+                    $('#text-fw-upload').text(message);
+                    return;
+                }
                 var status = "Installed: " + data.fw_version;
-
+                if (data.profile) {
+                    status += " (" + data.profile + ")";
+                }
                 if (data.local_fw) {
                     status += " - Uploaded firmware is staged";
                 }
-                if (data.online_error) {
-                    status += " - Online release unavailable";
-                } else if (data.latest_fw) {
-                    status += " - Online release: " + data.latest_fw;
-                    if (!data.online_available) {
-                        status += " (installed)";
-                    }
-                }
-
                 setFwStatus(status);
-                $('#button-fw-online').attr("disabled", !!data.local_fw || !!data.online_error || !data.online_available);
+                if (!uploadSupported) {
+                    $('#text-fw-upload').text(data.description || "Upload flashing is unavailable for this firmware profile.");
+                }
             }
         });
     }

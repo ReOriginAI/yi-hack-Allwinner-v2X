@@ -70,6 +70,7 @@ printf 'state=ENABLED\\n'
         self.executable('script/bounded_log.sh', '#!/bin/sh\n:;\n')
         source = (SCRIPTS / 'hotspot.sh').read_text()
         source = source.replace('#!/tmp/sd/yi-hack/bin/busybox ash', '#!'+str(self.root / 'bin/busybox')+' ash',1)
+        source = source.replace('/tmp/wifi_maintenance_active', str(self.root / 'maintenance'))
         mocks = '''
 ifconfig() { printf 'ifconfig %s\\n' "$*" >> "$TEST_CALLS"; }
 killall() { printf 'killall %s\\n' "$*" >> "$TEST_CALLS"; }
@@ -259,7 +260,8 @@ sleep() { :; }
         self.assertEqual(self.call('apply').returncode, 0)
         self.assertEqual(self.call('status').stdout.strip(), 'station')
         self.assertFalse((self.runtime / 'pending').exists())
-        self.assertNotIn('killall', self.calls.read_text())
+        self.assertNotIn('/hostapd.conf', self.calls.read_text())
+        self.assertIn(str(self.primary), self.calls.read_text())
 
     def test_watchdog_does_not_attempt_station_recovery_during_ap(self):
         import re
@@ -273,6 +275,70 @@ sleep() { :; }
                 body = 'publish_reset_ready() { :; }; get_config() { exit 99; }; reboot() { exit 99; }; ' + function + '\ncheck_wifi'
                 result = subprocess.run([BUSYBOX, 'ash', '-c', body], env=self.env, capture_output=True, timeout=3)
                 self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_automatic_recovery_uses_saved_password_on_both_models(self):
+        for model in ['y623', 'y28ga']:
+            with self.subTest(model=model):
+                (self.root / 'model_suffix').write_text(model+'\n')
+                self.config.write_text('WIFI_RECOVERY_MODE=hotspot\nWIFI_HOTSPOT_PASSWORD=recovery-password\n')
+                self.assertEqual(self.call('recover').returncode, 0)
+                self.assertEqual(self.call('status').stdout.strip(), 'active')
+                self.assertIn('wpa_passphrase=recovery-password', (self.runtime / 'hostapd.conf').read_text())
+                self.call('stop'); self.assertEqual(self.call('apply').returncode, 0)
+
+    def test_automatic_recovery_never_overwrites_manual_requests(self):
+        for action in ['stop', 'start-open']:
+            with self.subTest(action=action):
+                self.request.write_text(action+'\n')
+                self.assertEqual(self.call('recover').returncode, 75)
+                self.assertEqual(self.request.read_text(), action+'\n')
+                self.assertEqual(self.calls.read_text(), '')
+        self.request.unlink()
+        with self.config.open('a') as conf: conf.write('WIFI_RECOVERY_MODE=maintenance\n')
+        self.assertEqual(self.call('recover').returncode, 75)
+        self.assertFalse(self.request.exists())
+
+    def test_timed_out_start_is_rolled_back_before_replaying_it(self):
+        (self.runtime / 'state').write_text('starting\n')
+        (self.runtime / 'pending').write_text('start\n')
+        self.assertEqual(self.call('apply').returncode, 0)
+        self.assertEqual(self.call('status').stdout.strip(), 'station')
+        self.assertIn(str(self.primary), self.calls.read_text())
+        self.assertFalse((self.runtime / 'pending').exists())
+
+    def test_manual_stop_during_automatic_start_is_kept_for_next_poll(self):
+        # Pause the daemon launch while the transition owns wifi-recovery.
+        original = (self.root / 'wpa').read_text()
+        (self.root / 'wpa').write_text(original.replace("args=sys.argv[1:]", """import time
+pathlib.Path(os.environ['TEST_ROOT']+'/launching').touch()
+while not pathlib.Path(os.environ['TEST_ROOT']+'/continue').exists(): time.sleep(.01)
+args=sys.argv[1:]"""))
+        worker = subprocess.Popen([BUSYBOX, 'ash', str(self.script), 'recover'], env=self.env,
+                                  stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        try:
+            deadline = time.monotonic()+3
+            while not (self.root / 'launching').exists() and time.monotonic() < deadline: time.sleep(.01)
+            self.assertTrue((self.root / 'launching').exists())
+            self.assertEqual(self.call('stop').returncode, 0)
+            self.assertEqual(self.call('apply').returncode, 75)
+            (self.root / 'continue').touch()
+            _, err = worker.communicate(timeout=4)
+            self.assertEqual(worker.returncode, 0, err)
+            self.assertEqual(self.request.read_text(), 'stop\n')
+            self.assertEqual(self.call('apply').returncode, 0)
+            self.assertEqual(self.call('status').stdout.strip(), 'station')
+        finally:
+            if worker.poll() is None: worker.kill(); worker.wait()
+            worker.stdout.close(); worker.stderr.close()
+
+    def test_return_to_primary_clears_maintenance_and_restarts_correct_profile(self):
+        (self.runtime / 'state').write_text('station\n')
+        (self.root / 'maintenance').write_text('maintenance\n')
+        self.assertEqual(self.call('stop').returncode, 0)
+        self.assertEqual(self.call('apply').returncode, 0)
+        self.assertFalse((self.root / 'maintenance').exists())
+        self.assertIn('wpa '+str(self.primary), self.calls.read_text())
+        self.assertEqual(self.call('status').stdout.strip(), 'station')
 
     def test_unknown_firmware_cannot_enable_button_override(self):
         fake = self.root / 'dispatch'

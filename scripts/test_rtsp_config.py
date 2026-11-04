@@ -2,6 +2,7 @@
 """Host regressions for RTSP engine changes and advertised audio endpoints."""
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -66,13 +67,41 @@ class ConfigTests(unittest.TestCase):
                          "rtsp://198.51.100.12:8554/ch0_1.h264?backchannel=1")
         self.assertEqual(links["audio_page"], "http://198.51.100.12:8080/?page=audio")
 
-    def test_go2rtc_does_not_advertise_missing_audio_only_endpoint(self):
+    def test_legacy_go2rtc_uses_standard_even_with_leftover_binary(self):
         self.configure(RTSP_ALT="go2rtc", RTSP_STREAM="both", RTSP_BACKCHANNEL="G711")
         links = self.cgi("links.sh")
-        self.assertNotIn("audio_stream", links)
+        self.assertIn("audio_stream", links)
         self.assertIn("low_res_backchannel", links)
         (self.prefix / "bin/go2rtc").unlink()
         self.assertIn("audio_stream", self.cgi("links.sh"))
+
+    def test_legacy_api_setting_migrates_to_standard(self):
+        response = self.cgi("set_configs.sh", json.dumps({"RTSP_ALT": "go2rtc"}))
+        self.assertEqual(response["error"], "false")
+        self.assertIn("RTSP_ALT=standard\n", self.conf.read_text())
+        self.assertEqual(self.log.read_text(), "")
+
+    def test_boot_migrates_saved_go2rtc_setting(self):
+        self.configure(RTSP_ALT="go2rtc")
+        source = (ROOT / 'src/static/static/yi-hack/script/check_conf.sh').read_text()
+        source = source.replace('/tmp/sd/yi-hack', str(self.prefix))
+        (self.prefix / 'etc/camera.conf').write_text('IR=yes\n')
+        result = subprocess.run(['busybox', 'ash', '-c', source],
+                                env=self.env, capture_output=True, text=True, timeout=10)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('RTSP_ALT=standard\n', self.conf.read_text())
+
+    def test_runtime_selects_standard_on_both_models_for_stale_configuration(self):
+        self.configure(RTSP_ALT="go2rtc", RTSP_BACKCHANNEL="G711")
+        source = (ROOT / 'src/static/static/yi-hack/script/service.sh').read_text()
+        init = re.search(r'^init_config\(\)\n\{.*?^\}', source, re.M | re.S).group()
+        for model in ['y623', 'y28ga']:
+            with self.subTest(model=model):
+                body = ('get_config() { sed -n "s/^$1=//p" "$YI_HACK_PREFIX/etc/system.conf"; }\n'
+                        + init + '\ninit_config\nprintf "%s|%s|%s\\n" "$RTSP_ALT" "$RTSP_DAEMON" "$RTSP_AUDIO_BC"')
+                result = subprocess.run(['busybox', 'ash', '-c', body],
+                    env=dict(self.env, MODEL_SUFFIX=model), capture_output=True, text=True, check=True)
+                self.assertEqual(result.stdout.strip(), 'standard|rRTSPServer|-b ulaw')
 
     def test_disabled_speaker_or_rtsp(self):
         self.configure(RTSP_BACKCHANNEL="G711", SPEAKER_AUDIO="no")

@@ -1,4 +1,4 @@
-/* Run the audited y28ga U-Boot SD header validator under qemu-arm-static.
+/* Run the audited y28ga/y623 U-Boot SD header validator under qemu-arm-static.
  * Input is a private local dump; no vendor binary is distributed here.
  * Only the header-validation function runs. It cannot write flash or reboot.
  */
@@ -84,10 +84,20 @@ int main(int argc, char **argv)
     size_t boot_size, image_size;
     unsigned char *boot = read_file(argv[1], &boot_size);
     unsigned char *image = read_file(argv[2], &image_size);
-    if (boot_size < 0x48c00 || image_size > (argv[3][0] == '2' ? 0x120000u : 0x340000u))
+    if (image_size > (argv[3][0] == '2' ? 0x120000u : 0x340000u))
         return 2;
     /* Gate captured generic code, excluding private/device-specific partitions. */
-    if (crc(0, boot + 0x18c00, 0x30000) != 0xe15d863c) {
+    unsigned offset;
+    uintptr_t validator, logger, env, parser, matcher, checksum;
+    if (boot_size >= 0x48c00 && crc(0, boot + 0x18c00, 0x30000) == 0xe15d863c) {
+        offset = 0x18c00;
+        validator = 0x4a01b51d; logger = 0x4a01ae40; env = 0x4a005cb4;
+        parser = 0x4a01af60; matcher = 0x4a01a418; checksum = 0x4a01a174;
+    } else if (boot_size >= 0x49c00 && crc(0, boot + 0x19c00, 0x30000) == 0x5c4ce9ea) {
+        offset = 0x19c00;
+        validator = 0x4a01b4bd; logger = 0x4a01adc0; env = 0x4a005bf4;
+        parser = 0x4a01aee0; matcher = 0x4a01a394; checksum = 0x4a01a0f0;
+    } else {
         fputs("Unrecognized vendor U-Boot code; refusing execution\n", stderr);
         return 2;
     }
@@ -98,14 +108,14 @@ int main(int argc, char **argv)
         perror("mmap");
         return 2;
     }
-    memcpy(region, boot + 0x18c00, 0x30000);
-    redirect(0x4a01ae40, (uintptr_t)log_message);
-    redirect(0x4a005cb4, (uintptr_t)empty_env);
-    redirect(0x4a01af60, (uintptr_t)number);
-    redirect(0x4a01a418, (uintptr_t)match);
-    redirect(0x4a01a174, (uintptr_t)crc);
+    memcpy(region, boot + offset, 0x30000);
+    redirect(logger, (uintptr_t)log_message);
+    redirect(env, (uintptr_t)empty_env);
+    redirect(parser, (uintptr_t)number);
+    redirect(matcher, (uintptr_t)match);
+    redirect(checksum, (uintptr_t)crc);
     __builtin___clear_cache(region, (char *)region + 0x100000);
-    int (*validate)(int, void *, unsigned) = (void *)0x4a01b51d;
+    int (*validate)(int, void *, unsigned) = (void *)validator;
     int result = validate(atoi(argv[3]), image, image_size);
     printf("vendor validation result=%d\n", result);
     return result ? 1 : 0;

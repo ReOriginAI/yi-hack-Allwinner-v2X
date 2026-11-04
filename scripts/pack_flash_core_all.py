@@ -3,6 +3,9 @@
 import argparse
 import hashlib
 import json
+import shutil
+import struct
+import zlib
 import os
 from pathlib import Path, PurePosixPath
 import re
@@ -20,12 +23,12 @@ NOTICE = """EXPERIMENTAL FLASH-CORE IMAGES — NOT AN SD INSTALLER
 
 These are raw partition candidates. Copying this archive or its extracted files
 onto SD will NOT install flash-core. No Factory installer is included.
-Physical flashing, cold boot, recovery and client tests are still pending.
+The complete installation/recovery and client test matrix is still pending.
 Never rename these files to vendor auto-flash names or mix camera models.
 
 rootfs.squashfs: raw rootfs candidate
 home.squashfs: raw home candidate
-backup-updates.tar.gz: bootstrap/optional AP files for updating the EXISTING
+backup-updates.tar.gz: bootstrap files for updating the EXISTING
   backup filesystem; not a raw partition image or automatic installer
 report.json: model, image sizes, free space and SHA-256 checksums
 sd-optional/: optional SD programs and voice data (not needed for core startup)
@@ -106,6 +109,9 @@ def build(args):
          ROOT / 'scripts/vendor-ablation/noop.S'])
     run([args.toolchain / 'arm-openwrt-linux-muslgnueabi-ld', '-N', '-nostdlib', '-static',
          '-s', '-o', noop, work / 'noop.o'])
+    run([args.toolchain / 'arm-openwrt-linux-muslgnueabi-gcc', '-Os', '-static', '-s',
+         ROOT / 'scripts/flash-core/clean_image.c',
+         '-Wl,--start-group', '-lc', '-lgcc_eh', '-lgcc', '-Wl,--end-group', '-o', work / 'clean-image'])
     version = (ROOT / 'VERSION').read_text().strip()
     if not re.fullmatch(r'[0-9A-Za-z._-]+', version):
         raise ValueError('invalid VERSION for artifact name')
@@ -131,6 +137,23 @@ def build(args):
             if hashlib.md5((candidate / 'boot-vmalloc.bin').read_bytes()).hexdigest() != '26a2e9a432fbe36efe97f0e7cee84dc9':
                 raise ValueError('unexpected y623 patched kernel')
         run(['python3', ROOT / 'scripts/check_flash_core.py', candidate, '--qemu', args.qemu])
+        shutil.copy2(work / 'clean-image', candidate / 'clean-image')
+        # Execute the actual ARM recovery wrapper on both filesystem images.
+        for part in ('rootfs', 'home'):
+            wrapped = work / (model + '-' + part + '.restore-check')
+            run([args.qemu, work / 'clean-image', candidate / (part + '.squashfs'),
+                 part, wrapped], stdout=subprocess.DEVNULL)
+            data = wrapped.read_bytes()
+            header = list(struct.unpack('>7I4B32s', data[:64]))
+            saved_crc = header[1]
+            header[1] = 0
+            if (header[0] != 0x27051956 or header[3] != len(data) - 64 or
+                header[6] != zlib.crc32(data[64:]) or
+                saved_crc != zlib.crc32(struct.pack('>7I4B32s', *header)) or
+                header[7:11] != [5, 2, 7, 0] or
+                header[11].rstrip(b'\0') != ('xiaoyi-' + part).encode() or
+                data[64:] != (candidate / (part + '.squashfs')).read_bytes()):
+                raise ValueError('invalid clean-reinstall recovery wrapper: ' + part)
         name, report = package(candidate, releases, version, revision)
         reports.append((name, report))
         installer_name = installer.package(candidate, base, releases, version, revision)
@@ -147,7 +170,8 @@ def build(args):
         images = report['images']
         summary.append('| ' + report['model'] + ' | ' + ' | '.join(
             str(images[name]['headroom']) + ' B' for name in ('rootfs', 'home', 'backup')) + ' |')
-    summary += ['', 'Extract the matching revision 3 `*-sd-installer-r3.zip` (or `.tar.gz`) to a clean FAT32 card for a fresh vendor camera.',
+    summary += ['', 'Extract the matching revision 8 `*-sd-installer-r8.zip` (or `.tar.gz`) to a clean FAT32 card for a fresh vendor camera. y623 needs FAT32 on partition 1 (MBR recommended); whole-device FAT32 is not supported by its updater.',
+                'For an existing flash-core camera, follow the README clean-reinstall instructions using a clean card. Older bootstraps need the one-time --prepare-clean SSH command. A clean reinstall resets settings and enters an open cam-... hotspot.',
                 'The `*-images.tar.gz` archives remain raw development inputs, not installers.', ''] + installers
     text = '\n'.join(summary) + '\n'
     (releases / 'BUILD.md').write_text(text)

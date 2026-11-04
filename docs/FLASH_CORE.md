@@ -1,18 +1,30 @@
 # Flash core for y623 and y28ga
 
-This experimental profile places the local camera services in internal flash so
+This primary firmware profile places the local camera services in internal flash so
 an SD card is optional at boot. The builder creates offline images and experimental SD installers. It does
 not connect to a camera or write an MTD device. The installer stages U-Boot
 update names on the camera only after model checks and verified backups.
 A manually installed y28ga camera passed a physical cold boot without SD,
-router Wi-Fi, SSH, HTTP and RTSP video checks on 2026-11-02. The y623 hardware
-path and the complete release test matrix remain unvalidated.
+router Wi-Fi, SSH, HTTP and RTSP video checks on 2026-11-02. On 2026-11-04, a
+revision 6 y623 installation with SD on partition 1 passed installed rootfs/home
+hash checks, router Wi-Fi, SSH, HTTP, 2304x1296 H.264/AAC streaming and a 640x360
+motion-grid snapshot. Its settings/SSH keys matched the internal fallback and
+writable flash retained 220 KiB free. A subsequent physical cold boot with SD
+removed passed the same network, web, stream and grid-snapshot checks. Settings
+were served from internal JFFS2, the no-card broker patch was active, and writable
+flash retained 216 KiB free. The complete release/recovery matrix remains pending.
+
+The y623 hotspot has also been confirmed working by the user. Controlled
+bad-password tests activated automatic recovery after 193 seconds during runtime
+and 235 seconds from boot, then returned to router Wi-Fi with saved credentials
+unchanged. Default hotspot names now use `cam-MODEL-MACSUFFIX` on both models;
+explicitly configured names are preserved.
 
 ## Features and storage
 
 | Available without SD | Requires optional SD payload or data |
 | --- | --- |
-| Vendor capture/encoder with the existing audited local-motion patches | go2rtc and alternate RTSP server |
+| Vendor capture/encoder with the existing audited local-motion patches | Alternate RTSP server |
 | Standard RTSP, audio, low-resolution motion-grid snapshots, ONVIF/discovery | Recording, thumbnails, time lapse, FTP upload, full-resolution/watermarked snapshots |
 | SSH, HTTP configuration UI, BusyBox FTP | MQTT programs, Python, rsync, proxychains |
 | Local motion events, night vision, hotspot/reset controls | NanoTTS, its voice data, saved audio files |
@@ -29,6 +41,12 @@ for both models under QEMU; the internal grid image works without SD.
 
 The existing hotspot firmware/driver restrictions still apply. This profile does
 not change them. The rear-button hotspot override defaults to enabled on audited firmware.
+Both profiles default to hotspot recovery after a primary Wi-Fi outage. The WiFi
+page can select maintenance-network recovery instead. Network transitions and
+vendor station callbacks share a non-blocking kernel-owned lock; bounded workers
+release it on exit or termination. The watchdog keeps checking services while
+they run. An interrupted hotspot transition restores primary Wi-Fi on its next
+pass, and queued manual/button requests take priority over automatic recovery.
 
 Read-only code lives at `/home/yi-hack` in the home SquashFS. A bind mount exposes
 it at `/tmp/sd/yi-hack` to preserve existing executable paths and interpreters.
@@ -40,6 +58,13 @@ present, or `/backup/yi-hack-config` on JFFS2 otherwise. The selected directory 
 bound over the core's `etc`. Old SD `yi-hack/etc` is migrated on first boot with
 the card. Code from that old tree is not overlaid or executed. An uninitializable
 or read-only card is unmounted and the internal configuration is used.
+
+Startup reuses an existing `/tmp` tmpfs and an already mounted data card. This
+preserves the install dispatcher's early SD mount instead of hiding it under a
+second tmpfs. An empty FAT32 card is initialized from the saved internal settings;
+it does not need a `yi-hack` program directory. Explicit startup failures are
+saved in `/backup/flash-core-last-error` for inspection after the next successful
+boot; kernel hangs or sudden power loss may not leave that message.
 
 With a card present, a bounded worker copies changed settings and SSH keys to
 the internal fallback at boot and on the watchdog's auxiliary pass (about every
@@ -91,19 +116,20 @@ it remove the unused AI model. Required vendor libraries remain in place.
 The FIFO-compatible ALSA library replaces the existing rootfs ALSA file instead
 of occupying flash twice. Both vendor and replacement ALSA hashes are checked.
 
-Local candidates with the compact motion-grid snapshot decoder on 2026-11-03:
+Local revision 4 candidates with hostapd in read-only home on 2026-11-04:
 
 | Model | Rootfs image / spare | Home image / spare | Backup estimate / spare |
 | --- | --- | --- | --- |
-| y623 | 1,110,016 / 69,632 B | 3,203,072 / 204,800 B | 1,107,996 / 137,188 B |
-| y28ga | 1,110,016 / 69,632 B | 3,178,496 / 229,376 B | 916,728 / 328,456 B |
+| y623 | 1,110,016 / 69,632 B | 3,362,816 / 45,056 B | 908,448 / 336,736 B |
+| y28ga | 1,110,016 / 69,632 B | 3,178,496 / 229,376 B | 916,744 / 328,440 B |
 
 Sizes can vary with the compiled payload and build tools. `report.json` gives
 exact bytes and SHA-256 for each build. The builder refuses
 over-budget images and reserves at least 128 KiB in backup before runtime
-configuration updates. Free SquashFS space cannot be used as writable storage. hostapd resides in
-backup/tools on y623, with a manifest-checked link from the core; y28ga has
-enough home space to retain it there. Immutable default assets and the vendor
+configuration updates. Free SquashFS space cannot be used as writable storage. Revision 4 stores hostapd in read-only home on both models. The previous y623
+layout staged it in backup, which left only 16 KiB writable space on the tested
+device and correctly failed the reserve check. Uncommitted staging failures now
+restore reclaimed helpers, retire installer hooks, and reboot the prior firmware. Immutable default assets and the vendor
 DHCP hook are stored once in home and linked from backup. Obsolete vendor
 update helpers are omitted.
 
@@ -111,25 +137,57 @@ The host mkfs.jffs2 rounds the requested 4 KiB erase size up to its 8 KiB
 minimum, as does the bundled recovery tool. Generated nodes can cross physical
 erase boundaries, so that image must not be written to this camera. The report
 records this geometry and flags the image as non-flashable. Published packages
-exclude it and instead include `backup-updates.tar.gz` with only the bootstrap
-and, on y623, hostapd. These updates must be applied to the existing filesystem
+exclude it and instead include `backup-updates.tar.gz` with only the bootstrap.
+Hostapd resides in read-only home on both models. Bootstrap updates must be applied to the existing filesystem
 without replacing device-specific data. The backup figures above are estimates
 from the host tool; writable headroom must also be checked on the device.
 
 ## Build and check
 
-GitHub Actions now builds this profile automatically after the normal SD firmware
-on manual runs and `3.*` tags. It reuses the shared compiled payload and uploads
-`yi-hack-Allwinner-v2X-flash-core-EXPERIMENTAL` separately. That artifact contains
+GitHub Actions builds this primary profile on manual runs and `3.*` tags. It
+reuses the shared compiled payload and uploads
+`yi-hack-Allwinner-v2X-flash-core` for both models. No legacy SD-dependent
+firmware is built or uploaded by Actions. The flash-core artifact contains
 three archives per model: the Windows-friendly
-`flash-core-MODEL-VERSION-EXPERIMENTAL-sd-installer-r3.zip`, `flash-core-MODEL-VERSION-EXPERIMENTAL-sd-installer.tar.gz`
+`flash-core-MODEL-VERSION-EXPERIMENTAL-sd-installer-r8.zip`, `flash-core-MODEL-VERSION-EXPERIMENTAL-sd-installer.tar.gz`
 and `flash-core-MODEL-VERSION-EXPERIMENTAL-images.tar.gz`, plus `SHA256SUMS`
 and a size/headroom summary. The SD installer contains a Factory entry point,
 staged U-Boot images, generic settings, original rootfs/home recovery images,
 and optional SD programs. The raw archive retains its non-installer notice.
 Both report `hardware_validated: false`; only the SD package is installable.
 
+Online firmware flashing has been removed. The maintenance page reads firmware
+status locally and disables upload flashing on flash-core. The old uploader
+replaces the SD payload and bootstrap; it cannot update the internal rootfs/home
+images. Direct requests are rejected before reading an upload body or changing
+files. Revision 8 adds a clean SD reinstall over flash-core, resetting user settings
+and entering an open hotspot. Older bootstraps need the one-time SSH preparation
+command in the [README](../README.md#clean-reinstall-over-flash-core). Web uploads
+remain unsupported; physical validation of clean reinstalls is pending.
+
 Follow the [README installation steps](../README.md#flash-core-installation-experimental).
+Use an MBR card with one primary FAT32 partition. y623 requires FAT32 on partition
+1; revision 6 checks the actual mounted device before changing persistent state.
+Whole-device FAT32 cards are rejected with an explanatory result and the previous
+startup is retained. y28ga continues to accept either layout.
+
+The captured y623 updater first selects `mmc 0` (default partition 1), then uses
+`0.0` as its fallback. The dot selects a hardware partition, so it still looks for
+filesystem partition 1 and cannot read a whole-device FAT volume. The y28ga updater
+instead tries `0:0` (the whole device) first, then `0`. This explains why a card
+can boot the Linux SD firmware yet fail to install y623 flash-core. Reinstalling
+vendor rootfs/home or changing Wi-Fi settings cannot correct that card layout.
+`scripts/check_vendor_sd_layout.c` reproduces both models' exact selection branches
+and filesystem probing using synthetic boot sectors or a private FAT32 boot-sector
+capture under QEMU. Hardware reads are replaced; deliberately refusing the image
+buffer allocation stops execution before image loading or flash writes. Compile
+it with the same options as the header checker below, then run:
+
+```sh
+qemu-arm-static check-vendor-sd-layout /private/y623-mtdblock0.bin
+qemu-arm-static check-vendor-sd-layout /private/y28ga-mtdblock0.bin
+```
+
 The installer verifies the complete audited stock rootfs/home filesystem prefixes
 (ignoring unused erase padding), firmware, 4 KiB MTD
 layout, checksums and SD space before saving all eight partitions plus original
@@ -155,26 +213,34 @@ Recovery images contain the complete stock SquashFS prefix without unused raw
 partition padding, keeping the 64-byte envelope inside the partition budget.
 
 `scripts/check_vendor_sd_header.c` can additionally execute the exact captured
-y28ga header-validation function under QEMU against generated images. It gates
+y28ga or y623 header-validation function under QEMU against generated images. It gates
 the U-Boot code CRC, maps only userspace memory, and replaces libc/environment
 calls; it does not invoke a flash-write or reboot function. The private U-Boot
-dump is a local input and is never included in a release. The audited function
-is at `0x4a01b51c`, loaded from a TOC1 item at dump offset `0x18c00`; rootfs/home
-checks are at `0x4a01b5e8` and `0x4a01b600`. Build the harness with the ARM compiler
+dump is a local input and is never included in a release. The audited y28ga
+function is at `0x4a01b51c`, loaded from a TOC1 item at dump offset `0x18c00`;
+the y623 function is at `0x4a01b4bc`, from offset `0x19c00`.
+Both models accept the generated rootfs/home headers and reject incorrect names
+or corrupt payloads. This checks validation logic, not hardware SD detection or
+actual flash writes. Build the harness with the ARM compiler
 using `-mthumb -march=armv7-a -static` and linker group
 `-Wl,--start-group -lc -lgcc_eh -lgcc -Wl,--end-group`, then run:
 
 ```sh
 qemu-arm-static check-vendor-sd-header /private/y28ga-mtdblock0.bin rootfs_y28ga 2
 qemu-arm-static check-vendor-sd-header /private/y28ga-mtdblock0.bin home_y28ga 3
+qemu-arm-static check-vendor-sd-header /private/y623-mtdblock0.bin rootfs_y623 2
+qemu-arm-static check-vendor-sd-header /private/y623-mtdblock0.bin home_y623 3
 ```
  Partial updates are accepted only if each partition still
 matches its exact original or the exact new image prefix. Both new image hashes
 and the internal bootstrap must match before the SD install triggers are retired.
 Finalization is idempotent across interrupted trigger retirement. A committed
 journal also recovers an interrupted dispatcher rename. Update staging stops
-after three unsuccessful attempts instead of rebooting indefinitely. Normal boots
-then use the internal bootstrap without requiring SD.
+after three unsuccessful attempts. Revision 5 automatically invokes verified
+recovery when both original filesystems are unchanged, restores the previous
+startup, and reboots with the failure recorded on SD. Identity and backup checks
+still apply; partially installed filesystems require explicit recovery. Normal
+boots after a successful installation use the internal bootstrap without SD.
 
 Each package's `RECOVERY.txt` explains copying its inactive stock images to the
 model's U-Boot update names and creating `flash-core-recovery/RESTORE`. After both

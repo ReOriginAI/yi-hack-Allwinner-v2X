@@ -115,8 +115,7 @@ class FlashCoreTests(unittest.TestCase):
             else:
                 self.assertEqual(calls.read_text().splitlines(), ['mount -t vfat /dev/mmcblk0p1 /tmp/sd'])
 
-    def test_storage_boot_uses_internal_fallback_without_card(self):
-        self.mounts.write_text('')
+    def storage_fixture(self):
         sd = self.root / 'sd'
         sd.mkdir()
         helper = self.prefix / 'script/flash_storage.sh'
@@ -134,10 +133,44 @@ class FlashCoreTests(unittest.TestCase):
         mount.write_text(f'#!/bin/sh\necho "$*" >> "{calls}"\n[ "$1" = --bind ]\n')
         mount.chmod(0o755)
         self.env['PATH'] = str(self.prefix / 'bin') + ':' + os.environ['PATH']
+        return sd, helper, calls
+
+    def test_storage_boot_uses_internal_fallback_without_card(self):
+        self.mounts.write_text('')
+        sd, helper, calls = self.storage_fixture()
         result = self.shell(f'. "{helper}"; flash_storage_init')
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual((self.dest / 'system.conf').read_text(), 'RTSP=yes\n')
         self.assertIn(f'--bind {self.dest} {sd}/yi-hack/etc', calls.read_text())
+
+    def test_empty_card_initializes_without_remounting_it(self):
+        sd, helper, calls = self.storage_fixture()
+        result = self.shell(f'. "{helper}"; flash_storage_init')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((sd / 'yi-hack-config/system.conf').read_text(), 'RTSP=yes\n')
+        self.assertEqual((sd / 'yi-hack-config/camera.conf').read_text(), 'LED=yes\n')
+        self.assertEqual(calls.read_text().splitlines(), [
+            f'--bind {self.prefix} {sd}/yi-hack',
+            f'--bind {sd}/yi-hack-config {sd}/yi-hack/etc'])
+
+    def test_bootstrap_preserves_existing_ram_and_sd_mount(self):
+        template = (ROOT / 'scripts/vendor-ablation/bootstrap.sh.in').read_text()
+        start = template.index('if ! awk')
+        end = template.index('\nmkdir -p /tmp/sd', start)
+        body = template[start:end].replace('/proc/mounts', str(self.mounts))
+        mount = self.prefix / 'bin/mount'
+        calls = self.root / 'mount-calls'
+        mount.write_text(f'#!/bin/sh\necho "$*" >> "{calls}"\n')
+        mount.chmod(0o755)
+        self.env['PATH'] = str(self.prefix / 'bin') + ':' + os.environ['PATH']
+        self.mounts.write_text('tmpfs /tmp tmpfs rw 0 0\n/dev/mmcblk0p1 /tmp/sd vfat rw 0 0\n')
+        result = self.shell('boot_fail() { exit 1; };\n' + body)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(calls.exists(), 'existing RAM/card mount must remain visible')
+        self.mounts.write_text('')
+        result = self.shell('boot_fail() { exit 1; };\n' + body)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(calls.read_text().strip(), '-t tmpfs -o size=32m tmpfs /tmp')
 
     def test_no_card_recorder_check_does_not_starve_other_services(self):
         self.mounts.write_text('')
@@ -213,6 +246,7 @@ check() {
                 self.assertIn('/home/app/script/mount_sd.sh || boot_fail sd-mount-hook', text)
                 self.assertNotIn('boot_fail wifi-config', text)
                 self.assertIn('configure_wifi.cfg.rejected', text)
+                self.assertIn('/backup/flash-core-last-error', text)
                 self.assertNotIn(renderer.RMM[model], text)
                 subprocess.run(['sh', '-n'], input=text, text=True, check=True)
                 normal = renderer.render(model, b'noop', self.root / 'payload')

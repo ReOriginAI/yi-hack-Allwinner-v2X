@@ -56,13 +56,22 @@ esac
         self.env = dict(os.environ, YI_HACK_PREFIX=str(self.root), TEST_CALLS=str(self.calls),
                         TEST_RESET='yes', TEST_ARMED='no', PATH=str(self.root / 'mock')+':'+os.environ['PATH'])
 
-    def call(self, action, payload=None, method='POST', **extra):
+    def call(self, action, payload=None, method='POST', entry_shell=None, newline=True, **extra):
         body = json.dumps(payload) if payload is not None else ''
-        result = subprocess.run([BUSYBOX, 'ash', str(CGI / 'wifi.sh')],
+        command = [entry_shell] if entry_shell else [BUSYBOX, 'ash']
+        result = subprocess.run(command + [str(CGI / 'wifi.sh')],
             env=dict(self.env, QUERY_STRING='action='+action, REQUEST_METHOD=method, **extra),
-            input=body+'\n', capture_output=True, text=True, timeout=8)
+            input=body+('\n' if newline else ''), capture_output=True, text=True, timeout=8)
         self.assertEqual(result.returncode, 0, result.stderr)
         return json.loads(result.stdout.split('\n\n', 1)[1])
+
+    def test_stock_shell_reexec_preserves_post_body_without_trailing_newline(self):
+        password = 'safe"pass\\word&|='
+        result = self.call('save', {'WIFI_HOTSPOT_PASSWORD': password},
+                           entry_shell='/bin/sh', newline=False)
+        self.assertEqual(result['error'], 'false')
+        self.assertIn('WIFI_HOTSPOT_PASSWORD='+password+'\n', self.config.read_text())
+        self.assertFalse(self.calls.exists())
 
     def test_status_reports_open_hotspot_and_actual_button_arming(self):
         data = self.call('status', method='GET')
@@ -117,6 +126,29 @@ esac
         self.assertIn('WIFI_HOTSPOT_PASSWORD='+password+'\n',self.config.read_text())
         self.assertEqual(self.call('save', {'WIFI_HOTSPOT_CLEAR_PASSWORD':'yes'})['error'],'false')
         self.assertFalse(self.call('status',method='GET')['hotspot_password_set'])
+
+    def test_recovery_mode_defaults_to_hotspot_and_can_select_maintenance(self):
+        self.assertEqual(self.call('status', method='GET')['recovery_mode'], 'hotspot')
+        self.assertEqual(self.call('save', {'WIFI_RECOVERY_MODE':'maintenance',
+            'WIFI_MAINTENANCE_SSID':'Repair network', 'WIFI_MAINTENANCE_PASSWORD':'repair-password',
+            'WIFI_MAINTENANCE_PASSWORD2':'repair-password'})['error'], 'false')
+        self.assertEqual(self.call('status', method='GET')['recovery_mode'], 'maintenance')
+        self.assertEqual(self.call('save', {'WIFI_HOTSPOT_CHANNEL':'11'})['error'], 'false')
+        self.assertEqual(self.call('status', method='GET')['recovery_mode'], 'maintenance')
+        self.assertEqual(self.call('save', {'WIFI_RECOVERY_MODE':'hotspot'})['error'], 'false')
+        self.assertIn('WIFI_MAINTENANCE_SSID=Repair network', self.config.read_text())
+        self.assertEqual(self.call('status', method='GET')['recovery_mode'], 'hotspot')
+
+    def test_invalid_recovery_is_rejected_before_any_primary_write(self):
+        before = self.config.read_bytes()
+        for change in [{'WIFI_RECOVERY_MODE':'invalid'}, {'WIFI_RECOVERY_MODE':True},
+                       {'WIFI_RECOVERY_MODE':'maintenance'}, {'WIFI_MAINTENANCE_GRACE':'bad'},
+                       {'WIFI_MAINTENANCE_PASSWORD':'bad\npassword'}]:
+            with self.subTest(change=change):
+                body = dict(WIFI_ESSID='new', WIFI_PASSWORD='secret', WIFI_PASSWORD2='secret', **change)
+                self.assertEqual(self.call('save', body)['error'], 'true')
+                self.assertFalse(self.calls.exists())
+                self.assertEqual(self.config.read_bytes(), before)
 
     def test_unknown_firmware_rejects_button_override(self):
         before = self.config.read_bytes()

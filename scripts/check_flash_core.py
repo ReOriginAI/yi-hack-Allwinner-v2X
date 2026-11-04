@@ -8,6 +8,7 @@ import argparse
 import hashlib
 import json
 from pathlib import Path
+import shlex
 import subprocess
 
 
@@ -18,9 +19,17 @@ def check(candidate, qemu):
         assert path.stat().st_size == item['bytes']
         assert hashlib.sha256(path.read_bytes()).hexdigest() == item['sha256']
         assert item['bytes'] <= report['limits'][name]
+    assert not (candidate / 'sd-optional/yi-hack-optional/bin/go2rtc').exists()
     trees = candidate / 'trees'
+    assert not (trees / 'home/yi-hack/bin/go2rtc').exists()
+    assert not (trees / 'home/yi-hack/bin/go2rtc').is_symlink()
+    assert (trees / 'home/yi-hack/bin/hostapd').is_file()
+    assert not (trees / 'home/yi-hack/bin/hostapd').is_symlink()
+    assert not (trees / 'backup/tools/hostapd').exists()
+    assert not (trees / 'home/yi-hack/www/cgi-bin/fw_online.sh').exists()
     for name in ['flash-core', 'bin/busybox', 'script/flash_storage.sh',
-                 'script/flash_config_sync.sh', 'etc/defaults.tar.bz2']:
+                 'script/flash_config_sync.sh', 'etc/defaults.tar.bz2',
+                 'www/cgi-bin/fw_upload.sh', 'www/cgi-bin/fw_upgrade.sh']:
         packed = subprocess.check_output(['unsquashfs', '-cat',
                                          str(candidate / 'home.squashfs'), 'yi-hack/' + name])
         assert packed == (trees / 'home/yi-hack' / name).read_bytes(), name
@@ -42,10 +51,10 @@ def check(candidate, qemu):
                '--ro-bind', str(trees / 'home'), '/home',
                '--ro-bind', str(trees / 'backup'), '/backup', '--tmpfs', '/tmp',
                '--dir', '/tmp/sd', '--symlink', '/home/yi-hack', '/tmp/sd/yi-hack',
-               '--ro-bind', str(qemu), '/bin/busybox', '--proc', '/proc', '--dev', '/dev',
+               '--ro-bind', str(qemu), '/sbin/udevd', '--proc', '/proc', '--dev', '/dev',
                '--setenv', 'LD_LIBRARY_PATH',
                '/lib:/usr/lib:/home/lib:/home/qigan/lib:/home/app/locallib:/home/yi-hack/lib',
-               '/bin/busybox']
+               '/sbin/udevd']
 
     def target(args, expected=(0,)):
         result = subprocess.run(command + args, capture_output=True, text=True, timeout=15)
@@ -54,6 +63,25 @@ def check(candidate, qemu):
         return result.stdout + result.stderr
 
     bb = '/home/yi-hack/bin/busybox'
+    cgi = '/home/yi-hack/www/cgi-bin/'
+
+    def cgi_json(script, query, expected):
+        # Nested ARM execve needs binfmt registration, which is not required by
+        # this checker. Route the CGI's utility calls explicitly through QEMU.
+        wrappers = ''.join(f'{name}() {{ /sbin/udevd /bin/busybox {name} "$@"; }}; '
+                           for name in ('cat', 'cut', 'tr'))
+        shell = (wrappers + 'export QUERY_STRING=' + shlex.quote(query) +
+                 ' REQUEST_METHOD=POST CONTENT_LENGTH=1000000; . ' + shlex.quote(cgi + script))
+        output = target([bb, 'ash', '-c', shell], expected=expected)
+        return json.loads(output.split('\n\n', 1)[1])
+
+    info = cgi_json('fw_upgrade.sh', 'get=info&_=1793790000000', (0,))
+    assert not info['error'] and info['profile'] == 'flash-core'
+    assert not info['upload_supported'] and not info['local_fw']
+    assert info['fw_version'] == (trees / 'home/yi-hack/version').read_text().strip()
+    for script in ('fw_upload.sh', 'fw_upgrade.sh'):
+        error = cgi_json(script, 'get=upgrade', (1,))
+        assert error['error'] and 'not supported on flash-core' in error['description']
     applets = set(target([bb, '--list']).splitlines())
     assert {'ash', 'tar', 'cmp', 'wc', 'tcpsvd', 'ftpd', 'timeout'} <= applets
     target([bb, 'ash', '-c', 'yi_lock flash-image-check || exit $?; '
@@ -75,7 +103,7 @@ def check(candidate, qemu):
     subprocess.run(['python3', str(Path(__file__).with_name('test_grid_snapshot.py')),
                     '--decoder', str(trees / 'home/yi-hack/bin/imggrabber-grid'),
                     '--rootfs', str(trees / 'rootfs'), '--qemu', str(qemu), '--ring'], check=True)
-    print(f"PASS: {report['model']} hashes, ARM applets, shell syntax, locks, defaults and loaders without SD")
+    print(f"PASS: {report['model']} hashes, ARM applets, shell syntax, locks, defaults, loaders and firmware upload guards without SD")
 
 
 if __name__ == '__main__':

@@ -75,23 +75,21 @@
             </div>
         </div>
 
-        <h4 class="no-margin">Maintenance WiFi</h4>
+        <h4 class="no-margin">Connection recovery</h4>
         <hr class="tiny-margin"/>
         <div class="row">
             <div class="twelve columns configs-switch">
                 <table class="u-full-width padded-table config-table">
                     <tbody>
                     <tr class="row">
-                        <td>Enable maintenance fallback</td>
+                        <td>When primary WiFi is unavailable</td>
                         <td>
-                            <label class="switch small">
-                                <input type="checkbox" data-key="WIFI_MAINTENANCE_ENABLED" id="WIFI_MAINTENANCE_ENABLED"/>
-                                <span class="slider round"></span>
-                                <span class="switch-text"></span>
-                            </label>
-                            <span class="switch-description">
-                                If the primary network is unavailable for the grace period, switch once to the maintenance network.
-                            </span>
+                            <select id="WIFI_RECOVERY_MODE">
+                                <option value="hotspot">Start camera hotspot (default)</option>
+                                <option value="maintenance">Join maintenance WiFi</option>
+                            </select>
+                            <span class="switch-description">After the grace period and reconnect attempts, use the selected recovery network.
+                                Hotspot recovery uses the hotspot name and password configured above.</span>
                         </td>
                     </tr>
                     <tr class="row">
@@ -122,7 +120,7 @@
                             <input class="u-full-width" type="number" min="30" max="3600" step="30" value="180"
                                    data-key="WIFI_MAINTENANCE_GRACE" id="WIFI_MAINTENANCE_GRACE"/>
                             <span class="switch-description">
-                                Seconds to allow the primary WiFi to reconnect before maintenance takeover (30-3600).
+                                Seconds to allow the primary WiFi to reconnect before the selected recovery mode starts (30-3600).
                             </span>
                         </td>
                     </tr>
@@ -132,6 +130,7 @@
         </div>
 
         <p>
+            Hotspot recovery stays active until you choose Return to Primary WiFi or reboot; it does not repeatedly switch networks.
             After maintenance takeover, the camera uses a maintenance-only wpa_supplicant profile and DHCP.
             It will not retry the primary SSID until the next reboot, avoiding continuous multi-network polling. If the maintenance network also fails six consecutive recovery attempts, the camera reboots and starts again with the primary profile.
         </p>

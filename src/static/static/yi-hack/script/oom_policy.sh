@@ -60,9 +60,6 @@ for PROC in /proc/[0-9]*; do
 
         # Streaming is useful and relatively expensive, but less disposable
         # than recording/discovery/management helpers.
-        go2rtc)
-            ADJ=250
-            ;;
         rRTSPServer|rtsp_server_yi|h264grabber)
             ADJ=300
             ;;

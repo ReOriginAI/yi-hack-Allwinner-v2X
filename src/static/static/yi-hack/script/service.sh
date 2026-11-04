@@ -63,15 +63,12 @@ init_config()
     RTSP_ALT=$(get_config RTSP_ALT)
     case "$RTSP_ALT" in
         alternative) [ -x "$YI_HACK_PREFIX/bin/rtsp_server_yi" ] || RTSP_ALT=standard ;;
-        go2rtc) [ -x "$YI_HACK_PREFIX/bin/go2rtc" ] || RTSP_ALT=standard ;;
         *) RTSP_ALT=standard ;;
     esac
 
     if [[ $(get_config RTSP) == "yes" ]] ; then
         if [[ "$RTSP_ALT" == "alternative" ]] ; then
             RTSP_DAEMON="rtsp_server_yi"
-        elif [[ "$RTSP_ALT" == "go2rtc" ]] ; then
-            RTSP_DAEMON="go2rtc"
         else
             RTSP_DAEMON="rRTSPServer"
         fi
@@ -141,7 +138,7 @@ init_config()
         ONVIF_AUDIO_DECODER="audio_decoder=$ONVIF_AUDIO_BC"
     fi
 
-    # Keep ONVIF stream URIs query-free. Standard and go2rtc enable the reverse
+    # Keep ONVIF stream URIs query-free. Standard enables the reverse
     # audio track when an ONVIF client sends Require: www.onvif.org/ver20/backchannel.
     # The explicit ?backchannel=1 endpoint remains available for non-ONVIF clients.
     RTSP_BACKCHANNEL_QUERY=""
@@ -183,7 +180,7 @@ ensure_rtsp_watchdog()
 start_rtsp()
 {
     RTSP_COUNT=$(ps | awk -v daemon="$RTSP_DAEMON" '$5 == daemon { n++ } END { print n+0 }')
-    if [ "$RTSP_ALT" != "go2rtc" ] && [ "$RTSP_COUNT" -gt 0 ]; then
+    if [ "$RTSP_COUNT" -gt 0 ]; then
         ensure_rtsp_watchdog
         return 0
     fi
@@ -205,84 +202,25 @@ start_rtsp()
     # models with audited runtime VENC control (y623 and y28ga).
     $YI_HACK_PREFIX/script/rtsp_stream_venc.sh "$RTSP_RES" >/dev/null 2>&1 || true
 
-    if [ "$RTSP_ALT" == "go2rtc" ]; then
-        # Starting RTSP must be idempotent. A second go2rtc daemon can remain
-        # resident after losing the listen-port race, wasting scarce RAM.
-        GO2RTC_COUNT=$(ps | awk '$5 == "go2rtc" { n++ } END { print n+0 }')
-        GO2RTC_LISTEN=$($YI_HACK_PREFIX/bin/netstat -an 2>/dev/null | grep ":$RTSP_PORT " | grep LISTEN | grep -c ^)
-        if [ "$GO2RTC_COUNT" -eq 1 ] && [ "$GO2RTC_LISTEN" -gt 0 ]; then
-            ensure_rtsp_watchdog
-            return 0
-        fi
-        if [ "$GO2RTC_COUNT" -gt 0 ]; then
-            killall -q go2rtc
-            killall -q h264grabber
+    if [[ $RTSP_RES == "low" ]]; then
+        if [ "$RTSP_ALT" == "alternative" ]; then
+            h264grabber -m $MODEL_SUFFIX $RTSP_G_STI -r low $H264GRABBER_AUDIO -f &
             sleep 1
         fi
-
-        GO2RTC_BACKCHANNEL=""
-        if [ "$(get_config SPEAKER_AUDIO)" != "no" ] && [ "$ONVIF_AUDIO_BC" == "G711" ]; then
-            GO2RTC_BACKCHANNEL="    - exec:$YI_HACK_PREFIX/bin/speaker stream ulaw#backchannel=1#audio=pcmu/8000#killsignal=15#killtimeout=2"
+        $RTSP_DAEMON -m $MODEL_SUFFIX -r low $RTSP_STI $RTSP_AUDIO_OPTION $P_RTSP_PORT $RTSP_USER $RTSP_PASSWORD $RTSP_AUDIO_BC &
+    elif [[ $RTSP_RES == "high" ]]; then
+        if [ "$RTSP_ALT" == "alternative" ]; then
+            h264grabber -m $MODEL_SUFFIX $RTSP_G_STI -r high $H264GRABBER_AUDIO -f &
+            sleep 1
         fi
-
-        echo "app:" > /tmp/go2rtc.yaml
-        echo "  modules: [rtsp, exec]" >> /tmp/go2rtc.yaml
-        echo "" >> /tmp/go2rtc.yaml
-        echo "streams:" >> /tmp/go2rtc.yaml
-        if [ "$RTSP_RES" == "high" ] || [ "$RTSP_RES" == "both" ]; then
-            echo "  ch0_0.h264:" >> /tmp/go2rtc.yaml
-            echo "    - exec:h264grabber -m $MODEL_SUFFIX $RTSP_G_STI -r high#backchannel=0" >> /tmp/go2rtc.yaml
+        $RTSP_DAEMON -m $MODEL_SUFFIX -r high $RTSP_STI $RTSP_AUDIO_OPTION $P_RTSP_PORT $RTSP_USER $RTSP_PASSWORD $RTSP_AUDIO_BC &
+    elif [[ $RTSP_RES == "both" ]]; then
+        if [ "$RTSP_ALT" == "alternative" ]; then
+            h264grabber -m $MODEL_SUFFIX $RTSP_G_STI -r both $H264GRABBER_AUDIO -f &
+            sleep 1
         fi
-        if [ "$RTSP_RES" != "low" ] && [ "$RTSP_AUDIO" == "aac" ] ; then
-            echo "    - exec:h264grabber -m $MODEL_SUFFIX -r none -a#backchannel=0" >> /tmp/go2rtc.yaml
-        fi
-        if [ ! -z "$GO2RTC_BACKCHANNEL" ] && { [ "$RTSP_RES" == "high" ] || [ "$RTSP_RES" == "both" ]; }; then
-            echo "$GO2RTC_BACKCHANNEL" >> /tmp/go2rtc.yaml
-        fi
-        if [ "$RTSP_RES" == "low" ] || [ "$RTSP_RES" == "both" ]; then
-            echo "  ch0_1.h264:" >> /tmp/go2rtc.yaml
-            echo "    - exec:h264grabber -m $MODEL_SUFFIX $RTSP_G_STI -r low#backchannel=0" >> /tmp/go2rtc.yaml
-        fi
-        if [ "$RTSP_RES" == "low" ] && [ "$RTSP_AUDIO" == "aac" ] ; then
-            echo "    - exec:h264grabber -m $MODEL_SUFFIX -r none -a#backchannel=0" >> /tmp/go2rtc.yaml
-        fi
-        if [ ! -z "$GO2RTC_BACKCHANNEL" ] && { [ "$RTSP_RES" == "low" ] || [ "$RTSP_RES" == "both" ]; }; then
-            echo "$GO2RTC_BACKCHANNEL" >> /tmp/go2rtc.yaml
-        fi
-
-        echo "" >> /tmp/go2rtc.yaml
-        echo "rtsp:" >> /tmp/go2rtc.yaml
-        echo "  listen: \":$RTSP_PORT\"" >> /tmp/go2rtc.yaml
-        if [ ! -z $USERNAME ]; then
-            echo "  username: \"$USERNAME\"" >> /tmp/go2rtc.yaml
-            echo "  password: \"$PASSWORD\"" >> /tmp/go2rtc.yaml
-        fi
-
-        $RTSP_DAEMON -c /tmp/go2rtc.yaml -d
-    else
-
-        if [[ $RTSP_RES == "low" ]]; then
-            if [ "$RTSP_ALT" == "alternative" ]; then
-                h264grabber -m $MODEL_SUFFIX $RTSP_G_STI -r low $H264GRABBER_AUDIO -f &
-                sleep 1
-            fi
-            $RTSP_DAEMON -m $MODEL_SUFFIX -r low $RTSP_STI $RTSP_AUDIO_OPTION $P_RTSP_PORT $RTSP_USER $RTSP_PASSWORD $RTSP_AUDIO_BC &
-        elif [[ $RTSP_RES == "high" ]]; then
-            if [ "$RTSP_ALT" == "alternative" ]; then
-                h264grabber -m $MODEL_SUFFIX $RTSP_G_STI -r high $H264GRABBER_AUDIO -f &
-                sleep 1
-            fi
-            $RTSP_DAEMON -m $MODEL_SUFFIX -r high $RTSP_STI $RTSP_AUDIO_OPTION $P_RTSP_PORT $RTSP_USER $RTSP_PASSWORD $RTSP_AUDIO_BC &
-        elif [[ $RTSP_RES == "both" ]]; then
-            if [ "$RTSP_ALT" == "alternative" ]; then
-                h264grabber -m $MODEL_SUFFIX $RTSP_G_STI -r both $H264GRABBER_AUDIO -f &
-                sleep 1
-            fi
-            $RTSP_DAEMON -m $MODEL_SUFFIX -r both $RTSP_STI $RTSP_AUDIO_OPTION $P_RTSP_PORT $RTSP_USER $RTSP_PASSWORD $RTSP_AUDIO_BC &
-        fi
-
+        $RTSP_DAEMON -m $MODEL_SUFFIX -r both $RTSP_STI $RTSP_AUDIO_OPTION $P_RTSP_PORT $RTSP_USER $RTSP_PASSWORD $RTSP_AUDIO_BC &
     fi
-
     ensure_rtsp_watchdog
 }
 
@@ -290,6 +228,7 @@ stop_rtsp()
 {
     # The configuration may already select a different server. Stop all RTSP
     # engines so the previous one cannot retain the port after a live switch.
+    # Include retired go2rtc processes left by a live upgrade.
     killall -q wd.sh
     killall -q rRTSPServer rtsp_server_yi go2rtc h264grabber
     for RTSP_WAIT in 1 2 3 4 5 6 7 8 9 10; do
@@ -433,7 +372,9 @@ start_onvif()
 
     chmod 0600 $ONVIF_SRVD_CONF
     "$YI_HACK_PREFIX/script/motion_service.sh" events || return 1
-    mkdir -p /tmp/onvif_notify_server
+    # The writable flash fallback and a freshly initialized data card may not
+    # contain the notification subscription directory yet.
+    mkdir -p /tmp/onvif_notify_server "$YI_HACK_PREFIX/etc/onvif_notify_server" || return 1
     onvif_notify_server --conf_file $ONVIF_SRVD_CONF
 }
 

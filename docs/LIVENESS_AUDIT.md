@@ -53,12 +53,12 @@ Media progress, MQTT callbacks, speaker ownership and CGI deadlines remain open.
    must handle stale ownership, PID reuse and concurrent acquisition, without
    relying on flock.
 3. **Presence does not establish media progress.** `wd.sh:check_rmm` accepts a
-   living process; alternative RTSP checks process presence/listening; go2rtc
-   intentionally permits idle producers. `h264grabber.c` can wait in FIFO open
+   living process; alternative RTSP checks process presence/listening.
+   `h264grabber.c` can wait in FIFO open
    or write and can loop while the shared frame pointer stops advancing. A
    connected but frozen pipeline can pass those health checks. Use media
-   progress telemetry with demand-aware thresholds before restarting; idle
-   go2rtc and inactive recording must not trigger recovery. Semaphore helpers
+   progress telemetry with demand-aware thresholds before restarting; inactive
+   recording must not trigger recovery. Semaphore helpers
    also exist, but USE_SEMAPHORE is disabled in the current grabber source and
    are not evidence of an active default-build semaphore deadlock.
 4. **MQTT network loop waits for shell commands.** The default wolfMQTT backend

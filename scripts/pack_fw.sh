@@ -175,6 +175,8 @@ echo "    done!"
 echo -n ">>> Copying compiled yi-hack payload to ${TMP_DIR}... "
 rsync -a "${BUILD_PAYLOAD_DIR}/" "${TMP_DIR}/yi-hack/" || exit 1
 echo "done!"
+# Do not reintroduce the removed server from an older cached build payload.
+rm -f "$TMP_DIR/yi-hack/bin/go2rtc" || exit 1
 
 # adding defaults
 echo -n ">>> Adding defaults... "

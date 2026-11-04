@@ -17,13 +17,13 @@ This project is derived from `yi-hack-Allwinner-v2` and keeps the upstream struc
 
 * This variant uses the kernel's priority based degradation and watchdog automatic recovery which preserves essential processes like the video stream encoder while ablating non-essential processes to free up memory then restarts the non-essential processes. This means Out-of-memory crashes self-recovers functionality without needing a reboot.
 
-* Standard (`rRTSPServer`, based on LIVE555) is the default and recommended camera-side RTSP server. go2rtc remains an optional alternative.
+* Standard (`rRTSPServer`, based on LIVE555) is the default and recommended camera-side RTSP server. Camera-side go2rtc has been removed to reduce RAM use.
 
 The model-specific `sysroot/`, `sdhack/`, and `unbrick/` trees contain only `y623` and `y28ga`. Shared services and dependencies support both targets.
 
 An experimental [flash-core profile](FLASH_CORE.md) builds offline images
-for running the core services without an SD card. go2rtc and other extras remain
-optional on SD. It changes the internal firmware layout and requires hardware
+for running the core services without an SD card. Optional extras remain
+on SD. It changes the internal firmware layout and requires hardware
 cold-boot validation; normal SD releases keep their existing installation path.
 
 ## Camera hotspot
@@ -95,7 +95,7 @@ Version 3.8.0 includes the model-specific work developed for these two platforms
 - common timezone presets, local video time overlays and SD filename time selection ([behavior and validation](LOCAL_TIME.md))
 - manual night vision and an adjustable automatic light threshold ([controls and compatibility](NIGHTVISION.md))
 - `mqttv4` is not started when `MQTT=no`
-- Standard (LIVE555) RTSP and ONVIF Profile T audio-backchannel support; optional camera-side go2rtc
+- Standard (LIVE555) RTSP and ONVIF Profile T audio-backchannel support
 - local speaker serialization so HTTP playback and RTSP/ONVIF talkback do not write the speaker simultaneously
 - offline NanoTTS
 - persistent SD-card Audio Library
@@ -181,7 +181,7 @@ Once maintenance takeover succeeds, the camera intentionally stays on the mainte
 
 **Standard (LIVE555)** is selected by default with `RTSP_ALT=standard`. It reads the hardware-produced H.264/H.265 and AAC buffers directly, provides an audio-only endpoint, and supports G.711 speaker talkback. The build pins [LIVE555 2026.09.23](https://download.live555.com/changelog.txt) using a [bundled, checksum-verified source archive](../src/rRTSPServer/vendor/README.md), with size optimization.
 
-With Standard or optional camera-side **go2rtc**, `SPEAKER_AUDIO=yes`, and `RTSP_BACKCHANNEL=G711`, ONVIF-aware clients use the normal query-free RTSP URI and send:
+With Standard, `SPEAKER_AUDIO=yes`, and `RTSP_BACKCHANNEL=G711`, ONVIF-aware clients use the normal query-free RTSP URI and send:
 
 ```text
 Require: www.onvif.org/ver20/backchannel
@@ -221,7 +221,7 @@ ONVIF_SYNOLOGY_NVR=no
 The important choices are:
 
 - **`RTSP_ALT=standard`** uses the native LIVE555 server with direct buffer capture and no separate grabber processes. `RTSP_STREAM=high` lets supported models pause the unused low encoder. Select `both` when an NVR needs the low detection endpoint as well.
-- **`RTSP_AUDIO=aac`** uses camera-native AAC without an audio transcode. Standard shares it across the selected video streams and the audio-only endpoint. Optional camera-side go2rtc attaches AAC only to high when exporting both streams.
+- **`RTSP_AUDIO=aac`** uses camera-native AAC without an audio transcode. Standard shares it across the selected video streams and the audio-only endpoint.
 - **`ONVIF_PROFILE=high`** advertises the high stream for discovery and talkback. Use `both` when a client needs both enabled streams advertised.
 - **`SPEAKER_AUDIO=yes` + `RTSP_BACKCHANNEL=G711`** enables the Profile T backchannel as `PCMU/8000` (`G.711 u-law`), independently of the ONVIF service.
 - **`ONVIF_WSDD=yes`** is useful for discovery. If every client is configured manually by IP, WSDD can be disabled without affecting RTSP itself.
@@ -459,7 +459,7 @@ data:
 
 ## Frigate / go2rtc
 
-Frigate bundles its own go2rtc on the NVR host, which works with the recommended **Standard (LIVE555)** camera server. Camera-side go2rtc remains optional through `RTSP_ALT=go2rtc`. Frigate should normally open each required camera stream once and share that local restream with recording, detection, live view, Home Assistant, and audio detection. Set `RTSP_STREAM=both` for the main/sub example below; high-only setups can use the main stream for both recording and detection.
+Frigate bundles its own go2rtc on the NVR host, which works with the recommended **Standard (LIVE555)** camera server. go2rtc runs on the NVR host; camera-side go2rtc is no longer included. Frigate should normally open each required camera stream once and share that local restream with recording, detection, live view, Home Assistant, and audio detection. Set `RTSP_STREAM=both` for the main/sub example below; high-only setups can use the main stream for both recording and detection.
 
 For these cameras, a good division of work is:
 
@@ -541,7 +541,27 @@ The common firmware payload is compiled once:
 ./scripts/compile.sh
 ```
 
-Then package both supported targets:
+Package the primary flash-core firmware for both supported targets. This also
+checks the images under QEMU and creates the SD installers:
+
+```sh
+bash scripts/build_test_busybox.sh /tmp/yi-host-busybox
+python3 scripts/pack_flash_core_all.py \
+  --payload build/yi-hack \
+  --toolchain /opt/yi/toolchain-sunxi-musl/toolchain/bin \
+  --host-busybox /tmp/yi-host-busybox/busybox-1.36.1/busybox \
+  --qemu "$(command -v qemu-arm-static)" \
+  --mkfs-jffs2 "$(command -v mkfs.jffs2)" \
+  --output out/flash-core
+```
+
+Adjust the toolchain location to your installation. Use a new output directory
+for each build; the packer preserves existing outputs. Installable archives and
+checksums are in `out/flash-core/packages/`.
+
+### Legacy SD-dependent packages
+
+To package the older SD-dependent profile instead:
 
 ```sh
 sudo ./scripts/pack_fw.all.sh
@@ -567,26 +587,30 @@ Other model names are rejected by `scripts/common.sh`; their firmware and recove
 
 `.github/workflows/build.yaml` uses **one build job** for both supported targets.
 
-The job:
+The flash-core-only job:
 
 1. checks out the repository and submodules
 2. installs the ARM build dependencies/toolchain
-3. runs `scripts/compile.sh` **once** to build the shared payload
-4. runs `scripts/pack_fw.all.sh` to produce both target archives
-5. verifies there is exactly one `.tgz` for `y623` and exactly one `.tgz` for `y28ga`
-6. uploads both `.tgz` files in **one GitHub Actions artifact** named `yi-hack-Allwinner-v2X-firmware`
+3. builds the shared payload once with `scripts/compile.sh`
+4. builds and checks flash-core for y623 and y28ga using `scripts/pack_flash_core_all.py`
+5. uploads **yi-hack-Allwinner-v2X-flash-core** with model-specific SD installers,
+   development images, checksums and reports
 
-GitHub Actions artifact downloads are ZIP files, so downloading that single artifact produces one ZIP containing the two target `.tgz` files:
+Choose the matching `*-sd-installer-r8.zip` inside that artifact for a fresh
+installation. The raw `*-images.tar.gz` files are development inputs.
+Experimental package notices remain while the complete installation/recovery
+matrix is pending. Default hotspot names are `cam-MODEL-MACSUFFIX`.
 
-```text
-yi-hack-Allwinner-v2X-firmware.zip
-├── <Yi Pro y623 firmware>.tgz
-└── <Kami 1080p y28ga firmware>.tgz
-```
+Legacy SD-dependent packages can still be built manually with
+`scripts/pack_fw.all.sh`; they are excluded from GitHub Actions.
 
-The `.tgz` files stay independently installable; select the one matching the camera model.
-
-The WebUI firmware maintenance page supports both **Upload & Upgrade** and **Online firmware upgrade**. Online upgrades resolve only the latest model-matching release asset from `ReOriginAI/yi-hack-Allwinner-v2X`; downloaded firmware is passed through the same archive/model/bootstrap validation as a manual upload. Hardened packages bind the SD payload to a matching internal bootstrap, so both are switched together before a single reboot.
+Online firmware flashing has been removed, including its CGI endpoint. Firmware
+status is read locally. WebUI **Upload & Upgrade** supports only legacy
+SD-dependent packages. Flash-core reports this limitation, disables upload
+controls, and rejects direct upload/upgrade requests before staging files or
+modifying the bootstrap. Revision 8 provides an experimental clean SD reinstall over existing flash-core
+with default hotspot setup; see the README for the older-bootstrap SSH command.
+A Web upload updater remains unimplemented. Preserve this camera's recovery backups before considering reinstallation.
 
 The workflow can be started manually and also runs for `3.*` version tags.
 
@@ -617,7 +641,7 @@ was hot-restarted, which is no longer used as an activation method. The vendor
 [performance test results](vendor-ablation/performance.md) for the exact
 clean-boot checks, JFFS2 deployment safeguards, and recovery evidence.
 
-This firmware runs from the SD-card-based yi-hack layout. The y28ga optimized `rmm` mechanism additionally preserves the stock `/home/app/rmm` binary and uses a verified bind-mounted copy at runtime. If the known stock hash is not recognized, the patch is refused rather than modifying an unknown binary.
+Flash-core runs the core services from internal flash. The legacy profile uses the SD-card-based yi-hack layout. The y28ga optimized `rmm` mechanism preserves the stock `/home/app/rmm` binary and uses a verified bind-mounted copy at runtime. If the known stock hash is not recognized, the patch is refused rather than modifying an unknown binary.
 
 Always keep a backup and use firmware for the exact target only.
 

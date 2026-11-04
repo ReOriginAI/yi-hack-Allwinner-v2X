@@ -26,8 +26,10 @@ flash_storage_init()
     FLASH_CONFIG=/backup/yi-hack-config
     [ -s "$FLASH_CORE/flash-core" ] || return 1
     . "$FLASH_CORE/script/storage.sh" || return 1
-    "$FLASH_CORE/bin/service_guard" 8 mount -t vfat /dev/mmcblk0p1 /tmp/sd 2>/dev/null ||
-        "$FLASH_CORE/bin/service_guard" 8 mount -t vfat /dev/mmcblk0 /tmp/sd 2>/dev/null || true
+    if ! sd_present; then
+        "$FLASH_CORE/bin/service_guard" 8 mount -t vfat /dev/mmcblk0p1 /tmp/sd 2>/dev/null ||
+            "$FLASH_CORE/bin/service_guard" 8 mount -t vfat /dev/mmcblk0 /tmp/sd 2>/dev/null || true
+    fi
     umask 077
     mkdir -p "$FLASH_CONFIG" || return 1
     if [ ! -f "$FLASH_CONFIG/system.conf" ]; then

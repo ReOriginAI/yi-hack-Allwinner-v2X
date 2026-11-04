@@ -18,7 +18,7 @@ import struct
 
 ROOT = Path(__file__).resolve().parents[1]
 STOCK_RMM = {'y623':'f8164a1c221ba8c1d4888322a3cf0706','y28ga':'46261d809c58dea5b39f3351e322d710'}
-OPTIONAL_BIN = {'go2rtc','python3','rsync','rtsp_server_yi','mqttv4','mqtt-config','mqtt-pub','mqtt-sub','proxychains4','nanotts','tts','imggrabber'}
+OPTIONAL_BIN = {'python3','rsync','rtsp_server_yi','mqttv4','mqtt-config','mqtt-pub','mqtt-sub','proxychains4','nanotts','tts','imggrabber'}
 OPTIONAL_LIB = {'libffi.so','libffi.so.8','libffi.so.8.2.0','libwolfmqtt.so.20','libwolfssl.so.45','libproxychains4.so'}
 DISABLED = ['cloud','p2p_tnp','oss','oss_fast','oss_lapse','rtmp','recbackup','watch_process','cloudAPI']
 LIMITS = {'rootfs':0x120000,'home':0x340000,'backup':0x130000}
@@ -145,7 +145,9 @@ def build(a):
         p.parent.mkdir(parents=True,exist_ok=True)
         p.symlink_to('/tmp/sd/yi-hack-optional/'+path)
     for p in list((core/'bin').iterdir()):
-        if p.name in OPTIONAL_BIN:
+        if p.name == 'go2rtc':
+            p.unlink()  # Retired, including stale cached payloads.
+        elif p.name in OPTIONAL_BIN:
             copy(p,optional/'bin'/p.name);p.unlink();p.symlink_to('/tmp/sd/yi-hack-optional/bin/'+p.name)
         elif p.name.startswith(('rmm-','mp4record-','h264grabber_')):p.unlink()
     if not (core/'bin/imggrabber-grid').is_file():
@@ -173,11 +175,13 @@ def build(a):
     for path in ['base/tools/7za','model/BodyVehicleAnimal3.model']:
         p=home/path
         if p.exists():p.unlink()
-    # Executable updates for the old SD layout must never replace a flash core.
-    for name in ['fw_upload.sh','fw_upgrade.sh','fw_online.sh']:
-        p=core/'www/cgi-bin'/name
-        p.write_text('#!/bin/sh\nprintf "Content-type: application/json\\r\\n\\r\\n"\nprintf \'{"error":true,"message":"Use matching flash-core images; SD payload upgrades are disabled."}\\n\'\n')
-        p.chmod(0o755)
+    # Prune the retired online updater even when the shared payload is cached.
+    (core/'www/cgi-bin/fw_online.sh').unlink(missing_ok=True)
+    # Keep the profile-aware status endpoint and the upload rejection guards.
+    # Refuse stale payloads which still contain the SD-only upgrade handlers.
+    for name in ['fw_upload.sh','fw_upgrade.sh']:
+        if '"$YI_HACK_PREFIX/flash-core"' not in (core/'www/cgi-bin'/name).read_text():
+            raise ValueError('missing flash-core upload guard; rebuild the shared web module: '+name)
     # A small persistent fallback exists even if the data card cannot mount.
     shutil.copytree(core/'etc',backup/'yi-hack-config',dirs_exist_ok=True)
     # Default images/fonts/archive are immutable, and already stored in home.
@@ -191,12 +195,8 @@ def build(a):
     (backup/'tools/default.script').unlink()
     (backup/'tools/default.script').symlink_to('/home/yi-hack/script/vendor-default.script')
     (backup/'init.sh').write_text(renderer.render(model,a.noop.read_bytes(),core,flash=True));(backup/'init.sh').chmod(0o755)
-    # The AP daemon replaces the vendor's station-only build for hotspot duty.
-    # Store it in backup; retain a manifest-checked link at the common prefix.
-    if model == 'y623':
-        copy(core/'bin/hostapd',backup/'tools/hostapd')
-        (core/'bin/hostapd').unlink()
-        (core/'bin/hostapd').symlink_to('/backup/tools/hostapd')
+    # Both models keep hostapd in read-only home. Putting it in writable backup
+    # exhausted the real y623 JFFS2 reserve even though the host estimate fit.
     # The SD installer already reclaims these obsolete vendor update helpers.
     # Flash profiles disable SD payload upgrades and keep raw recovery inputs.
     for name in ['upgrade.sh','extpkg.sh','rsa_pub_dec','upgrade_firmware','mem_update_pack.sh','update_homefs.sh']:

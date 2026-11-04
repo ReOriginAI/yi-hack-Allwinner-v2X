@@ -9,7 +9,7 @@ No DNS daemon, Internet forwarding or permanent extra WiFi monitor is added.
 ## Use
 
 On the WiFi page, configure the hotspot name/channel and save. A blank name uses
-`yi-MODEL-MACSUFFIX`. Set an optional 8–63 printable ASCII character WPA2
+`cam-MODEL-MACSUFFIX` (for example, `cam-y623-340a2f`). Set an optional 8–63 printable ASCII character WPA2
 password. A blank password field keeps the saved value; Remove hotspot password
 explicitly clears it. Start Hotspot queues a transition; the current WiFi
 connection drops once the watchdog handles it. Join the hotspot network and browse

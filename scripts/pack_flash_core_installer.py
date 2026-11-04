@@ -16,7 +16,7 @@ ROOT = Path(__file__).resolve().parents[1]
 TEMPLATES = ROOT / 'scripts/flash-core'
 VERSIONS = {'y623': '12.0.51.01_202303091901', 'y28ga': '9.0.20.06_202007061841'}
 LIMITS = {'rootfs': 0x120000, 'home': 0x340000}
-INSTALLER_REVISION = 3
+INSTALLER_REVISION = 8
 
 
 def md5(path):
@@ -61,7 +61,7 @@ def write(path, data, executable=False):
 def manifest(tree):
     # Factory input and retiring the SD hook must not invalidate resume checks.
     files = sorted(p for p in (tree / 'flash-core').rglob('*')
-                   if p.is_file() and not p.is_symlink() and p.name != 'files.md5')
+                   if p.is_file() and not p.is_symlink() and p.name not in ('files.md5', 'CLEAN_INSTALL'))
     write(tree / 'flash-core/files.md5', ''.join(
         f'{md5(p)}  {p.relative_to(tree).as_posix()}\n' for p in files))
 
@@ -126,6 +126,8 @@ def package(candidate, base, output, version, revision):
         raise ValueError('unrendered dispatcher token')
     write(p / 'dispatcher.sh', dispatcher, True)
     copy(TEMPLATES / 'install.sh', p / 'install.sh')
+    copy(candidate / 'clean-image', p / 'clean-image')
+    write(p / 'CLEAN_INSTALL', 'reset-to-hotspot\n')
     copy(TEMPLATES / 'lower_half_init.sh', tree / 'lower_half_init.sh')
     write(tree / 'Factory/factory_test.sh', '', True)
     write(tree / 'Factory/config.sh', '#!/bin/sh\nexec /bin/sh /tmp/sd/flash-core/install.sh "$@"\n', True)
@@ -137,7 +139,6 @@ def package(candidate, base, output, version, revision):
         copy(core / 'script' / name, p / 'setup/script' / name)
     if model == 'y623':
         copy(candidate / 'boot-vmalloc.bin', p / 'boot-vmalloc.bin')
-        copy(candidate / 'trees/backup/tools/hostapd', p / 'hostapd')
     optional = candidate / 'sd-optional/yi-hack-optional'
     if optional.exists():
         shutil.copytree(optional, tree / 'yi-hack-optional', symlinks=True)

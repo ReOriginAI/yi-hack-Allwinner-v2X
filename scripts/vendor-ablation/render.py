@@ -53,6 +53,9 @@ ifconfig eth0 up
     for key, value in values.items():
         text = text.replace('@' + key + '@', value)
     if flash:
+        text = text.replace('echo "yi-hack: fail closed: $*" > /dev/console',
+                            'echo "yi-hack: fail closed: $*" > /dev/console\n'
+                            '    (umask 077; printf \'%.160s\\n\' "$*" > /backup/flash-core-last-error) 2>/dev/null')
         text = text.replace('export DEVICE_MEMORY=8000000 CPU_MEMORY=-1',
                             '/bin/sh /home/yi-hack/script/flash_dispatch.sh || boot_fail flash-dispatch\nexport DEVICE_MEMORY=8000000 CPU_MEMORY=-1')
         text = text.replace('export DEVICE_MEMORY=8000000 CPU_MEMORY=-1',
