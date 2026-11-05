@@ -604,6 +604,10 @@ The flash-core-only job:
 5. uploads **yi-hack-Allwinner-v2X-flash-core** with model-specific SD installers,
    development images, checksums and reports
 
+If image packaging fails, **flash-core-build-diagnostics** retains available
+image size reports and compression logs, including the largest home files.
+Cross-toolchain packaging commands receive `STAGING_DIR` explicitly.
+
 Choose the matching `*-sd-installer-r8.zip` inside that artifact for a fresh
 installation. The raw `*-images.tar.gz` files are development inputs.
 Experimental package notices remain while the complete installation/recovery

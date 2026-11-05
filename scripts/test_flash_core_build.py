@@ -19,6 +19,26 @@ spec.loader.exec_module(build)
 
 
 class FlashBuildTests(unittest.TestCase):
+    def test_root_programs_remain_available_at_their_service_paths(self):
+        spec = importlib.util.spec_from_file_location('flash_packer', ROOT / 'scripts/pack_flash_core.py')
+        packer = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(packer)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            core, rootfs = root / 'core', root / 'rootfs'
+            with self.assertRaisesRegex(ValueError, 'missing compiled program'):
+                packer.place_root_programs(core, rootfs)
+            for name in packer.ROOT_PROGRAMS:
+                path = core / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text('program fixture ' + name)
+                path.chmod(0o755)
+            packer.place_root_programs(core, rootfs)
+            for original, relocated in packer.ROOT_PROGRAMS.items():
+                self.assertEqual((core / original).readlink().as_posix(), '/' + relocated)
+                self.assertEqual((rootfs / relocated).read_text(), 'program fixture ' + original)
+                self.assertEqual((rootfs / relocated).stat().st_mode & 0o777, 0o755)
+
     def test_backup_geometry_rejects_nodes_crossing_physical_blocks(self):
         spec = importlib.util.spec_from_file_location('flash_packer', ROOT / 'scripts/pack_flash_core.py')
         packer = importlib.util.module_from_spec(spec)

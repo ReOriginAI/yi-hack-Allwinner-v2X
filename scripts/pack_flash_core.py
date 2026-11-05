@@ -49,6 +49,24 @@ def deduplicate(directory):
             p.unlink();p.symlink_to(target)
         else:seen[key]=p
 
+ROOT_PROGRAMS = {
+    'usr/libexec/sftp-server': 'usr/libexec/sftp-server',
+    'bin/onvif_notify_server': 'usr/libexec/onvif_notify_server',
+}
+
+def place_root_programs(core, rootfs):
+    # Use spare rootfs space; retain existing service paths through absolute links.
+    # Require these even for local builds so partial cached payloads cannot hide
+    # a feature or make the resulting image look smaller than a clean CI build.
+    for source_name, destination_name in ROOT_PROGRAMS.items():
+        source = core / source_name
+        if source.is_symlink() or not source.is_file():
+            raise ValueError('missing compiled program; rebuild the shared payload: ' + source_name)
+        destination = rootfs / destination_name
+        copy(source, destination)
+        source.unlink()
+        source.symlink_to('/' + destination_name)
+
 def check_dependencies(trees):
     """Resolve ELF loaders and DT_NEEDED within the image, with no SD mounted."""
     def host(parts):
@@ -74,6 +92,7 @@ def check_dependencies(trees):
     paths=['/lib','/usr/lib','/home/lib','/home/qigan/lib','/home/app/locallib','/home/yi-hack/lib']
     queue=[p for p in (trees/'home/yi-hack').rglob('*') if not p.is_symlink() and p.is_file()]
     queue += [trees/'home/app'/name for name in ('rmm','dispatch','mp4record')]
+    queue += [trees/'rootfs'/name for name in ROOT_PROGRAMS.values()]
     if (trees/'backup/tools/hostapd').exists():queue.append(trees/'backup/tools/hostapd')
     checked=set()
     while queue:
@@ -201,15 +220,22 @@ def build(a):
     # Flash profiles disable SD payload upgrades and keep raw recovery inputs.
     for name in ['upgrade.sh','extpkg.sh','rsa_pub_dec','upgrade_firmware','mem_update_pack.sh','update_homefs.sh']:
         (backup/'tools'/name).unlink(missing_ok=True)
+    place_root_programs(core, rootfs)
     deduplicate(core/'lib');deduplicate(optional/'lib')
     dependencies=check_dependencies(trees)
     report={'model':model,'profile':'flash-core','limits':LIMITS,'images':{},'optional_programs':sorted(OPTIONAL_BIN),'dependency_files_checked':dependencies,'deployed':False}
+    report['largest_home_files'] = sorted(
+        ({'path':p.relative_to(home).as_posix(), 'bytes':p.stat().st_size}
+         for p in home.rglob('*') if p.is_file() and not p.is_symlink()),
+        key=lambda item: (-item['bytes'], item['path']))[:30]
     for part in ['rootfs','home']:
         image=a.output/(part+'.squashfs')
-        run(['mksquashfs',trees/part,image,'-noappend','-comp','xz','-b','262144','-all-root','-no-xattrs','-processors','2'],stdout=(a.output/(part+'.log')).open('w'))
+        run(['mksquashfs',trees/part,image,'-noappend','-comp','xz','-b','262144','-always-use-fragments','-all-root','-no-xattrs','-processors','2'],stdout=(a.output/(part+'.log')).open('w'))
         size=image.stat().st_size
-        if size>LIMITS[part]-64: raise ValueError(f'{part} exceeds flash budget: {size}')
         report['images'][part]={'bytes':size,'headroom':LIMITS[part]-size,'sha256':hashlib.sha256(image.read_bytes()).hexdigest()}
+        (a.output/'report.json').write_text(json.dumps(report,indent=2)+'\n')
+        if size>LIMITS[part]-64:
+            raise ValueError(f'{part} exceeds flash budget: {size} bytes + 64-byte header > {LIMITS[part]}; see {a.output}/report.json')
     image=a.output/'backup.jffs2'
     run([a.mkfs_jffs2,'-l','-e','4096','-U','-m','size','-x','lzo','-x','rtime','-r',backup,'-o',image])
     size=image.stat().st_size

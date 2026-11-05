@@ -10,6 +10,7 @@ import json
 from pathlib import Path
 import shlex
 import subprocess
+from test_sftp_server import check as check_sftp
 
 
 def check(candidate, qemu):
@@ -33,6 +34,12 @@ def check(candidate, qemu):
         packed = subprocess.check_output(['unsquashfs', '-cat',
                                          str(candidate / 'home.squashfs'), 'yi-hack/' + name])
         assert packed == (trees / 'home/yi-hack' / name).read_bytes(), name
+    for source_name, destination in [('usr/libexec/sftp-server', 'usr/libexec/sftp-server'),
+                                     ('bin/onvif_notify_server', 'usr/libexec/onvif_notify_server')]:
+        alias = trees / 'home/yi-hack' / source_name
+        assert alias.is_symlink() and alias.readlink().as_posix() == '/' + destination
+        packed = subprocess.check_output(['unsquashfs', '-cat', str(candidate / 'rootfs.squashfs'), destination])
+        assert packed == (trees / 'rootfs' / destination).read_bytes()
     packed = subprocess.check_output(['unsquashfs', '-cat', str(candidate / 'rootfs.squashfs'),
                                      'lib/libasound.so.2.0.0'])
     assert packed == (trees / 'rootfs/lib/libasound.so.2.0.0').read_bytes()
@@ -100,6 +107,10 @@ def check(candidate, qemu):
     assert 'hostapd v2.11' in target(['/home/yi-hack/bin/hostapd', '-v'], expected=(0, 1))
     assert 'hostapd_cli v2.11' in target(['/home/yi-hack/bin/hostapd_cli', '-v'])
     target(['/lib/ld-musl-armhf.so.1', '--list', '/home/yi-hack/www/onvif/onvif_simple_server'])
+    target(['/lib/ld-musl-armhf.so.1', '--list', '/home/yi-hack/usr/libexec/sftp-server'])
+    check_sftp(['bwrap', '--unshare-user', '--uid', '0', '--gid', '0'] + command[1:] +
+               ['/home/yi-hack/usr/libexec/sftp-server'])
+    assert 'true' in target(['/home/yi-hack/bin/jq', '-n', '"camera-123" | test("^camera-[0-9]+$")'])
     subprocess.run(['python3', str(Path(__file__).with_name('test_grid_snapshot.py')),
                     '--decoder', str(trees / 'home/yi-hack/bin/imggrabber-grid'),
                     '--rootfs', str(trees / 'rootfs'), '--qemu', str(qemu), '--ring'], check=True)

@@ -26,8 +26,21 @@ explicitly configured names are preserved.
 | --- | --- |
 | Vendor capture/encoder with the existing audited local-motion patches | Alternate RTSP server |
 | Standard RTSP, audio, low-resolution motion-grid snapshots, ONVIF/discovery | Recording, thumbnails, time lapse, FTP upload, full-resolution/watermarked snapshots |
-| SSH, HTTP configuration UI, BusyBox FTP | MQTT programs, Python, rsync, proxychains |
+| SSH/SFTP, HTTP configuration UI, BusyBox FTP | MQTT programs, Python, rsync, proxychains |
 | Local motion events, night vision, hotspot/reset controls | NanoTTS, its voice data, saved audio files |
+
+The SFTP server and ONVIF notification helper are stored in read-only rootfs,
+with symlinks at their existing yi-hack service paths. This uses spare rootfs
+space and keeps both services available without SD. SFTP is built with size
+optimization for Cortex-A7/Thumb-2; no SFTP commands are disabled. Filesystem
+blocks remain 256 KiB, with file tails packed into the existing fragment format.
+The partition limits and 64-byte U-Boot header allowance are unchanged.
+
+The packer requires the compiled SFTP server, so an incomplete cached payload
+cannot pass a size check by silently omitting it. ARM image checks exercise SFTP
+file create/write/read/close/remove with no card mounted. Image reports include
+the largest home files, and CI publishes `flash-core-build-diagnostics` on build
+failure when size reports/logs are available.
 
 The internal snapshot decoder handles low-resolution H.264 reference images for
 the motion-mask grid. The full snapshot decoder, including HEVC and watermarks,

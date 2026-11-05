@@ -119,6 +119,16 @@ jobs:
             --mkfs-jffs2 "$(command -v mkfs.jffs2)" \
             --output out/flash-core
 
+      - name: Upload flash image size diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: flash-core-build-diagnostics
+          path: |
+            out/flash-core/work/*/report.json
+            out/flash-core/work/*/*.log
+          if-no-files-found: ignore
+
       - name: Upload primary flash-core firmware
         uses: actions/upload-artifact@v4
         with:

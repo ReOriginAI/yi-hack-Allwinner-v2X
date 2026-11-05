@@ -11,6 +11,8 @@ git reset --hard
 autoreconf || exit 1
 
 ./configure CC=arm-openwrt-linux-gcc \
+    CFLAGS="-Os -mthumb -mcpu=cortex-a7 -mfpu=neon-vfpv4 -ffunction-sections -fdata-sections" \
+    LDFLAGS="-Wl,--gc-sections" \
     --prefix=$SCRIPT_DIR/_install \
     --host=arm \
     --without-openssl \

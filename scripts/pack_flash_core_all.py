@@ -104,14 +104,15 @@ def build(args):
     work = args.output / 'work'
     work.mkdir(mode=0o700)
     base_sha = extract_bases(work / 'bases')
+    toolchain_env = dict(os.environ, STAGING_DIR=str(args.toolchain.parent.parent))
     noop = work / 'noop'
     run([args.toolchain / 'arm-openwrt-linux-muslgnueabi-as', '-o', work / 'noop.o',
-         ROOT / 'scripts/vendor-ablation/noop.S'])
+         ROOT / 'scripts/vendor-ablation/noop.S'], env=toolchain_env)
     run([args.toolchain / 'arm-openwrt-linux-muslgnueabi-ld', '-N', '-nostdlib', '-static',
-         '-s', '-o', noop, work / 'noop.o'])
+         '-s', '-o', noop, work / 'noop.o'], env=toolchain_env)
     run([args.toolchain / 'arm-openwrt-linux-muslgnueabi-gcc', '-Os', '-static', '-s',
          ROOT / 'scripts/flash-core/clean_image.c',
-         '-Wl,--start-group', '-lc', '-lgcc_eh', '-lgcc', '-Wl,--end-group', '-o', work / 'clean-image'])
+         '-Wl,--start-group', '-lc', '-lgcc_eh', '-lgcc', '-Wl,--end-group', '-o', work / 'clean-image'], env=toolchain_env)
     version = (ROOT / 'VERSION').read_text().strip()
     if not re.fullmatch(r'[0-9A-Za-z._-]+', version):
         raise ValueError('invalid VERSION for artifact name')
